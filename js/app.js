@@ -2129,7 +2129,7 @@ window.confirmClearCandidates = () => {
     const descEl = document.getElementById('modalPinDesc');
 
     if (titleEl) titleEl.textContent = "Konfirmasi Kosongkan Peserta";
-    if (descEl) descEl.textContent = `PERINGATAN: Seluruh (${currentCandidates.length}) peserta untuk "${currentExam.instansi}" akan dihapus permanen dari database. Masukkan PIN User (1414) untuk mengonfirmasi.`;
+    if (descEl) descEl.textContent = `PERINGATAN: Seluruh (${currentCandidates.length}) peserta untuk "${currentExam.instansi}" akan dihapus permanen dari database. Masukkan PIN User Admin untuk mengonfirmasi.`;
 
     if (errorMsg) errorMsg.classList.add('hidden');
     if (inputPin) {
@@ -2475,7 +2475,7 @@ function setupTabNavigation() {
         const descEl = document.getElementById('modalPinDesc');
 
         if (titleEl) titleEl.textContent = "Akses Menu Terkunci";
-        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator (1414) untuk mengakses menu ini.";
+        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator untuk mengakses menu ini.";
 
         if (errorMsg) errorMsg.classList.add('hidden');
         if (inputPin) {
@@ -3072,7 +3072,7 @@ window.requestOpenFirebaseConfig = () => {
         const descEl = document.getElementById('modalPinDesc');
 
         if (titleEl) titleEl.textContent = "Pengaturan Database Cloud";
-        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator (1414) untuk membuka pengaturan Database Cloud.";
+        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator untuk membuka pengaturan Database Cloud.";
 
         if (errorMsg) errorMsg.classList.add('hidden');
         if (inputPin) {
