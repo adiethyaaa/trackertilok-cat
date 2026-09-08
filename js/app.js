@@ -2279,7 +2279,104 @@ function applyCandidateFilters() {
     });
 
     renderCandidateListTable();
+    updateActiveFilterStyles();
 }
+
+/**
+ * Memperbarui efek warna soft (soft highlight) pada kolom filter yang sedang aktif
+ */
+function updateActiveFilterStyles() {
+    // 1. Search Box
+    const inputSearch = document.getElementById('inputSearchCandidate');
+    if (inputSearch) {
+        const isSearchActive = !!(currentSearchTerm && currentSearchTerm.trim().length > 0);
+        if (isSearchActive) {
+            inputSearch.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
+            inputSearch.classList.add('bg-blue-50', 'border-blue-400', 'text-blue-950', 'font-semibold', 'ring-2', 'ring-blue-100');
+        } else {
+            inputSearch.classList.remove('bg-blue-50', 'border-blue-400', 'text-blue-950', 'font-semibold', 'ring-2', 'ring-blue-100');
+            inputSearch.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
+        }
+    }
+
+    // 2. Kelompok Jabatan
+    const selectKel = document.getElementById('selectFilterKelJabatan');
+    if (selectKel) {
+        const isKelActive = currentKelJabatanFilter && currentKelJabatanFilter !== 'ALL';
+        selectKel.classList.remove(
+            'bg-white', 'border-slate-300', 'text-slate-800',
+            'bg-emerald-50', 'border-emerald-400', 'text-emerald-950', 'ring-2', 'ring-emerald-100',
+            'bg-rose-50', 'border-rose-400', 'text-rose-950', 'ring-rose-100'
+        );
+        if (isKelActive) {
+            if (currentKelJabatanFilter === 'EMPTY') {
+                selectKel.classList.add('bg-rose-50', 'border-rose-400', 'text-rose-950', 'font-bold', 'ring-2', 'ring-rose-100');
+            } else {
+                selectKel.classList.add('bg-emerald-50', 'border-emerald-400', 'text-emerald-950', 'font-bold', 'ring-2', 'ring-emerald-100');
+            }
+        } else {
+            selectKel.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
+        }
+    }
+
+    // 3. Tanggal Pelaksanaan
+    const selectDate = document.getElementById('selectFilterPelaksanaan');
+    if (selectDate) {
+        const isDateActive = currentDateFilter && currentDateFilter !== 'ALL';
+        if (isDateActive) {
+            selectDate.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
+            selectDate.classList.add('bg-indigo-50', 'border-indigo-400', 'text-indigo-950', 'font-bold', 'ring-2', 'ring-indigo-100');
+        } else {
+            selectDate.classList.remove('bg-indigo-50', 'border-indigo-400', 'text-indigo-950', 'font-bold', 'ring-2', 'ring-indigo-100');
+            selectDate.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
+        }
+    }
+
+    // 4. Sesi (Typing + Dropdown)
+    const inputSesiTyping = document.getElementById('inputFilterSesiTyping');
+    const selectSesi = document.getElementById('selectFilterSesiDropdown');
+    const isSesiActive = (currentCumulativeSessionFilter && currentCumulativeSessionFilter !== 'ALL') ||
+                         (currentSessionFilter && currentSessionFilter !== 'ALL') ||
+                         (inputSesiTyping && inputSesiTyping.value.trim().length > 0);
+
+    if (inputSesiTyping) {
+        if (isSesiActive) {
+            inputSesiTyping.classList.remove('bg-white', 'border-slate-300', 'text-bkn-900');
+            inputSesiTyping.classList.add('bg-amber-50', 'border-amber-400', 'text-amber-950', 'ring-2', 'ring-amber-200');
+        } else {
+            inputSesiTyping.classList.remove('bg-amber-50', 'border-amber-400', 'text-amber-950', 'ring-2', 'ring-amber-200');
+            inputSesiTyping.classList.add('bg-white', 'border-slate-300', 'text-bkn-900');
+        }
+    }
+
+    if (selectSesi) {
+        if (isSesiActive) {
+            selectSesi.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
+            selectSesi.classList.add('bg-amber-50', 'border-amber-400', 'text-amber-950', 'font-bold', 'ring-2', 'ring-amber-200');
+        } else {
+            selectSesi.classList.remove('bg-amber-50', 'border-amber-400', 'text-amber-950', 'font-bold', 'ring-2', 'ring-amber-200');
+            selectSesi.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
+        }
+    }
+
+    // 5. Tombol Reset Filter
+    const btnReset = document.getElementById('btnResetCandidateFilter');
+    if (btnReset) {
+        const isSearchActive = !!(currentSearchTerm && currentSearchTerm.trim().length > 0);
+        const isKelActive = currentKelJabatanFilter && currentKelJabatanFilter !== 'ALL';
+        const isDateActive = currentDateFilter && currentDateFilter !== 'ALL';
+        const anyActive = isSearchActive || isKelActive || isDateActive || isSesiActive;
+
+        if (anyActive) {
+            btnReset.classList.remove('bg-slate-100', 'border-slate-300', 'text-slate-700', 'hover:bg-slate-200', 'hover:text-slate-900');
+            btnReset.classList.add('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800', 'ring-2', 'ring-rose-100');
+        } else {
+            btnReset.classList.remove('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800', 'ring-2', 'ring-rose-100');
+            btnReset.classList.add('bg-slate-100', 'border-slate-300', 'text-slate-700', 'hover:bg-slate-200', 'hover:text-slate-900');
+        }
+    }
+}
+window.updateActiveFilterStyles = updateActiveFilterStyles;
 
 function renderCandidateListTable() {
     const tbody = document.getElementById('tbodyCandidateList');
