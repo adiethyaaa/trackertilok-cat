@@ -262,10 +262,17 @@
 
             <!-- Table Data Peserta -->
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                    <div class="flex items-center space-x-2">
-                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Daftar Peserta Terdaftar</span>
-                        <span id="countTableVisible" class="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">0 Data</span>
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Daftar Peserta Ditampilkan</span>
+                            <span id="countTableVisible" class="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">0 Data</span>
+                        </div>
+                        <div class="h-4 w-px bg-slate-300 hidden sm:block"></div>
+                        <div class="flex items-center space-x-1.5" title="Jumlah peserta dengan Kelompok Jabatan belum terdaftar / kosong">
+                            <span class="text-xs text-slate-600 font-medium">Kel. Jabatan Peserta Kosong:</span>
+                            <span id="countTableKelEmpty" class="text-xs bg-red-900 text-red-100 font-bold px-2.5 py-0.5 rounded-full shadow-xs border border-red-950">00 Data</span>
+                        </div>
                     </div>
                     <button onclick="confirmClearCandidates()" class="text-xs text-rose-600 hover:text-rose-800 font-semibold inline-flex items-center space-x-1">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -1070,7 +1077,7 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Pelaksanaan *</label>
-                        <input type="text" id="inputManualPelaksanaan" required placeholder="11-Sep-26" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        <input type="date" id="inputManualPelaksanaan" required class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Sesi Ujian *</label>
@@ -1474,6 +1481,6 @@
     <div id="officialPrintArea" class="hidden"></div>
 
     <!-- Main Application Script (ES Module) -->
-    <script type="module" src="js/app.js?v=2.2"></script>
+    <script type="module" src="js/app.js?v=2.3"></script>
 </body>
 </html>

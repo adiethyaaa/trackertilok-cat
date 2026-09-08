@@ -569,11 +569,11 @@ function renderDashboardStats() {
                             const pct = item.total > 0 ? Math.round((item.hadir / item.total) * 100) : 0;
                             const isWarning = item.isNull;
                             return `
-                                <tr class="${isWarning ? 'bg-amber-50/70 text-amber-950 font-medium' : 'hover:bg-slate-50'} transition">
-                                    <td class="p-2.5 font-bold ${isWarning ? 'text-amber-800 flex items-center gap-1.5' : 'text-slate-800'}">
-                                        ${isWarning ? '<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-600 inline-block"></i>' : ''}
+                                <tr class="${isWarning ? 'bg-rose-50/70 text-rose-950 font-medium' : 'hover:bg-slate-50'} transition">
+                                    <td class="p-2.5 font-bold ${isWarning ? 'text-rose-900 flex items-center gap-1.5' : 'text-slate-800'}">
+                                        ${isWarning ? '<i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-700 inline-block"></i>' : ''}
                                         <span>${k}</span>
-                                        ${isWarning ? '<span class="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold uppercase">Perlu Dilengkapi</span>' : ''}
+                                        ${isWarning ? '<span class="text-[10px] bg-red-900 text-red-100 px-1.5 py-0.5 rounded font-bold uppercase shadow-xs">Peserta Belum Terdaftar</span>' : ''}
                                     </td>
                                     <td class="p-2.5 text-center text-emerald-700 font-bold text-sm">${item.hadir}</td>
                                     <td class="p-2.5 text-center text-rose-700 font-bold text-sm">${item.tidakHadir}</td>
@@ -1670,7 +1670,7 @@ function populateKelJabatanFilterDropdown() {
     let html = `<option value="ALL">-- Semua Kel. Jabatan (${currentCandidates.length}) --</option>`;
 
     if (countEmpty > 0) {
-        html += `<option value="EMPTY">⚠️ [Kosong / Perlu Dilengkapi] (${countEmpty} Peserta)</option>`;
+        html += `<option value="EMPTY">⚠️ [Kosong / Peserta Belum Terdaftar] (${countEmpty} Peserta)</option>`;
     }
 
     sortedKels.forEach(k => {
@@ -1698,6 +1698,19 @@ window.onFilterKelJabatanChange = (val) => {
     currentKelJabatanFilter = val || 'ALL';
     applyCandidateFilters();
 };
+ 
+/**
+ * Konversi tanggal fleksibel ke format ISO "YYYY-MM-DD" untuk <input type="date">
+ */
+function dateToISOInput(dateInput) {
+    if (!dateInput || dateInput === 'NULL' || dateInput === '-') return '';
+    const d = parseFlexibleDate(dateInput);
+    if (!d) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
 
 /**
  * Mendapatkan daftar tanggal pelaksanaan unik yang terurut secara kronologis
@@ -1937,6 +1950,17 @@ function renderCandidateListTable() {
     if (countBadge) countBadge.textContent = `${filteredCandidates.length} Data`;
     if (paginationInfo) paginationInfo.textContent = `Menampilkan ${filteredCandidates.length} dari ${currentCandidates.length} total peserta`;
 
+    // Hitung peserta dengan Kelompok Jabatan kosong
+    const countKelEmptyBadge = document.getElementById('countTableKelEmpty');
+    const emptyKelCount = filteredCandidates.filter(c => {
+        const raw = String(c.kelJabatan || '').trim();
+        return !raw || raw === '-' || raw === 'NULL';
+    }).length;
+    if (countKelEmptyBadge) {
+        const formattedEmpty = emptyKelCount < 10 ? `0${emptyKelCount}` : `${emptyKelCount}`;
+        countKelEmptyBadge.textContent = `${formattedEmpty} Data`;
+    }
+
     if (!currentExam) {
         tbody.innerHTML = `
             <tr>
@@ -2000,7 +2024,7 @@ function renderCandidateListTable() {
                 : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
 
         const rowBgClass = isKelEmpty 
-            ? 'bg-amber-50/90 border-l-4 border-l-amber-500 hover:bg-amber-100/80' 
+            ? 'bg-rose-50/70 border-l-4 border-l-red-900 hover:bg-rose-100/60' 
             : (isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50');
 
         return `
@@ -2032,9 +2056,9 @@ function renderCandidateListTable() {
                 <td class="p-3 font-bold text-slate-900">${c.nama}</td>
                 <td class="p-3">
                     ${isKelEmpty ? `
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-200 text-amber-900 border border-amber-300 shadow-2xs" title="Kelompok Jabatan belum diisi / kosong! Segera lengkapi">
-                            <i data-lucide="alert-triangle" class="w-3 h-3 text-amber-700"></i>
-                            <span>Perlu Dilengkapi</span>
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs tracking-wide whitespace-nowrap" title="Kelompok Jabatan belum diisi / Peserta Belum Terdaftar di File Sistem">
+                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-red-200 stroke-[2.5]"></i>
+                            <span>Peserta Belum Terdaftar</span>
                         </span>
                     ` : `
                         <span class="font-semibold text-blue-800 bg-blue-50/60 px-2 py-0.5 rounded border border-blue-200/50">${c.kelJabatan}</span>
@@ -2184,7 +2208,10 @@ function setupManualCandidateForm() {
         }
     }
 
-    if (inputDate) inputDate.addEventListener('input', autoCalculateTime);
+    if (inputDate) {
+        inputDate.addEventListener('input', autoCalculateTime);
+        inputDate.addEventListener('change', autoCalculateTime);
+    }
     if (selectSesi) selectSesi.addEventListener('change', autoCalculateTime);
 
     if (form) {
@@ -2201,7 +2228,9 @@ function setupManualCandidateForm() {
             const kelJabatan = document.getElementById('inputManualKelJabatan') ? document.getElementById('inputManualKelJabatan').value.trim() : '';
             const unitKerja = document.getElementById('inputManualUnitKerja').value.trim();
             const jabatan = document.getElementById('inputManualJabatan').value.trim();
-            const pelaksanaan = document.getElementById('inputManualPelaksanaan').value.trim();
+            const rawPelaksanaan = document.getElementById('inputManualPelaksanaan').value.trim();
+            const parsedPel = parseFlexibleDate(rawPelaksanaan);
+            const pelaksanaan = parsedPel ? formatDateDisplay(parsedPel, 'short') : (rawPelaksanaan || '-');
             const sesi = Number(document.getElementById('selectManualSesi').value) || 1;
             const waktu = document.getElementById('inputManualWaktu').value.trim() || getSessionTime(sesi, pelaksanaan);
             const fri = isFriday(pelaksanaan);
@@ -2261,10 +2290,10 @@ window.openModalAddCandidate = () => {
         document.getElementById('inputManualKelJabatan').value = '';
     }
 
-    if (currentExam && currentExam.startDate) {
-        document.getElementById('inputManualPelaksanaan').value = formatDateDisplay(currentExam.startDate, 'short');
-        document.getElementById('inputManualWaktu').value = getSessionTime(1, currentExam.startDate);
-    }
+    const defDate = (currentExam && currentExam.startDate) ? parseFlexibleDate(currentExam.startDate) : new Date();
+    const isoDate = dateToISOInput(defDate);
+    document.getElementById('inputManualPelaksanaan').value = isoDate;
+    document.getElementById('inputManualWaktu').value = getSessionTime(1, isoDate || defDate);
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -2287,9 +2316,9 @@ window.editCandidate = (candidateId) => {
     }
     document.getElementById('inputManualUnitKerja').value = cand.unitKerja || '';
     document.getElementById('inputManualJabatan').value = cand.jabatan || '';
-    document.getElementById('inputManualPelaksanaan').value = cand.pelaksanaan || '';
+    document.getElementById('inputManualPelaksanaan').value = dateToISOInput(cand.pelaksanaan);
     document.getElementById('selectManualSesi').value = cand.sesi || 1;
-    document.getElementById('inputManualWaktu').value = cand.waktu || '';
+    document.getElementById('inputManualWaktu').value = cand.waktu || getSessionTime(cand.sesi || 1, cand.pelaksanaan);
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
