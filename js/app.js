@@ -21,8 +21,7 @@ import {
     saveExamToCloud,
     deleteExamFromCloud,
     bulkAddCandidatesToCloud,
-    updateAttendanceInCloud,
-    migrateIndexedDBToFirebase
+    updateAttendanceInCloud
 } from './firebaseService.js';
 
 // State Aplikasi
@@ -2315,6 +2314,19 @@ function showToast(message, type = 'info') {
 function setupFirebaseIntegration() {
     onConnectionStatusChange((online) => {
         updateCloudStatusUI(online);
+        if (online) {
+            // Pasang realtime listener untuk ujian secara global
+            listenExamsCloud((cloudExams) => {
+                if (cloudExams) {
+                    allExams = cloudExams;
+                    renderExamSelectDropdowns();
+                    renderExamListInCreateTab();
+                    if (!currentExam && allExams.length > 0) {
+                        setActiveExam(allExams[0].id);
+                    }
+                }
+            });
+        }
     });
 
     // Inisialisasi service dengan config yang tersimpan atau di-inject
@@ -2327,15 +2339,16 @@ function setupFirebaseIntegration() {
 function updateCloudStatusUI(online) {
     const isOnline = Boolean(online && isCloudActive());
 
-    // 1. Badge di Header Navbar
-    const dot = document.getElementById('cloudStatusDot');
-    const text = document.getElementById('cloudStatusText');
-    if (dot) {
-        dot.className = `w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-slate-400'}`;
-    }
-    if (text) {
-        text.textContent = isOnline ? 'Online' : 'Offline';
-        text.className = `text-xs font-bold ${isOnline ? 'text-emerald-300' : 'text-slate-300'}`;
+    // 1. Badge di Header Navbar (Hanya muncul jika Online / terhubung)
+    const badge = document.getElementById('cloudStatusBadge');
+    if (badge) {
+        if (isOnline) {
+            badge.classList.remove('hidden');
+            badge.classList.add('flex');
+        } else {
+            badge.classList.add('hidden');
+            badge.classList.remove('flex');
+        }
     }
 
     // 2. Badge di Modal Pengaturan Cloud
@@ -2348,14 +2361,14 @@ function updateCloudStatusUI(online) {
         mDot.className = `w-3 h-3 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-slate-400'}`;
     }
     if (mTitle) {
-        mTitle.textContent = isOnline ? 'Terhubung ke Firebase Cloud Realtime' : 'Mode Offline (IndexedDB Lokal)';
+        mTitle.textContent = isOnline ? 'Terhubung ke Firebase Realtime Database' : 'Menunggu Konfigurasi Cloud';
         mTitle.className = `text-xs font-bold ${isOnline ? 'text-emerald-800' : 'text-slate-800'}`;
     }
     if (mDesc) {
         const config = getFirebaseConfig();
         mDesc.textContent = isOnline 
-            ? `Proyek: ${config?.projectId || 'Aktif'} (Realtime Sync Berjalan)`
-            : 'Data tersimpan lokal di peramban komputer ini.';
+            ? `Proyek: ${config?.projectId || 'Aktif'} (Sinkronisasi Realtime Aktif)`
+            : 'Belum terhubung ke database online.';
     }
     if (btnDisc) {
         if (isOnline) {
@@ -2363,13 +2376,6 @@ function updateCloudStatusUI(online) {
         } else {
             btnDisc.classList.add('hidden');
         }
-    }
-
-    // 3. Badge di Tab Wilayah
-    const bWilayah = document.getElementById('badgeCloudWilayahStatus');
-    if (bWilayah) {
-        bWilayah.textContent = isOnline ? 'Online Realtime' : 'Offline';
-        bWilayah.className = `text-[10px] font-bold px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`;
     }
 }
 
@@ -2381,26 +2387,19 @@ function setupFirebaseConfigForm() {
             const textarea = document.getElementById('inputFirebaseConfigJson');
             const inputVal = textarea ? textarea.value.trim() : '';
             if (!inputVal) {
-                showToast("Silakan masukkan objek konfigurasi Firebase!", "warning");
+                showToast("Silakan masukkan konfigurasi Firebase!", "warning");
                 return;
             }
 
             try {
-                // Parsing fleksibel: mendukung JSON murni atau objek JS (membersihkan const/var deklarasi)
-                let cleaned = inputVal
-                    .replace(/^[^{]*\{/, '{')
-                    .replace(/\}[^}]*$/, '}')
-                    .replace(/([a-zA-Z0-9_]+)\s*:/g, '"$1":')
-                    .replace(/,\s*}/g, '}');
-
-                let parsed;
-                try {
-                    parsed = JSON.parse(inputVal);
-                } catch {
-                    parsed = JSON.parse(cleaned);
+                let cleaned = inputVal.trim();
+                const match = cleaned.match(/\{[\s\S]*\}/);
+                if (match) {
+                    cleaned = match[0];
                 }
+                const parsed = (new Function(`return ${cleaned};`))();
 
-                if (!parsed.apiKey || !parsed.databaseURL) {
+                if (!parsed || !parsed.apiKey || !parsed.databaseURL) {
                     showToast("Konfigurasi wajib memiliki 'apiKey' dan 'databaseURL'!", "error");
                     return;
                 }
@@ -2409,13 +2408,11 @@ function setupFirebaseConfigForm() {
                 showToast("Konfigurasi Firebase berhasil disimpan dan terhubung!", "success");
                 window.closeModalFirebaseConfig();
 
-                // Segera refresh listener ujian aktif
-                if (currentExam) {
-                    setActiveExam(currentExam.id);
-                }
+                // Refresh data ujian aktif
+                loadInitialData();
             } catch (err) {
                 console.error("Gagal parsing konfigurasi Firebase:", err);
-                showToast("Format konfigurasi tidak valid! Pastikan format JSON benar.", "error");
+                showToast("Format konfigurasi tidak valid! Pastikan format JSON atau objek JS benar.", "error");
             }
         });
     }
@@ -2468,40 +2465,11 @@ window.closeModalFirebaseConfig = () => {
 };
 
 window.disconnectCloudFirebase = () => {
-    if (confirm("Yakin ingin memutuskan koneksi Firebase Cloud? Aplikasi akan kembali ke mode Offline (IndexedDB lokal).")) {
+    if (confirm("Yakin ingin memutuskan koneksi Firebase Cloud?")) {
         removeFirebaseConfig();
         const textarea = document.getElementById('inputFirebaseConfigJson');
         if (textarea) textarea.value = '';
         updateCloudStatusUI(false);
-        showToast("Koneksi Firebase diputuskan. Berjalan dalam mode Offline lokal.", "info");
-    }
-};
-
-window.triggerMigrateIndexedDBToCloud = async () => {
-    if (!isCloudActive()) {
-        showToast("Koneksi Firebase belum aktif! Silakan simpan konfigurasi terlebih dahulu.", "warning");
-        window.requestOpenFirebaseConfig();
-        return;
-    }
-
-    const btn = document.getElementById('btnMigrateToCloud');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Mengunggah Data...</span>`;
-    }
-
-    try {
-        const result = await migrateIndexedDBToFirebase(db.getAllExams, db.getCandidatesByExam);
-        showToast(`Migrasi sukses! ${result.examsCount} Ujian & ${result.candidatesCount} Peserta berhasil diunggah ke Cloud.`, "success");
-        window.closeModalFirebaseConfig();
-    } catch (err) {
-        console.error("Gagal migrasi ke cloud:", err);
-        showToast("Gagal migrasi data: " + err.message, "error");
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = `<i data-lucide="upload-cloud" class="w-4 h-4"></i> <span>Migrasi ke Cloud</span>`;
-            if (window.lucide) window.lucide.createIcons();
-        }
+        showToast("Koneksi Firebase diputuskan.", "info");
     }
 };

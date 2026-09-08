@@ -29,9 +29,9 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Runtime Firebase Configuration (Di-inject otomatis oleh GitHub Actions atau file lokal) -->
-    <script src="js/firebaseConfig.local.js" onerror="this.remove()"></script>
-    <script src="js/firebaseConfig.js" onerror="this.remove()"></script>
+    <!-- Dynamic Firebase Config for GitHub Pages / Local Dev -->
+    <script src="js/firebaseConfig.js" onerror="/* ok if missing */"></script>
+    <script src="js/firebaseConfig.local.js" onerror="/* ok if missing */"></script>
     <link rel="stylesheet" href="css/style.css">
     <style>
         @media print {
@@ -111,14 +111,15 @@
                         <span id="liveDateWIT" class="text-xs text-blue-200">Memuat tanggal...</span>
                     </div>
 
-                    <!-- Indikator Koneksi Cloud / Firebase Realtime -->
-                    <button type="button" onclick="requestOpenFirebaseConfig()" id="btnCloudStatus" class="bg-bkn-800/90 border border-blue-400/30 rounded-lg px-2.5 py-1.5 flex items-center space-x-2 shadow-inner hover:bg-bkn-700/80 transition" title="Status Sinkronisasi Cloud Firebase (Klik untuk Pengaturan)">
-                        <span id="cloudStatusDot" class="w-2.5 h-2.5 rounded-full bg-slate-400 animate-pulse"></span>
-                        <div class="text-left hidden sm:block">
-                            <div class="text-[9px] text-blue-200 uppercase font-semibold leading-none">Cloud DB:</div>
-                            <span id="cloudStatusText" class="text-xs font-bold text-slate-300">Offline</span>
-                        </div>
-                        <i data-lucide="cloud" class="w-4 h-4 text-blue-300"></i>
+                    <!-- Indikator Status Database Online (Hanya muncul saat database berhasil ditarik) -->
+                    <div id="cloudStatusBadge" class="hidden items-center space-x-1.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs px-2.5 py-1.5 rounded-lg font-medium shadow-sm transition-all" title="Database Online Terhubung (Firebase Realtime)">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="font-bold text-[11px] sm:text-xs text-emerald-300">Online</span>
+                    </div>
+
+                    <!-- Tombol Pengaturan Database Cloud (Akses Terproteksi PIN 1414) -->
+                    <button type="button" onclick="requestOpenFirebaseConfig()" class="p-2 bg-bkn-800/90 border border-blue-400/30 rounded-lg hover:bg-bkn-700/80 text-blue-300 hover:text-white transition shadow-inner" title="Pengaturan Database Cloud (PIN 1414)">
+                        <i data-lucide="cloud-cog" class="w-4 h-4"></i>
                     </button>
 
                     <!-- Active Exam Badge / Switcher (Hanya menampilkan Nama Instansi yang sudah di-create) -->
@@ -1187,8 +1188,8 @@
                 <div class="flex items-center space-x-2.5">
                     <span id="modalCloudStatusDot" class="w-3 h-3 rounded-full bg-slate-400"></span>
                     <div>
-                        <div class="text-xs font-bold text-slate-800" id="modalCloudStatusTitle">Mode Offline (IndexedDB)</div>
-                        <div class="text-[11px] text-slate-500" id="modalCloudStatusDesc">Data hanya disimpan di browser komputer ini.</div>
+                        <div class="text-xs font-bold text-slate-800" id="modalCloudStatusTitle">Menunggu Konfigurasi Cloud</div>
+                        <div class="text-[11px] text-slate-500" id="modalCloudStatusDesc">Database online Firebase Realtime Database.</div>
                     </div>
                 </div>
                 <button type="button" id="btnDisconnectCloud" onclick="disconnectCloudFirebase()" class="hidden px-2.5 py-1 text-xs text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg font-semibold transition">
@@ -1199,19 +1200,19 @@
             <form id="formFirebaseConfig" class="flex-1 overflow-y-auto space-y-3.5 pr-1">
                 <div>
                     <label class="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Paste Konfigurasi Firebase (JSON atau Objek JS) *
+                        Konfigurasi Firebase Realtime (JSON atau Objek JS) *
                     </label>
                     <textarea id="inputFirebaseConfigJson" rows="6" placeholder='Contoh:
 {
   "apiKey": "AIzaSy...",
-  "authDomain": "pro-asn.firebaseapp.com",
-  "databaseURL": "https://pro-asn-default-rtdb.asia-southeast1.firebasedatabase.app",
-  "projectId": "pro-asn",
-  "storageBucket": "pro-asn.firebasestorage.app",
-  "messagingSenderId": "123456789",
-  "appId": "1:123456789:web:abcdef"
+  "authDomain": "trackertilok-cat.firebaseapp.com",
+  "databaseURL": "https://trackertilok-cat-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "projectId": "trackertilok-cat",
+  "storageBucket": "trackertilok-cat.firebasestorage.app",
+  "messagingSenderId": "651774366498",
+  "appId": "1:651774366498:web:..."
 }' class="w-full font-mono text-xs p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-bkn-600 focus:outline-none bg-slate-50/50"></textarea>
-                    <p class="text-[11px] text-slate-500 mt-1">Dapatkan kode ini dari Firebase Console > Project Settings > Your apps (Web app).</p>
+                    <p class="text-[11px] text-slate-500 mt-1">Dapatkan kode ini dari Firebase Console > Project Settings > General (Web app).</p>
                 </div>
 
                 <!-- Tombol Aksi Form -->
@@ -1222,20 +1223,6 @@
                     </button>
                 </div>
             </form>
-
-            <!-- Bagian Migrasi Data Lokal -->
-            <div class="pt-3 border-t border-slate-200 space-y-2">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-bold text-slate-800">Migrasi Data Lokal ke Cloud</div>
-                        <div class="text-[11px] text-slate-500">Unggah seluruh ujian & peserta dari IndexedDB laptop ini ke Firebase.</div>
-                    </div>
-                    <button type="button" id="btnMigrateToCloud" onclick="triggerMigrateIndexedDBToCloud()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center space-x-1.5">
-                        <i data-lucide="upload-cloud" class="w-4 h-4"></i>
-                        <span>Migrasi ke Cloud</span>
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 

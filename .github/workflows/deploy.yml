@@ -25,15 +25,43 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Inject Firebase Configuration from Secrets
-        run: |
-          if [ -n "${{ secrets.FIREBASE_CONFIG_JSON }}" ]; then
-            echo "window.__FIREBASE_CONFIG__ = ${{ secrets.FIREBASE_CONFIG_JSON }};" > js/firebaseConfig.js
-            echo "Firebase configuration successfully injected from GitHub Secrets."
-          else
-            echo "window.__FIREBASE_CONFIG__ = null;" > js/firebaseConfig.js
-            echo "WARNING: FIREBASE_CONFIG_JSON secret not found. Running in offline/IndexedDB mode."
-          fi
+      - name: Generate Firebase Configuration
+        uses: actions/github-script@v7
+        env:
+          RAW_SECRET: ${{ secrets.FIREBASE_CONFIG_JSON }}
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = process.env.RAW_SECRET || '';
+            let configObj = null;
+
+            if (raw.trim()) {
+              try {
+                let cleaned = raw.trim();
+                const match = cleaned.match(/\{[\s\S]*\}/);
+                if (match) {
+                  cleaned = match[0];
+                }
+                // Ekstrak objek JS bahkan jika formatnya const firebaseConfig = { ... }
+                configObj = (new Function(`return ${cleaned};`))();
+              } catch (err) {
+                console.error("Evaluasi JS config gagal:", err.message);
+                try {
+                  configObj = JSON.parse(raw);
+                } catch (e) {
+                  console.error("JSON parse juga gagal:", e.message);
+                }
+              }
+            }
+
+            if (configObj && configObj.apiKey) {
+              const fileContent = `window.__FIREBASE_CONFIG__ = ${JSON.stringify(configObj, null, 2)};\n`;
+              fs.writeFileSync('js/firebaseConfig.js', fileContent, 'utf8');
+              console.log("Firebase config successfully generated for project:", configObj.projectId);
+            } else {
+              fs.writeFileSync('js/firebaseConfig.js', 'window.__FIREBASE_CONFIG__ = null;\n', 'utf8');
+              console.log("No valid Firebase config secret. Generated fallback null config.");
+            }
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -1,7 +1,7 @@
 /**
  * firebaseService.js
  * Modul Integrasi Firebase Realtime Database untuk "Profiling ASN"
- * Mendukung sinkronisasi realtime presensi peserta & jadwal ujian antar panitia.
+ * Menyediakan sinkronisasi online & realtime presensi peserta & jadwal ujian antar panitia.
  */
 
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -13,8 +13,7 @@ import {
     onValue, 
     off, 
     update, 
-    remove, 
-    child 
+    remove 
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const STORAGE_KEY = 'profiling_asn_firebase_config';
@@ -27,25 +26,28 @@ let activeExamsRef = null;
 let connectionStatusCallback = null;
 
 /**
- * Mendapatkan konfigurasi Firebase yang aktif saat ini
+ * Mendapatkan konfigurasi Firebase yang aktif saat ini.
+ * Memeriksa urutan prioritas:
+ * 1. LocalStorage browser (jika pernah diset via modal pengaturan)
+ * 2. window.__FIREBASE_CONFIG__ (diinjeksi otomatis oleh GitHub Actions / local dev config)
  */
 export function getFirebaseConfig() {
-    // 1. Cek dari Window Object (injeksi GitHub Actions / file local script)
-    if (window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
-        return window.__FIREBASE_CONFIG__;
-    }
-
-    // 2. Cek dari LocalStorage (disimpan via UI Pengaturan)
+    // 1. Cek dari LocalStorage
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored);
-            if (parsed && parsed.apiKey) {
+            if (parsed && parsed.apiKey && parsed.databaseURL) {
                 return parsed;
             }
         }
     } catch (e) {
         console.warn("Gagal membaca config dari localStorage:", e);
+    }
+
+    // 2. Cek dari Window Object (injeksi GitHub Actions atau local script)
+    if (typeof window !== 'undefined' && window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
+        return window.__FIREBASE_CONFIG__;
     }
 
     return null;
@@ -55,8 +57,8 @@ export function getFirebaseConfig() {
  * Menyimpan konfigurasi Firebase ke LocalStorage
  */
 export function saveFirebaseConfig(configObj) {
-    if (!configObj || !configObj.apiKey) {
-        throw new Error("Konfigurasi Firebase tidak valid (apiKey diperlukan)!");
+    if (!configObj || !configObj.apiKey || !configObj.databaseURL) {
+        throw new Error("Konfigurasi Firebase tidak valid (apiKey dan databaseURL diperlukan)!");
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(configObj));
     return initFirebaseService(configObj);
@@ -95,7 +97,7 @@ export function initFirebaseService(customConfig = null) {
     const config = customConfig || getFirebaseConfig();
 
     if (!config || !config.apiKey || !config.databaseURL) {
-        console.info("[Profiling ASN] Firebase belum dikonfigurasi. Berjalan dalam mode Offline (IndexedDB lokal).");
+        console.info("[Profiling ASN] Konfigurasi Firebase belum terdeteksi.");
         isConnected = false;
         if (connectionStatusCallback) connectionStatusCallback(false);
         return false;
@@ -121,6 +123,7 @@ export function initFirebaseService(customConfig = null) {
             if (connectionStatusCallback) connectionStatusCallback(online);
         });
 
+        if (connectionStatusCallback) connectionStatusCallback(true);
         return true;
     } catch (err) {
         console.error("[Profiling ASN] Gagal inisialisasi Firebase:", err);
@@ -130,38 +133,88 @@ export function initFirebaseService(customConfig = null) {
     }
 }
 
+/**
+ * Helper internal untuk memastikan Firebase Database siap
+ */
+function ensureDb() {
+    if (!firebaseDb) {
+        initFirebaseService();
+    }
+    if (!firebaseDb) {
+        throw new Error("Koneksi Firebase Database belum siap. Pastikan konfigurasi Firebase telah diatur.");
+    }
+    return firebaseDb;
+}
+
 // ---------------------- CLOUD EXAM OPERATIONS ----------------------
 
 /**
  * Realtime Listener untuk Daftar Seluruh Ujian
  */
 export function listenExamsCloud(callback) {
-    if (!isCloudActive()) return () => {};
-
-    if (activeExamsRef) {
-        off(activeExamsRef);
-    }
-
-    activeExamsRef = ref(firebaseDb, 'exams');
-    onValue(activeExamsRef, (snapshot) => {
-        const val = snapshot.val();
-        if (!val) {
-            callback([]);
-            return;
+    try {
+        const db = ensureDb();
+        if (activeExamsRef) {
+            off(activeExamsRef);
         }
 
-        const examsList = Object.keys(val).map(key => ({
-            id: key,
-            ...val[key]
-        })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        activeExamsRef = ref(db, 'exams');
+        onValue(activeExamsRef, (snapshot) => {
+            const val = snapshot.val();
+            if (!val) {
+                callback([]);
+                return;
+            }
 
-        callback(examsList);
-    }, (err) => {
-        console.error("Error realtime listening exams:", err);
-    });
+            const examsList = Object.keys(val).map(key => ({
+                id: key,
+                ...val[key]
+            })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
-    return () => {
-        if (activeExamsRef) off(activeExamsRef);
+            callback(examsList);
+        }, (err) => {
+            console.error("Error realtime listening exams:", err);
+        });
+
+        return () => {
+            if (activeExamsRef) off(activeExamsRef);
+        };
+    } catch (e) {
+        console.warn("listenExamsCloud ditunda:", e.message);
+        return () => {};
+    }
+}
+
+/**
+ * Mengambil semua data Ujian dari Firebase Realtime Database
+ */
+export async function getAllExamsCloud() {
+    const db = ensureDb();
+    const examsRef = ref(db, 'exams');
+    const snapshot = await get(examsRef);
+    if (!snapshot.exists()) return [];
+
+    const val = snapshot.val();
+    const examsList = Object.keys(val).map(key => ({
+        id: key,
+        ...val[key]
+    })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    return examsList;
+}
+
+/**
+ * Mengambil satu Ujian berdasarkan ID
+ */
+export async function getExamCloud(examId) {
+    if (!examId) return null;
+    const db = ensureDb();
+    const examRef = ref(db, 'exams/' + examId);
+    const snapshot = await get(examRef);
+    if (!snapshot.exists()) return null;
+    return {
+        id: examId,
+        ...snapshot.val()
     };
 }
 
@@ -169,12 +222,12 @@ export function listenExamsCloud(callback) {
  * Simpan atau perbarui data Ujian di Firebase Realtime Database
  */
 export async function saveExamToCloud(examData) {
-    if (!isCloudActive()) return null;
-    const examId = examData.id;
-    const examRef = ref(firebaseDb, exams/);
+    const db = ensureDb();
+    const examId = examData.id || ('EXAM-' + Date.now());
+    const examRef = ref(db, 'exams/' + examId);
 
     const payload = {
-        title: examData.title || examData.instansi || '',
+        title: examData.title || examData.instansi || 'Ujian Tanpa Judul',
         instansi: examData.instansi || '',
         wilker: examData.wilker || 'Papua Barat',
         startDate: examData.startDate || '',
@@ -199,12 +252,14 @@ export async function saveExamToCloud(examData) {
  * Hapus data ujian dan seluruh pesertanya dari Firebase Realtime Database
  */
 export async function deleteExamFromCloud(examId) {
-    if (!isCloudActive()) return;
-    const examRef = ref(firebaseDb, exams/);
-    const candidatesRef = ref(firebaseDb, candidates/);
+    if (!examId) return;
+    const db = ensureDb();
+    const examRef = ref(db, 'exams/' + examId);
+    const candidatesRef = ref(db, 'candidates/' + examId);
 
     await remove(examRef);
     await remove(candidatesRef);
+    return true;
 }
 
 // ---------------------- CLOUD CANDIDATE OPERATIONS ----------------------
@@ -213,46 +268,81 @@ export async function deleteExamFromCloud(examId) {
  * Realtime Listener untuk Kandidat dalam Ujian Tertentu
  */
 export function listenCandidatesCloud(examId, callback) {
-    if (!isCloudActive() || !examId) return () => {};
-
-    if (activeCandidatesRef) {
-        off(activeCandidatesRef);
-    }
-
-    activeCandidatesRef = ref(firebaseDb, candidates/);
-    onValue(activeCandidatesRef, (snapshot) => {
-        const val = snapshot.val();
-        if (!val) {
-            callback([]);
-            return;
+    if (!examId) return () => {};
+    try {
+        const db = ensureDb();
+        if (activeCandidatesRef) {
+            off(activeCandidatesRef);
         }
 
-        const candidatesList = Object.keys(val).map(key => ({
-            id: isNaN(Number(key)) ? key : Number(key),
-            ...val[key]
-        }));
+        activeCandidatesRef = ref(db, 'candidates/' + examId);
+        onValue(activeCandidatesRef, (snapshot) => {
+            const val = snapshot.val();
+            if (!val) {
+                callback([]);
+                return;
+            }
 
-        callback(candidatesList);
-    }, (err) => {
-        console.error("Error realtime listening candidates:", err);
+            const candidatesList = Object.keys(val).map(key => ({
+                id: isNaN(Number(key)) ? key : Number(key),
+                ...val[key]
+            })).sort((a, b) => {
+                const sesiA = Number(a.sesi) || 0;
+                const sesiB = Number(b.sesi) || 0;
+                if (sesiA !== sesiB) return sesiA - sesiB;
+                return (Number(a.no) || 0) - (Number(b.no) || 0);
+            });
+
+            callback(candidatesList);
+        }, (err) => {
+            console.error("Error realtime listening candidates:", err);
+        });
+
+        return () => {
+            if (activeCandidatesRef) off(activeCandidatesRef);
+        };
+    } catch (e) {
+        console.warn("listenCandidatesCloud ditunda:", e.message);
+        return () => {};
+    }
+}
+
+/**
+ * Mengambil daftar peserta Ujian dari Firebase Realtime Database
+ */
+export async function getCandidatesByExamCloud(examId) {
+    if (!examId) return [];
+    const db = ensureDb();
+    const candidatesRef = ref(db, 'candidates/' + examId);
+    const snapshot = await get(candidatesRef);
+    if (!snapshot.exists()) return [];
+
+    const val = snapshot.val();
+    const candidatesList = Object.keys(val).map(key => ({
+        id: isNaN(Number(key)) ? key : key,
+        ...val[key]
+    })).sort((a, b) => {
+        const sesiA = Number(a.sesi) || 0;
+        const sesiB = Number(b.sesi) || 0;
+        if (sesiA !== sesiB) return sesiA - sesiB;
+        return (Number(a.no) || 0) - (Number(b.no) || 0);
     });
 
-    return () => {
-        if (activeCandidatesRef) off(activeCandidatesRef);
-    };
+    return candidatesList;
 }
 
 /**
  * Simpan peserta secara bulk ke Firebase Realtime Database
  */
 export async function bulkAddCandidatesToCloud(examId, candidateList) {
-    if (!isCloudActive() || !examId) return 0;
+    if (!examId || !candidateList || candidateList.length === 0) return 0;
+    const db = ensureDb();
 
     const updates = {};
     candidateList.forEach((c, idx) => {
-        // Gunakan NIP atau ID unik yang aman
-        const key = String(c.id || c.nip || ('cand_' + idx)).replace(/[.#$[\]/]/g, '_');
-        updates[candidates//] = {
+        const key = String(c.nip || c.id || ('cand_' + idx)).trim().replace(/[.#$[\]/]/g, '_');
+        updates['candidates/' + examId + '/' + key] = {
+            examId: examId,
             no: c.no || (idx + 1),
             nip: String(c.nip || '').trim(),
             nama: String(c.nama || '').trim(),
@@ -268,18 +358,87 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
         };
     });
 
-    await update(ref(firebaseDb), updates);
+    await update(ref(db), updates);
     return candidateList.length;
+}
+
+/**
+ * Tambah atau update single kandidat di Firebase Realtime Database
+ */
+export async function addOrUpdateCandidateCloud(examId, candidate) {
+    const db = ensureDb();
+    const cExamId = examId || candidate.examId;
+    if (!cExamId) throw new Error("examId diperlukan untuk menyimpan kandidat");
+
+    const key = String(candidate.nip || candidate.id || ('cand_' + Date.now())).trim().replace(/[.#$[\]/]/g, '_');
+    const targetRef = ref(db, 'candidates/' + cExamId + '/' + key);
+
+    const data = {
+        examId: cExamId,
+        no: candidate.no || 1,
+        nip: String(candidate.nip || '').trim(),
+        nama: String(candidate.nama || '').trim(),
+        unitKerja: String(candidate.unitKerja || '').trim(),
+        jabatan: String(candidate.jabatan || '').trim(),
+        waktu: String(candidate.waktu || '').trim(),
+        pelaksanaan: String(candidate.pelaksanaan || '').trim(),
+        sesi: Number(candidate.sesi) || 1,
+        isFriday: Boolean(candidate.isFriday),
+        status: candidate.status || 'Terjadwal',
+        kehadiran: candidate.kehadiran || 'BELUM',
+        updatedAt: new Date().toISOString()
+    };
+
+    await set(targetRef, data);
+    return { id: key, ...data };
+}
+
+/**
+ * Hapus single kandidat di Firebase Realtime Database
+ */
+export async function deleteCandidateCloud(examId, candidateIdOrNip) {
+    if (!examId || !candidateIdOrNip) return false;
+    const db = ensureDb();
+    const key = String(candidateIdOrNip).trim().replace(/[.#$[\]/]/g, '_');
+    const targetRef = ref(db, 'candidates/' + examId + '/' + key);
+    await remove(targetRef);
+    return true;
+}
+
+/**
+ * Hapus semua kandidat dalam satu ujian
+ */
+export async function deleteCandidatesByExamCloud(examId) {
+    if (!examId) return false;
+    const db = ensureDb();
+    await remove(ref(db, 'candidates/' + examId));
+    return true;
+}
+
+/**
+ * Hapus kandidat berdasarkan daftar NIP
+ */
+export async function deleteCandidatesByNipsCloud(examId, nipList) {
+    if (!examId || !nipList || nipList.length === 0) return 0;
+    const db = ensureDb();
+    const updates = {};
+    nipList.forEach(nip => {
+        const key = String(nip).trim().replace(/[.#$[\]/]/g, '_');
+        updates['candidates/' + examId + '/' + key] = null;
+    });
+    await update(ref(db), updates);
+    return nipList.length;
 }
 
 /**
  * Update Status Kehadiran secara Realtime ke Firebase
  */
 export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) {
-    if (!isCloudActive() || !examId) return false;
+    if (!examId || !candidateIdOrNip) return false;
+    const db = ensureDb();
 
-    const safeKey = String(candidateIdOrNip).replace(/[.#$[\]/]/g, '_');
-    const targetRef = ref(firebaseDb, candidates//);
+    const safeKey = String(candidateIdOrNip).trim().replace(/[.#$[\]/]/g, '_');
+    const targetRef = ref(db, 'candidates/' + examId + '/' + safeKey);
 
     try {
         await update(targetRef, {
@@ -289,14 +448,13 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
         return true;
     } catch (e) {
         console.warn("Gagal update via direct key, mencoba pencarian NIP:", e);
-        // Fallback jika candidateId menggunakan auto-increment ID IndexedDB
-        const parentRef = ref(firebaseDb, candidates/);
+        const parentRef = ref(db, 'candidates/' + examId);
         const snap = await get(parentRef);
         if (snap.exists()) {
             const data = snap.val();
             for (const key of Object.keys(data)) {
                 if (data[key].nip === String(candidateIdOrNip) || key === String(candidateIdOrNip)) {
-                    await update(ref(firebaseDb, candidates//), {
+                    await update(ref(db, 'candidates/' + examId + '/' + key), {
                         kehadiran: status,
                         attendanceTimestamp: new Date().toISOString()
                     });
@@ -309,31 +467,32 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
 }
 
 /**
- * Migrasi seluruh data dari IndexedDB lokal ke Firebase Realtime Database
+ * Menghitung statistik ujian langsung dari data Cloud
  */
-export async function migrateIndexedDBToFirebase(getAllExamsFn, getCandidatesByExamFn) {
-    if (!isCloudActive()) {
-        throw new Error("Koneksi Firebase Cloud belum aktif!");
-    }
-
-    const exams = await getAllExamsFn();
-    if (exams.length === 0) {
-        return { examsCount: 0, candidatesCount: 0 };
-    }
-
-    let totalCandidates = 0;
-
-    for (const exam of exams) {
-        await saveExamToCloud(exam);
-        const candidates = await getCandidatesByExamFn(exam.id);
-        if (candidates.length > 0) {
-            await bulkAddCandidatesToCloud(exam.id, candidates);
-            totalCandidates += candidates.length;
-        }
-    }
-
-    return {
-        examsCount: exams.length,
-        candidatesCount: totalCandidates
+export async function getExamStatsCloud(examId) {
+    const list = await getCandidatesByExamCloud(examId);
+    const stats = {
+        total: list.length,
+        sesi1: 0,
+        sesi2: 0,
+        sesi3: 0,
+        byDate: {},
+        unitKerjaCount: new Set()
     };
+
+    list.forEach(item => {
+        if (item.sesi === 1) stats.sesi1++;
+        else if (item.sesi === 2) stats.sesi2++;
+        else if (item.sesi === 3) stats.sesi3++;
+
+        const d = item.pelaksanaan || 'Tidak Ditentukan';
+        stats.byDate[d] = (stats.byDate[d] || 0) + 1;
+
+        if (item.unitKerja) {
+            stats.unitKerjaCount.add(item.unitKerja);
+        }
+    });
+
+    stats.totalUnitKerja = stats.unitKerjaCount.size;
+    return stats;
 }
