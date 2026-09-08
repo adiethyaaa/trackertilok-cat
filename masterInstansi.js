@@ -3,36 +3,126 @@ export function toTitleCase(str) {
     return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 }
 
-export let masterInstansiData = JSON.parse(localStorage.getItem('master_instansi_pi')) || [
-    { name: "Prov. Papua Barat", wilker: "Papua Barat" },
-    { name: "Kab. Manokwari", wilker: "Papua Barat" },
-    { name: "Kab. Manokwari Selatan", wilker: "Papua Barat" },
-    { name: "Kab. Pegunungan Arfak", wilker: "Papua Barat" },
-    { name: "Kab. Teluk Bintuni", wilker: "Papua Barat" },
-    { name: "Kab. Teluk Wondama", wilker: "Papua Barat" },
-    { name: "Kab. Kaimana", wilker: "Papua Barat" },
-    { name: "Kab. Fak-fak", wilker: "Papua Barat" },
+export const DEFAULT_MASTER_INSTANSI = [
+    { name: "Prov. Papua Barat", wilker: "Papua Barat", pin: "papuabarat" },
+    { name: "Kab. Manokwari", wilker: "Papua Barat", pin: "manokwari" },
+    { name: "Kab. Manokwari Selatan", wilker: "Papua Barat", pin: "mansel" },
+    { name: "Kab. Pegunungan Arfak", wilker: "Papua Barat", pin: "arfak" },
+    { name: "Kab. Teluk Bintuni", wilker: "Papua Barat", pin: "bintuni" },
+    { name: "Kab. Teluk Wondama", wilker: "Papua Barat", pin: "wondama" },
+    { name: "Kab. Kaimana", wilker: "Papua Barat", pin: "kaimana" },
+    { name: "Kab. Fak-Fak", wilker: "Papua Barat", pin: "fakfak" },
 
-    { name: "Prov. Papua Barat Daya", wilker: "Papua Barat Daya" },
-    { name: "Kota Sorong", wilker: "Papua Barat Daya" },
-    { name: "Kab. Sorong", wilker: "Papua Barat Daya" },
-    { name: "Kab. Sorong Selatan", wilker: "Papua Barat Daya" },
-    { name: "Kab. Raja Ampat", wilker: "Papua Barat Daya" },
-    { name: "Kab. Tambrauw", wilker: "Papua Barat Daya" },
-    { name: "Kab. Maybrat", wilker: "Papua Barat Daya" },
+    { name: "Prov. Papua Barat Daya", wilker: "Papua Barat Daya", pin: "pbd" },
+    { name: "Kota Sorong", wilker: "Papua Barat Daya", pin: "kota" },
+    { name: "Kab. Sorong", wilker: "Papua Barat Daya", pin: "kabsor" },
+    { name: "Kab. Sorong Selatan", wilker: "Papua Barat Daya", pin: "sorsel" },
+    { name: "Kab. Raja Ampat", wilker: "Papua Barat Daya", pin: "raja4" },
+    { name: "Kab. Tambrauw", wilker: "Papua Barat Daya", pin: "tambrauw" },
+    { name: "Kab. Maybrat", wilker: "Papua Barat Daya", pin: "maybrat" },
 
-    { name: "Mahkamah Agung", wilker: "Instansi Vertikal" },
-    { name: "Kejaksaan Agung", wilker: "Instansi Vertikal" },
-    { name: "Kementerian Hukum Dan HAM", wilker: "Instansi Vertikal" },
-    { name: "Kementerian Agama", wilker: "Instansi Vertikal" },
-    { name: "Kementerian Keuangan", wilker: "Instansi Vertikal" },
-    { name: "Kementerian Kesehatan", wilker: "Instansi Vertikal" },
-    { name: "Kementerian Agraria Dan Tata Ruang/BPN", wilker: "Instansi Vertikal" },
-    { name: "Badan Pertanahan Nasional", wilker: "Instansi Vertikal" },
-    { name: "Badan Pusat Statistik", wilker: "Instansi Vertikal" },
-    { name: "Badan Meteorologi, Klimatologi, Dan Geofisika", wilker: "Instansi Vertikal" },
-    { name: "Kepolisian Negara Republik Indonesia", wilker: "Instansi Vertikal" }
+    { name: "Mahkamah Agung", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kejaksaan Agung", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kementerian Hukum Dan HAM", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kementerian Agama", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kementerian Keuangan", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kementerian Kesehatan", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kementerian Agraria Dan Tata Ruang/BPN", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Badan Pertanahan Nasional", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Badan Pusat Statistik", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Badan Meteorologi, Klimatologi, Dan Geofisika", wilker: "Instansi Vertikal", pin: "1414" },
+    { name: "Kepolisian Negara Republik Indonesia", wilker: "Instansi Vertikal", pin: "1414" }
 ];
+
+export let masterInstansiData = (() => {
+    try {
+        const stored = localStorage.getItem('master_instansi_pi');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                // Pastikan PIN terisi dari default jika belum ada
+                return parsed.map(item => {
+                    if (!item.pin) {
+                        const def = DEFAULT_MASTER_INSTANSI.find(d => d.name.toLowerCase() === item.name.toLowerCase());
+                        return { ...item, pin: def ? def.pin : '1414' };
+                    }
+                    return item;
+                });
+            }
+        }
+    } catch (e) {
+        console.warn("Gagal parse master_instansi_pi:", e);
+    }
+    return [...DEFAULT_MASTER_INSTANSI];
+})();
+
+/**
+ * Helper untuk mendapatkan PIN resmi dari nama instansi
+ */
+export function getInstansiPin(instansiName) {
+    if (!instansiName) return '1414';
+    const clean = String(instansiName).trim().toLowerCase();
+
+    // 1. Cek dari masterInstansiData
+    const found = masterInstansiData.find(i => i.name.trim().toLowerCase() === clean);
+    if (found && found.pin) return found.pin;
+
+    // 2. Mapping spesifik untuk ejaan dan variasi
+    const pinMap = {
+        "prov. papua barat": "papuabarat",
+        "provinsi papua barat": "papuabarat",
+        "papua barat": "papuabarat",
+        "kab. manokwari": "manokwari",
+        "kabupaten manokwari": "manokwari",
+        "manokwari": "manokwari",
+        "kab. manokwari selatan": "mansel",
+        "kabupaten manokwari selatan": "mansel",
+        "manokwari selatan": "mansel",
+        "kab. pegunungan arfak": "arfak",
+        "kabupaten pegunungan arfak": "arfak",
+        "pegunungan arfak": "arfak",
+        "kab. teluk bintuni": "bintuni",
+        "kabupaten teluk bintuni": "bintuni",
+        "teluk bintuni": "bintuni",
+        "bintuni": "bintuni",
+        "kab. teluk wondama": "wondama",
+        "kabupaten teluk wondama": "wondama",
+        "teluk wondama": "wondama",
+        "wondama": "wondama",
+        "kab. kaimana": "kaimana",
+        "kabupaten kaimana": "kaimana",
+        "kaimana": "kaimana",
+        "kab. fak-fak": "fakfak",
+        "kab. fakfak": "fakfak",
+        "kabupaten fak-fak": "fakfak",
+        "kabupaten fakfak": "fakfak",
+        "fak-fak": "fakfak",
+        "fakfak": "fakfak",
+
+        "prov. papua barat daya": "pbd",
+        "provinsi papua barat daya": "pbd",
+        "papua barat daya": "pbd",
+        "kota sorong": "kota",
+        "sorong kota": "kota",
+        "kab. sorong": "kabsor",
+        "kabupaten sorong": "kabsor",
+        "kab. sorong selatan": "sorsel",
+        "kabupaten sorong selatan": "sorsel",
+        "sorong selatan": "sorsel",
+        "kab. raja ampat": "raja4",
+        "kabupaten raja ampat": "raja4",
+        "raja ampat": "raja4",
+        "kab. tambrauw": "tambrauw",
+        "kabupaten tambrauw": "tambrauw",
+        "tambrauw": "tambrauw",
+        "kab. maybrat": "maybrat",
+        "kabupaten maybrat": "maybrat",
+        "maybrat": "maybrat"
+    };
+
+    if (pinMap[clean]) return pinMap[clean];
+    return '1414';
+}
 
 export function renderMasterInstansiTable() {
     const tbody = document.getElementById('tbodyMasterInstansi');
