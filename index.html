@@ -185,7 +185,7 @@
                     <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
                         <span class="text-xs font-bold text-slate-500 uppercase mr-1">Filter Sesi:</span>
                         <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition">
-                            Semua Sesi (<span id="countFilterAll">0</span>)
+                            Sesi (<span id="countFilterAll">0</span>)
                         </button>
                         <button onclick="setCandidateFilterSession('00')" id="btnFilterSesi00" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition" title="Filter peserta dengan sesi 00 / belum terjadwal (NULL)">
                             Sesi 00 (NULL) [<span id="countFilter0">0</span>]
@@ -209,7 +209,7 @@
                         </button>
                         <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow transition">
                             <i data-lucide="printer" class="w-3.5 h-3.5"></i>
-                            <span>Cetak Absensi / Jadwal</span>
+                            <span>Cetak Presensi</span>
                         </button>
                         <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow transition">
                             <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
@@ -218,26 +218,30 @@
                     </div>
                 </div>
 
-                <!-- Search & Filters (Pencarian, Filter Kelompok Jabatan, Filter Tanggal, & Filter Sesi) -->
-                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t border-slate-100">
-                    <div class="sm:col-span-12 lg:col-span-4 relative">
-                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
-                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP, Nama, Kel Jabatan, atau Unit Kerja..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                <!-- Search & Filters (Pencarian Ramping, Filter Kelompok Jabatan, Filter Tanggal, Filter Sesi, & Tombol Reset) -->
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-3 border-t border-slate-100 items-center">
+                    <!-- Search Box (Ukuran lebih ramping/kecil) -->
+                    <div class="sm:col-span-6 lg:col-span-3 relative">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs">
                     </div>
 
-                    <div class="sm:col-span-4 lg:col-span-3">
+                    <!-- Filter Kelompok Jabatan -->
+                    <div class="sm:col-span-6 lg:col-span-3">
                         <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs font-semibold text-slate-800 truncate">
-                            <option value="ALL">-- Semua Kel. Jabatan (0) --</option>
+                            <option value="ALL">-- Kel. Jabatan (0) --</option>
                         </select>
                     </div>
 
-                    <div class="sm:col-span-4 lg:col-span-3">
-                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs">
-                            <option value="ALL">-- Semua Tanggal Pelaksanaan --</option>
+                    <!-- Filter Tanggal Pelaksanaan -->
+                    <div class="sm:col-span-6 lg:col-span-2">
+                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs truncate">
+                            <option value="ALL">-- Tanggal Pelaksanaan --</option>
                         </select>
                     </div>
 
-                    <div class="sm:col-span-4 lg:col-span-2 flex items-center gap-1.5">
+                    <!-- Filter Sesi (Typing + Dropdown) -->
+                    <div class="sm:col-span-6 lg:col-span-3 flex items-center gap-1.5">
                         <!-- Input ketik untuk panggil angka sesi -->
                         <div class="w-16 sm:w-20 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
                             <input type="text" 
@@ -253,9 +257,20 @@
                             <select id="selectFilterSesiDropdown" 
                                     onchange="onFilterSesiDropdownChange(this.value)" 
                                     class="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none truncate shadow-xs">
-                                <option value="ALL">-- Semua Sesi --</option>
+                                <option value="ALL">-- Sesi --</option>
                             </select>
                         </div>
+                    </div>
+
+                    <!-- Tombol Reset Filter -->
+                    <div class="sm:col-span-12 lg:col-span-1">
+                        <button type="button" 
+                                onclick="resetAllCandidateFilters()" 
+                                class="w-full py-2 px-2.5 text-xs font-bold rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition flex items-center justify-center gap-1 shadow-2xs cursor-pointer select-none" 
+                                title="Reset semua filter dan pencarian ke default">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+                            <span>Reset</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -270,7 +285,7 @@
                         </div>
                         <div class="h-4 w-px bg-slate-300 hidden sm:block"></div>
                         <div class="flex items-center space-x-1.5" title="Jumlah peserta dengan Kelompok Jabatan belum terdaftar / kosong">
-                            <span class="text-xs text-slate-600 font-medium">Kel. Jabatan Peserta Kosong:</span>
+                            <span class="text-xs text-slate-600 font-medium">Kelompok Jabatan Peserta Kosong:</span>
                             <span id="countTableKelEmpty" class="text-xs bg-red-900 text-red-100 font-bold px-2.5 py-0.5 rounded-full shadow-xs border border-red-950">00 Data</span>
                         </div>
                     </div>
@@ -338,7 +353,8 @@
                                         <span id="sort-icon-sesi" class="text-slate-400 text-[10px]">↕</span>
                                     </div>
                                 </th>
-                                <th onclick="sortTable('waktu')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Jam/Waktu Ujian">
+                                <!-- Kolom Waktu (WIT) di-hide. Untuk mengaktifkan kembali, hapus class 'hidden' -->
+                                <th onclick="sortTable('waktu')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none hidden" title="Klik untuk mengurutkan Jam/Waktu Ujian">
                                     <div class="flex items-center space-x-1">
                                         <span>Waktu (WIT)</span>
                                         <span id="sort-icon-waktu" class="text-slate-400 text-[10px]">↕</span>
@@ -349,7 +365,7 @@
                         </thead>
                         <tbody id="tbodyCandidateList" class="divide-y divide-slate-100">
                             <tr>
-                                <td colspan="11" class="p-8 text-center text-slate-400">
+                                <td colspan="10" class="p-8 text-center text-slate-400">
                                     <i data-lucide="lock" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                                     <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian & Masukkan PIN</p>
                                     <p class="text-xs text-slate-500 mt-1">Data peserta hanya akan dimuat setelah instansi dipilih dan PIN berhasil diverifikasi.</p>
@@ -395,37 +411,58 @@
                 </div>
             </div>
 
-            <!-- Filter Tanggal Dashboard & Kartu Statistik Kehadiran -->
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <!-- Filter Tanggal Dashboard (Floating Bar saat Scroll) -->
+            <div class="sticky top-28 z-30 bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-slate-200 p-3.5 sm:p-4 transition-all">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
-                        <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <h2 class="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
                             <i data-lucide="user-check" class="w-5 h-5 text-emerald-600"></i>
                             <span>Statistik Kehadiran Peserta</span>
                         </h2>
-                        <p class="text-xs text-slate-500">Monitoring status presensi peserta (Hadir, Tidak Hadir, Belum Presensi) berdasarkan tanggal pelaksanaan.</p>
+                        <p class="text-[11px] text-slate-500">Monitoring status presensi berdasarkan filter tanggal pelaksanaan ujian.</p>
                     </div>
-                    <div class="w-full sm:w-72">
-                        <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Filter Tanggal Dashboard:</label>
-                        <select id="selectDashboardFilterTanggal" onchange="onDashboardFilterDateChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs font-semibold text-slate-800">
-                            <option value="ALL">-- Semua Tanggal Pelaksanaan --</option>
-                        </select>
+                    <div class="relative w-full sm:w-80">
+                        <button type="button" 
+                                id="btnDropdownFilterTanggalDash" 
+                                onclick="toggleDashboardDateDropdown()" 
+                                class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white hover:bg-slate-50 focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs font-semibold text-slate-800 flex items-center justify-between transition cursor-pointer select-none">
+                            <span id="labelDropdownFilterTanggalDash" class="truncate">-- Tanggal Pelaksanaan --</span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 ml-2 flex-shrink-0"></i>
+                        </button>
+
+                        <!-- Dropdown Panel Checkboxes -->
+                        <div id="dropdownPanelFilterTanggalDash" class="hidden absolute right-0 mt-1.5 w-full sm:w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-40 p-3 space-y-2 text-xs">
+                            <!-- Checkbox Master: Ceklis Semua -->
+                            <div class="flex items-center justify-between pb-2 border-b border-slate-100 font-bold text-slate-800">
+                                <label class="flex items-center space-x-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="cbDashTanggalAll" onchange="onToggleAllDashboardDates(this.checked)" class="w-4 h-4 text-bkn-700 rounded border-slate-300 focus:ring-bkn-600 cursor-pointer">
+                                    <span>Ceklis Semua Tanggal</span>
+                                </label>
+                                <span id="countSelectedDashDates" class="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">0 Hari</span>
+                            </div>
+
+                            <!-- List Tanggal Checkbox -->
+                            <div id="listDashTanggalCheckboxes" class="max-h-52 overflow-y-auto space-y-1 pr-1">
+                                <!-- Dinamis via JS -->
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Cards Kehadiran -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <!-- Hadir -->
-                    <div class="bg-emerald-50/70 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
-                        <div>
-                            <div class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Hadir</div>
-                            <div id="dashStatHadir" class="text-3xl font-extrabold text-emerald-700 mt-1">0</div>
-                            <p id="dashStatHadirPct" class="text-[11px] text-emerald-600 font-semibold mt-0.5">0% dari total</p>
-                        </div>
-                        <div class="p-3 bg-emerald-500 text-white rounded-xl shadow-sm">
-                            <i data-lucide="check-circle" class="w-6 h-6"></i>
-                        </div>
+            <!-- Cards Kehadiran -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <!-- Hadir -->
+                <div class="bg-emerald-50/70 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Hadir</div>
+                        <div id="dashStatHadir" class="text-3xl font-extrabold text-emerald-700 mt-1">0</div>
+                        <p id="dashStatHadirPct" class="text-[11px] text-emerald-600 font-semibold mt-0.5">0% dari total</p>
                     </div>
+                    <div class="p-3 bg-emerald-500 text-white rounded-xl shadow-sm">
+                        <i data-lucide="check-circle" class="w-6 h-6"></i>
+                    </div>
+                </div>
 
                     <!-- Tidak Hadir -->
                     <div class="bg-rose-50/70 border border-rose-200 p-4 rounded-xl flex items-center justify-between">
@@ -507,6 +544,17 @@
                         <p class="text-xs text-slate-500 mt-1">Peserta Sesi Sore</p>
                     </div>
                 </div>
+            </div>
+
+            <!-- Tombol: Lihat Rekapitulasi Laporan Kehadiran -->
+            <!-- Tombol: Lihat Rekapitulasi Laporan Kehadiran (Center) -->
+            <div>
+                <button type="button" 
+                        onclick="openModalRekapKehadiran()" 
+                        class="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs hover:shadow transition flex items-center justify-center gap-2 border border-emerald-600 cursor-pointer group">
+                    <i data-lucide="clipboard-list" class="w-4 h-4 text-emerald-200 group-hover:scale-110 transition flex-shrink-0"></i>
+                    <span class="tracking-wide">Lihat Rekapitulasi Laporan Kehadiran</span>
+                </button>
             </div>
 
             <!-- Statistik Kehadiran Berdasarkan Kelompok Jabatan -->
@@ -984,54 +1032,6 @@
 
     </main>
 
-    <!-- ==================== PRINT TEMPLATE (PRINT ONLY) ==================== -->
-    <div id="printSheetContainer" class="print-only">
-        <div class="text-center pb-3 border-b-2 border-slate-900 mb-4">
-            <h2 class="text-base font-bold uppercase tracking-wider">DAFTAR HADIR & JADWAL SESI UJIAN PROFILING ASN</h2>
-            <h3 class="text-sm font-semibold uppercase text-slate-800">KANTOR REGIONAL XIV BKN</h3>
-            <div class="flex justify-between items-center text-xs mt-2 font-medium">
-                <span id="printInstansi">Instansi: -</span>
-                <span id="printLocation">Tilok: -</span>
-                <span id="printDate">Tanggal: -</span>
-                <span id="printSession" class="font-bold text-slate-900">Sesi: -</span>
-            </div>
-        </div>
-
-        <table class="print-table">
-            <thead>
-                <tr>
-                    <th style="width: 5%;">NO</th>
-                    <th style="width: 20%;">NIP</th>
-                    <th style="width: 25%;">NAMA PESERTA</th>
-                    <th style="width: 25%;">UNIT KERJA / JABATAN</th>
-                    <th style="width: 12%;">WAKTU (WIT)</th>
-                    <th style="width: 13%;">TANDA TANGAN</th>
-                </tr>
-            </thead>
-            <tbody id="tbodyPrintCandidates">
-                <!-- Data cetak dinamis -->
-            </tbody>
-        </table>
-
-        <div class="mt-8 flex justify-between text-xs pt-4">
-            <div class="text-center w-48">
-                <p>Mengetahui,</p>
-                <p class="font-semibold">Penanggung Jawab Tilok</p>
-                <div class="h-16"></div>
-                <p class="border-b border-slate-700 font-bold">( ............................................ )</p>
-                <p class="text-[10px] text-slate-600">NIP. ........................................</p>
-            </div>
-
-            <div class="text-center w-48">
-                <p id="printSignedDate">Manokwari, .....................</p>
-                <p class="font-semibold">Petugas / Pengawas CAT</p>
-                <div class="h-16"></div>
-                <p class="border-b border-slate-700 font-bold">( ............................................ )</p>
-                <p class="text-[10px] text-slate-600">NIP. ........................................</p>
-            </div>
-        </div>
-    </div>
-
     <!-- ==================== MODAL TAMBAH PESERTA MANUAL ==================== -->
     <div id="modalCandidateManual" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full p-6 space-y-4 fade-in">
@@ -1209,6 +1209,101 @@
                         <span>Terapkan & Lanjutkan Upload</span>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL REKAPITULASI LAPORAN KEHADIRAN (2 TAB & COPY) ==================== -->
+    <div id="modalRekapKehadiran" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-3 sm:p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-7xl w-full max-h-[92vh] flex flex-col fade-in overflow-hidden">
+            <!-- Header Modal -->
+            <div class="p-4 sm:p-5 bg-slate-900 text-white flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 bg-white/10 rounded-xl">
+                        <i data-lucide="clipboard-list" class="w-6 h-6 text-amber-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                            <span>Rekapitulasi Laporan Kehadiran Peserta</span>
+                            <span class="text-xs bg-bkn-600 text-white font-semibold px-2.5 py-0.5 rounded-full" id="rekapModalInstansiBadge">-</span>
+                        </h3>
+                        <p class="text-xs text-slate-300 mt-0.5" id="rekapModalFilterInfo">Filter Tanggal Aktif: Semua Tanggal Pelaksanaan</p>
+                    </div>
+                </div>
+                <button onclick="closeModalRekapKehadiran()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Tab Buttons Navigasi Modal -->
+            <div class="flex items-center border-b border-slate-200 bg-slate-100/70 px-4 sm:px-6 pt-3 gap-2 flex-shrink-0">
+                <button type="button" 
+                        id="tabBtnRekapKelJabatan" 
+                        onclick="switchRekapModalTab('kel-jabatan')" 
+                        class="px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-bkn-700 text-bkn-800 bg-white rounded-t-lg shadow-2xs transition flex items-center gap-2 cursor-pointer">
+                    <i data-lucide="briefcase" class="w-4 h-4 text-bkn-700"></i>
+                    <span>Tab 1: Rekap Jumlah Kelompok Jabatan</span>
+                </button>
+                <button type="button" 
+                        id="tabBtnRekapSesi" 
+                        onclick="switchRekapModalTab('sesi')" 
+                        class="px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg transition flex items-center gap-2 cursor-pointer">
+                    <i data-lucide="clock" class="w-4 h-4 text-slate-500"></i>
+                    <span>Tab 2: Rekap Kehadiran Per Sesi</span>
+                </button>
+            </div>
+
+            <!-- Body Modal (Scrollable Content) -->
+            <div class="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                
+                <!-- TAB 1: REKAP KELOMPOK JABATAN -->
+                <div id="paneRekapKelJabatan" class="space-y-3">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-1">
+                        <div class="text-xs text-slate-600">
+                            Matriks rekap kehadiran dan ketidakhadiran peserta per tanggal pelaksanaan berdasarkan 5 pilar kelompok jabatan.
+                        </div>
+                        <button type="button" 
+                                onclick="copyAllRekapKelJabatan()" 
+                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition cursor-pointer select-none">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            <span>Copy Semua Data (Excel/WA)</span>
+                        </button>
+                    </div>
+
+                    <!-- Container Tabel Rekap Kel Jabatan -->
+                    <div id="tableRekapKelJabatanContainer" class="overflow-x-auto border border-slate-200 rounded-xl">
+                        <!-- Render via JS -->
+                    </div>
+                </div>
+
+                <!-- TAB 2: REKAP PER SESI -->
+                <div id="paneRekapSesi" class="space-y-3 hidden">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-1">
+                        <div class="text-xs text-slate-600">
+                            Rincian jumlah peserta hadir, tidak hadir, dan total per sesi ujian dan tanggal pelaksanaan.
+                        </div>
+                        <button type="button" 
+                                onclick="copyAllRekapSesi()" 
+                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition cursor-pointer select-none">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            <span>Copy Semua Data (Excel/WA)</span>
+                        </button>
+                    </div>
+
+                    <!-- Container Tabel Rekap Sesi -->
+                    <div id="tableRekapSesiContainer" class="overflow-x-auto border border-slate-200 rounded-xl">
+                        <!-- Render via JS -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0 text-xs text-slate-500">
+                <span class="italic text-[11px] text-slate-500">* Data rekapitulasi otomatis disaring mengikuti filter tanggal aktif di Dashboard.</span>
+                <button type="button" onclick="closeModalRekapKehadiran()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-lg transition cursor-pointer">
+                    Tutup
+                </button>
             </div>
         </div>
     </div>
@@ -1481,6 +1576,6 @@
     <div id="officialPrintArea" class="hidden"></div>
 
     <!-- Main Application Script (ES Module) -->
-    <script type="module" src="js/app.js?v=2.3"></script>
+    <script type="module" src="js/app.js?v=2.5"></script>
 </body>
 </html>

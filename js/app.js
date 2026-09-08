@@ -43,7 +43,8 @@ let currentCumulativeSessionFilter = 'ALL';
 let currentSearchTerm = '';
 let currentDateFilter = 'ALL';
 let currentKelJabatanFilter = 'ALL';
-let currentDashboardDateFilter = 'ALL';
+let selectedDashboardDates = new Set();
+let currentRekapData = { tab1Rows: [], tab2Rows: [] };
 let currentSortColumn = 'sesi';
 let currentSortDirection = 'asc';
 let isPinAuthorized = false;
@@ -262,6 +263,7 @@ async function setActiveExam(examId) {
 
     setSelectedExamId(examId);
     currentExam = allExams.find(e => e.id === examId) || null;
+    selectedDashboardDates.clear();
 
     // Perbarui dropdown navbar & upload
     const selectNav = document.getElementById('selectActiveExamNavbar');
@@ -427,41 +429,209 @@ function renderDashboardExamInfo() {
 }
 
 /**
- * Event handler saat filter tanggal di Dashboard berubah
+ * Buka/Tutup dropdown panel filter tanggal di Dashboard
  */
-window.onDashboardFilterDateChange = (dateVal) => {
-    currentDashboardDateFilter = dateVal || 'ALL';
+window.toggleDashboardDateDropdown = () => {
+    const panel = document.getElementById('dropdownPanelFilterTanggalDash');
+    if (panel) {
+        panel.classList.toggle('hidden');
+    }
+};
+
+/**
+ * Handler saat checkbox master "Ceklis Semua Tanggal" diubah
+ */
+window.onToggleAllDashboardDates = (isChecked) => {
+    const uniqueDates = getSortedExamDates();
+    if (isChecked) {
+        selectedDashboardDates = new Set(uniqueDates);
+    } else {
+        selectedDashboardDates.clear();
+    }
+    updateDashboardDateFilterUI();
     renderDashboardStats();
 };
 
 /**
- * Mengisi opsi dropdown filter tanggal di Dashboard
+ * Handler saat checkbox tanggal individual diubah
  */
-function populateDashboardFilterTanggalDropdown() {
-    const select = document.getElementById('selectDashboardFilterTanggal');
-    if (!select) return;
-
+window.onToggleSingleDashboardDate = (dateVal, isChecked) => {
     const uniqueDates = getSortedExamDates();
-    const prevVal = currentDashboardDateFilter;
+    if (selectedDashboardDates.size === 0) {
+        selectedDashboardDates = new Set(uniqueDates);
+    }
 
-    let html = `<option value="ALL">-- Semua Tanggal Pelaksanaan (${uniqueDates.length} Hari) --</option>`;
-    uniqueDates.forEach(d => {
-        const fri = isFriday(d);
-        html += `<option value="${d}">${d} ${fri ? '(Jumat - Sesi 2: 13.00)' : ''}</option>`;
-    });
-
-    select.innerHTML = html;
-
-    if (uniqueDates.includes(prevVal) || prevVal === 'ALL') {
-        select.value = prevVal;
+    if (isChecked) {
+        selectedDashboardDates.add(dateVal);
     } else {
-        select.value = 'ALL';
-        currentDashboardDateFilter = 'ALL';
+        selectedDashboardDates.delete(dateVal);
+    }
+
+    updateDashboardDateFilterUI();
+    renderDashboardStats();
+};
+
+/**
+ * Update UI Filter Tanggal Dashboard (Label Tombol, Master Checkbox, Badge Count)
+ */
+function updateDashboardDateFilterUI() {
+    const uniqueDates = getSortedExamDates();
+    const labelEl = document.getElementById('labelDropdownFilterTanggalDash');
+    const masterCb = document.getElementById('cbDashTanggalAll');
+    const countBadge = document.getElementById('countSelectedDashDates');
+
+    const totalDays = uniqueDates.length;
+    const isAllSelected = selectedDashboardDates.size === 0 || selectedDashboardDates.size === totalDays;
+
+    if (masterCb) {
+        masterCb.checked = isAllSelected && totalDays > 0;
+        masterCb.indeterminate = !isAllSelected && selectedDashboardDates.size > 0;
+    }
+
+    if (countBadge) {
+        const count = isAllSelected ? totalDays : selectedDashboardDates.size;
+        countBadge.textContent = `${count} Hari`;
+    }
+
+    if (labelEl) {
+        if (totalDays === 0) {
+            labelEl.textContent = '-- Belum Ada Tanggal Ujian --';
+        } else if (isAllSelected) {
+            labelEl.textContent = `Semua Tanggal Pelaksanaan (${totalDays} Hari)`;
+        } else if (selectedDashboardDates.size === 1) {
+            const onlyDate = Array.from(selectedDashboardDates)[0];
+            labelEl.textContent = `1 Tanggal: ${onlyDate}`;
+        } else {
+            labelEl.textContent = `${selectedDashboardDates.size} Tanggal Terpilih`;
+        }
     }
 }
 
 /**
- * Render statistik di Dashboard (termasuk Statistik Kehadiran & Filter Tanggal)
+ * Mengisi daftar checkbox tanggal di Dashboard
+ */
+function populateDashboardFilterTanggalDropdown() {
+    const listContainer = document.getElementById('listDashTanggalCheckboxes');
+    if (!listContainer) return;
+
+    const uniqueDates = getSortedExamDates();
+
+    // Hapus tanggal lama yang sudah tidak ada
+    const validSelected = new Set();
+    selectedDashboardDates.forEach(d => {
+        if (uniqueDates.includes(d)) validSelected.add(d);
+    });
+    selectedDashboardDates = validSelected;
+
+    const isAllSelected = selectedDashboardDates.size === 0 || selectedDashboardDates.size === uniqueDates.length;
+
+    if (uniqueDates.length === 0) {
+        listContainer.innerHTML = `<p class="text-slate-400 italic text-[11px] py-2 text-center">Belum ada tanggal pelaksanaan.</p>`;
+        updateDashboardDateFilterUI();
+        return;
+    }
+
+    let html = '';
+    uniqueDates.forEach(d => {
+        const isChecked = isAllSelected || selectedDashboardDates.has(d);
+        const fri = isFriday(d);
+        const totalPesertaDate = currentCandidates.filter(c => c.pelaksanaan === d).length;
+
+        html += `
+            <label class="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer select-none transition border border-transparent hover:border-slate-200">
+                <div class="flex items-center space-x-2 truncate">
+                    <input type="checkbox" 
+                           value="${d}" 
+                           ${isChecked ? 'checked' : ''} 
+                           onchange="onToggleSingleDashboardDate('${d}', this.checked)"
+                           class="w-3.5 h-3.5 text-bkn-700 rounded border-slate-300 focus:ring-bkn-600 cursor-pointer">
+                    <span class="font-medium text-slate-700 truncate ${fri ? 'text-indigo-900 font-semibold' : ''}">
+                        ${d} ${fri ? '<span class="text-[10px] text-indigo-600 font-bold ml-1">(Jumat)</span>' : ''}
+                    </span>
+                </div>
+                <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                    ${totalPesertaDate}
+                </span>
+            </label>
+        `;
+    });
+
+    listContainer.innerHTML = html;
+    updateDashboardDateFilterUI();
+}
+
+/**
+ * Event listener untuk menutup dropdown tanggal saat klik di luar
+ */
+document.addEventListener('click', (e) => {
+    const btn = document.getElementById('btnDropdownFilterTanggalDash');
+    const panel = document.getElementById('dropdownPanelFilterTanggalDash');
+    if (panel && !panel.classList.contains('hidden')) {
+        if (btn && !btn.contains(e.target) && !panel.contains(e.target)) {
+            panel.classList.add('hidden');
+        }
+    }
+});
+
+/**
+ * Mengklasifikasikan kandidat ke dalam kategori kelompok jabatan yang baku
+ */
+function classifyCandidateKelompok(c) {
+    const rawK = String(c.kelJabatan || '').trim();
+    if (!rawK || rawK === '-' || rawK.toUpperCase() === 'NULL' || rawK.toLowerCase() === 'belum terdata' || rawK.toLowerCase().includes('belum terdaftar')) {
+        return {
+            category: 'KOSONG',
+            label: 'Belum Terdata / Kosong',
+            sub: null,
+            isWarning: true
+        };
+    }
+    const kLower = rawK.toLowerCase();
+    const jLower = String(c.jabatan || '').toLowerCase();
+    const combined = `${kLower} ${jLower}`;
+
+    // 1. JPT Pratama / Tinggi
+    if (kLower.includes('jpt') || kLower.includes('pratama') || (kLower.includes('tinggi') && !kLower.includes('fungsional'))) {
+        return { category: 'JPT_PRATAMA', label: 'JPT Pratama', sub: null, isWarning: false };
+    }
+    // 2. Administrator
+    if (kLower.includes('administrator')) {
+        return { category: 'ADMINISTRATOR', label: 'Administrator', sub: null, isWarning: false };
+    }
+    // 3. Eselon V
+    if (kLower.includes('eselon v') || kLower.includes('eselon 5')) {
+        return { category: 'ESELON_V', label: 'Eselon V', sub: null, isWarning: false };
+    }
+    // 4. Pengawas
+    if (kLower.includes('pengawas') || kLower.includes('eselon iv') || kLower.includes('eselon 4')) {
+        return { category: 'PENGAWAS', label: 'Pengawas', sub: null, isWarning: false };
+    }
+    // 5. Jabatan Fungsional (beserta jenjang anak/child)
+    const isJF = kLower.includes('fungsional') || kLower.includes('jf') || 
+                 combined.includes('terampil') || combined.includes('mahir') || combined.includes('penyelia') ||
+                 combined.includes('pertama') || combined.includes('muda') || (combined.includes('madya') && !combined.includes('jpt'));
+    
+    if (isJF) {
+        let sub = 'Fungsional Lainnya';
+        if (combined.includes('terampil')) sub = 'Terampil';
+        else if (combined.includes('mahir')) sub = 'Mahir';
+        else if (combined.includes('penyelia')) sub = 'Penyelia';
+        else if (combined.includes('pertama')) sub = 'Ahli Pertama';
+        else if (combined.includes('muda')) sub = 'Ahli Muda';
+        else if (combined.includes('madya')) sub = 'Ahli Madya';
+
+        return { category: 'FUNGSIONAL', label: 'Jab. Fungsional', sub: sub, isWarning: false };
+    }
+    // 6. Pelaksana
+    if (kLower.includes('pelaksana') || kLower.includes('staf')) {
+        return { category: 'PELAKSANA', label: 'Pelaksana', sub: null, isWarning: false };
+    }
+
+    return { category: 'LAINNYA', label: rawK, sub: null, isWarning: false };
+}
+
+/**
+ * Render statistik di Dashboard (termasuk Statistik Kehadiran, Filter Tanggal, & Hierarki Kel. Jabatan)
  */
 function renderDashboardStats() {
     // 1. Populate opsi filter tanggal di dashboard
@@ -474,9 +644,11 @@ function renderDashboardStats() {
     const distContainer = document.getElementById('dashboardDistributionContainer');
 
     // Filter kandidat berdasarkan tanggal dashboard yang dipilih
-    const dashboardCandidates = currentDashboardDateFilter === 'ALL'
+    const uniqueDates = getSortedExamDates();
+    const isAllDatesSelected = selectedDashboardDates.size === 0 || selectedDashboardDates.size === uniqueDates.length;
+    const dashboardCandidates = isAllDatesSelected
         ? currentCandidates
-        : currentCandidates.filter(c => c.pelaksanaan === currentDashboardDateFilter);
+        : currentCandidates.filter(c => selectedDashboardDates.has(c.pelaksanaan));
 
     const total = dashboardCandidates.length;
     const s1 = dashboardCandidates.filter(c => c.sesi === 1).length;
@@ -531,25 +703,172 @@ function renderDashboardStats() {
     if (cf2) cf2.textContent = grandS2;
     if (cf3) cf3.textContent = grandS3;
 
-    // Render statistik kehadiran per kelompok jabatan (mengikuti filter dashboard yang aktif)
+    // Render statistik kehadiran per kelompok jabatan dengan susunan & hierarki yang diminta:
+    // 1. JPT Pratama
+    // 2. Administrator
+    // 3. Pengawas
+    // 4. Eselon V
+    // 5. Jab. Fungsional (Parent) -> Child: Terampil, Mahir, Penyelia, Ahli Pertama, Ahli Muda, Ahli Madya
+    // 6. Belum Terdata / Kosong (Peserta Belum Terdaftar) -> DI ATAS PELAKSANA
+    // 7. Pelaksana
+    // 8. Lainnya (bila ada)
     const kelJabatanContainer = document.getElementById('dashKelJabatanContainer');
     if (kelJabatanContainer) {
         if (total === 0) {
             kelJabatanContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini.</p>`;
         } else {
-            const byKel = {};
+            // Struktur penampung statistik
+            const createStatHolder = () => ({ hadir: 0, tidakHadir: 0, belum: 0, total: 0 });
+            const categories = {
+                JPT_PRATAMA: { label: 'JPT Pratama', stat: createStatHolder() },
+                ADMINISTRATOR: { label: 'Administrator', stat: createStatHolder() },
+                PENGAWAS: { label: 'Pengawas', stat: createStatHolder() },
+                ESELON_V: { label: 'Eselon V', stat: createStatHolder() },
+                FUNGSIONAL: { 
+                    label: 'Jab. Fungsional', 
+                    stat: createStatHolder(),
+                    children: {
+                        'Terampil': createStatHolder(),
+                        'Mahir': createStatHolder(),
+                        'Penyelia': createStatHolder(),
+                        'Ahli Pertama': createStatHolder(),
+                        'Ahli Muda': createStatHolder(),
+                        'Ahli Madya': createStatHolder(),
+                        'Fungsional Lainnya': createStatHolder()
+                    }
+                },
+                KOSONG: { label: 'Belum Terdata / Kosong', stat: createStatHolder(), isWarning: true },
+                PELAKSANA: { label: 'Pelaksana', stat: createStatHolder() },
+                LAINNYA: {} // Dynamic key jika ada kelompok lain di luar standar
+            };
+
+            // Hitung agregat tiap kandidat
             dashboardCandidates.forEach(c => {
-                const rawK = String(c.kelJabatan || '').trim();
-                const isNullKel = !rawK || rawK === '-' || rawK === 'NULL';
-                const k = isNullKel ? 'Belum Terdata / Kosong' : rawK;
-                if (!byKel[k]) byKel[k] = { isNull: isNullKel, hadir: 0, tidakHadir: 0, belum: 0, total: 0 };
-                if (c.kehadiran === 'HADIR') byKel[k].hadir++;
-                else if (c.kehadiran === 'TIDAK_HADIR') byKel[k].tidakHadir++;
-                else byKel[k].belum++;
-                byKel[k].total++;
+                const cls = classifyCandidateKelompok(c);
+                const att = c.kehadiran;
+
+                const addAtt = (statObj) => {
+                    if (att === 'HADIR') statObj.hadir++;
+                    else if (att === 'TIDAK_HADIR') statObj.tidakHadir++;
+                    else statObj.belum++;
+                    statObj.total++;
+                };
+
+                if (cls.category === 'FUNGSIONAL') {
+                    addAtt(categories.FUNGSIONAL.stat);
+                    const subName = cls.sub || 'Fungsional Lainnya';
+                    if (!categories.FUNGSIONAL.children[subName]) {
+                        categories.FUNGSIONAL.children[subName] = createStatHolder();
+                    }
+                    addAtt(categories.FUNGSIONAL.children[subName]);
+                } else if (categories[cls.category]) {
+                    addAtt(categories[cls.category].stat);
+                } else {
+                    if (!categories.LAINNYA[cls.label]) {
+                        categories.LAINNYA[cls.label] = createStatHolder();
+                    }
+                    addAtt(categories.LAINNYA[cls.label]);
+                }
             });
 
-            const sortedKels = Object.keys(byKel).sort((a, b) => byKel[b].total - byKel[a].total);
+            // Helper render satu baris data tabel
+            const renderRow = (label, stat, options = {}) => {
+                const { isParent = false, isChild = false, isWarning = false } = options;
+                const pct = stat.total > 0 ? Math.round((stat.hadir / stat.total) * 100) : 0;
+                
+                let rowBg = 'hover:bg-slate-50 transition';
+                if (isWarning) {
+                    rowBg = 'bg-rose-50/75 border-l-4 border-l-red-900 font-medium transition';
+                } else if (isParent) {
+                    rowBg = 'bg-indigo-50/40 hover:bg-indigo-50/70 font-bold border-t border-b border-indigo-100/70 transition';
+                } else if (isChild) {
+                    rowBg = 'bg-slate-50/50 hover:bg-slate-100/60 text-slate-600 transition';
+                }
+
+                return `
+                    <tr class="${rowBg}">
+                        <td class="p-2.5 ${isChild ? 'pl-8 text-xs font-semibold' : 'font-bold'} ${isWarning ? 'text-rose-900 flex items-center gap-1.5' : (isParent ? 'text-indigo-950 flex items-center gap-1.5' : 'text-slate-800')}">
+                            ${isWarning ? '<i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-700 inline-block flex-shrink-0"></i>' : ''}
+                            ${isChild ? '<span class="text-slate-400 font-bold mr-1">↳</span>' : ''}
+                            <span>${label}</span>
+                            ${isParent ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">Parent</span>' : ''}
+                            ${isWarning ? '<span class="text-[10px] bg-red-900 text-red-100 px-1.5 py-0.5 rounded font-bold uppercase shadow-xs">Peserta Belum Terdaftar</span>' : ''}
+                        </td>
+                        <td class="p-2.5 text-center text-emerald-700 font-bold text-sm">${stat.hadir}</td>
+                        <td class="p-2.5 text-center text-rose-700 font-bold text-sm">${stat.tidakHadir}</td>
+                        <td class="p-2.5 text-center text-amber-700 font-semibold">${stat.belum}</td>
+                        <td class="p-2.5 text-center font-bold text-slate-900">${stat.total}</td>
+                        <td class="p-2.5 text-center">
+                            <div class="flex items-center justify-center gap-2">
+                                <div class="w-16 bg-slate-200 rounded-full h-2 overflow-hidden">
+                                    <div class="bg-emerald-600 h-2 rounded-full" style="width: ${pct}%"></div>
+                                </div>
+                                <span class="font-bold text-[11px] ${pct >= 80 ? 'text-emerald-700' : (pct >= 50 ? 'text-amber-700' : 'text-slate-600')}">${pct}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            };
+
+            let rowsHtml = '';
+
+            // 1. JPT Pratama
+            if (categories.JPT_PRATAMA.stat.total > 0) {
+                rowsHtml += renderRow(categories.JPT_PRATAMA.label, categories.JPT_PRATAMA.stat);
+            }
+
+            // 2. Administrator
+            if (categories.ADMINISTRATOR.stat.total > 0) {
+                rowsHtml += renderRow(categories.ADMINISTRATOR.label, categories.ADMINISTRATOR.stat);
+            }
+
+            // 3. Pengawas
+            if (categories.PENGAWAS.stat.total > 0) {
+                rowsHtml += renderRow(categories.PENGAWAS.label, categories.PENGAWAS.stat);
+            }
+
+            // 4. Eselon V
+            if (categories.ESELON_V.stat.total > 0) {
+                rowsHtml += renderRow(categories.ESELON_V.label, categories.ESELON_V.stat);
+            }
+
+            // 5. Jabatan Fungsional (Parent & Child Rows)
+            if (categories.FUNGSIONAL.stat.total > 0) {
+                // Render Parent Row
+                rowsHtml += renderRow(categories.FUNGSIONAL.label, categories.FUNGSIONAL.stat, { isParent: true });
+                
+                // Susunan baku Child: terampil, mahir, penyelia, ahli pertama, ahli muda, ahli madya
+                const standardJfOrder = ['Terampil', 'Mahir', 'Penyelia', 'Ahli Pertama', 'Ahli Muda', 'Ahli Madya', 'Fungsional Lainnya'];
+                standardJfOrder.forEach(subName => {
+                    const childStat = categories.FUNGSIONAL.children[subName];
+                    if (childStat && childStat.total > 0) {
+                        rowsHtml += renderRow(subName, childStat, { isChild: true });
+                    }
+                });
+            }
+
+            // 6. Pelaksana
+            if (categories.PELAKSANA.stat.total > 0) {
+                rowsHtml += renderRow(categories.PELAKSANA.label, categories.PELAKSANA.stat);
+            }
+
+            // 7. Belum Terdata / Kosong (Peserta Belum Terdaftar) -> DI BAWAH BARIS PELAKSANA
+            if (categories.KOSONG.stat.total > 0) {
+                rowsHtml += renderRow(categories.KOSONG.label, categories.KOSONG.stat, { isWarning: true });
+            }
+
+            // 8. Kelompok Lainnya (jika ada)
+            Object.keys(categories.LAINNYA).forEach(otherLabel => {
+                const stat = categories.LAINNYA[otherLabel];
+                if (stat.total > 0) {
+                    rowsHtml += renderRow(otherLabel, stat);
+                }
+            });
+
+            // Jika semua kategori standar 0 totalnya (jarang terjadi tapi fallback aman)
+            if (!rowsHtml) {
+                rowsHtml = `<tr><td colspan="6" class="p-4 text-center text-slate-400 italic">Belum ada rincian jabatan untuk peserta yang dipilih.</td></tr>`;
+            }
 
             kelJabatanContainer.innerHTML = `
                 <table class="w-full text-xs text-left text-slate-700">
@@ -564,32 +883,7 @@ function renderDashboardStats() {
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        ${sortedKels.map(k => {
-                            const item = byKel[k];
-                            const pct = item.total > 0 ? Math.round((item.hadir / item.total) * 100) : 0;
-                            const isWarning = item.isNull;
-                            return `
-                                <tr class="${isWarning ? 'bg-rose-50/70 text-rose-950 font-medium' : 'hover:bg-slate-50'} transition">
-                                    <td class="p-2.5 font-bold ${isWarning ? 'text-rose-900 flex items-center gap-1.5' : 'text-slate-800'}">
-                                        ${isWarning ? '<i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-700 inline-block"></i>' : ''}
-                                        <span>${k}</span>
-                                        ${isWarning ? '<span class="text-[10px] bg-red-900 text-red-100 px-1.5 py-0.5 rounded font-bold uppercase shadow-xs">Peserta Belum Terdaftar</span>' : ''}
-                                    </td>
-                                    <td class="p-2.5 text-center text-emerald-700 font-bold text-sm">${item.hadir}</td>
-                                    <td class="p-2.5 text-center text-rose-700 font-bold text-sm">${item.tidakHadir}</td>
-                                    <td class="p-2.5 text-center text-amber-700 font-semibold">${item.belum}</td>
-                                    <td class="p-2.5 text-center font-bold text-slate-900">${item.total}</td>
-                                    <td class="p-2.5 text-center">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <div class="w-16 bg-slate-200 rounded-full h-2 overflow-hidden">
-                                                <div class="bg-emerald-600 h-2 rounded-full" style="width: ${pct}%"></div>
-                                            </div>
-                                            <span class="font-bold text-[11px] ${pct >= 80 ? 'text-emerald-700' : (pct >= 50 ? 'text-amber-700' : 'text-slate-600')}">${pct}%</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('')}
+                        ${rowsHtml}
                     </tbody>
                 </table>
             `;
@@ -1543,13 +1837,55 @@ window.renderCandidateTable = () => {
     window.onFilterPelaksanaanChange(selectDate ? selectDate.value : 'ALL');
 };
 
+/**
+ * Reset Seluruh Filter dan Input Pencarian ke Nilai Default
+ */
+window.resetAllCandidateFilters = () => {
+    // 1. Reset input search
+    const inputSearch = document.getElementById('inputSearchCandidate');
+    if (inputSearch) inputSearch.value = '';
+    currentSearchTerm = '';
+
+    // 2. Reset Kelompok Jabatan
+    const selectKel = document.getElementById('selectFilterKelJabatan');
+    if (selectKel) selectKel.value = 'ALL';
+    currentKelJabatanFilter = 'ALL';
+
+    // 3. Reset Tanggal Pelaksanaan
+    const selectDate = document.getElementById('selectFilterPelaksanaan');
+    if (selectDate) selectDate.value = 'ALL';
+    currentDateFilter = 'ALL';
+
+    // 4. Reset Sesi Pills & Sesi Kumulatif
+    currentSessionFilter = 'ALL';
+    currentCumulativeSessionFilter = 'ALL';
+
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    if (inputTyping) inputTyping.value = '';
+
+    const selectSesi = document.getElementById('selectFilterSesiDropdown');
+    if (selectSesi) selectSesi.value = 'ALL';
+
+    document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+        btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+    });
+    const btnAll = document.getElementById('btnFilterSesiAll');
+    if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+
+    populateSesiFilterDropdown('ALL');
+    populateKelJabatanFilterDropdown();
+    applyCandidateFilters();
+
+    showToast("Semua filter dan pencarian telah di-reset.", "info");
+};
+
 function populatePelaksanaanFilterDropdown() {
     const select = document.getElementById('selectFilterPelaksanaan');
     if (!select) return;
 
     const uniqueDates = getSortedExamDates();
     
-    let html = `<option value="ALL">-- Semua Tanggal Pelaksanaan (${uniqueDates.length} Tanggal) --</option>`;
+    let html = `<option value="ALL">-- Tanggal Pelaksanaan (${uniqueDates.length} Tanggal) --</option>`;
     uniqueDates.forEach(d => {
         const fri = isFriday(d);
         html += `<option value="${d}">${d} ${fri ? '(Hari Jumat - Sesi 2: 13.00)' : ''}</option>`;
@@ -1598,8 +1934,8 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
     const sortedSessions = Array.from(sessionMap.values()).sort((a, b) => a.cumNum - b.cumNum);
 
     let defaultText = selectedDate === 'ALL'
-        ? `-- Semua Sesi (${sortedSessions.length > 0 ? `01 s.d. ${formatCumulativeSessionNumber(sortedSessions[sortedSessions.length - 1].cumNum)}` : '0 Sesi'}) --`
-        : `-- Semua Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
+        ? `-- Sesi (${sortedSessions.length > 0 ? `01 s.d. ${formatCumulativeSessionNumber(sortedSessions[sortedSessions.length - 1].cumNum)}` : '0 Sesi'}) --`
+        : `-- Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
 
     let html = `<option value="ALL">${defaultText}</option>`;
 
@@ -1667,7 +2003,7 @@ function populateKelJabatanFilterDropdown() {
 
     const sortedKels = Array.from(kelMap.keys()).sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base' }));
 
-    let html = `<option value="ALL">-- Semua Kel. Jabatan (${currentCandidates.length}) --</option>`;
+    let html = `<option value="ALL">-- Kel. Jabatan (${currentCandidates.length}) --</option>`;
 
     if (countEmpty > 0) {
         html += `<option value="EMPTY">⚠️ [Kosong / Peserta Belum Terdaftar] (${countEmpty} Peserta)</option>`;
@@ -1964,7 +2300,7 @@ function renderCandidateListTable() {
     if (!currentExam) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="11" class="p-8 text-center text-slate-400">
+                <td colspan="10" class="p-8 text-center text-slate-400">
                     <i data-lucide="lock" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian & Masukkan PIN</p>
                     <p class="text-xs text-slate-500 mt-1">Data peserta hanya akan dimuat setelah instansi dipilih dan PIN berhasil diverifikasi.</p>
@@ -1978,7 +2314,7 @@ function renderCandidateListTable() {
     if (currentCandidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="11" class="p-8 text-center text-slate-400">
+                <td colspan="10" class="p-8 text-center text-slate-400">
                     <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Belum Ada Data Peserta</p>
                     <p class="text-xs text-slate-500 mt-1">Belum ada peserta yang diunggah untuk instansi <strong>${currentExam.instansi}</strong>.</p>
@@ -1992,7 +2328,7 @@ function renderCandidateListTable() {
     if (filteredCandidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="11" class="p-8 text-center text-slate-400">
+                <td colspan="10" class="p-8 text-center text-slate-400">
                     <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Tidak Ada Data Peserta</p>
                     <p class="text-xs text-slate-500 mt-1">Tidak ada peserta yang cocok dengan kriteria filter pencarian saat ini.</p>
@@ -2031,7 +2367,12 @@ function renderCandidateListTable() {
             <tr class="${rowBgClass} transition">
                 <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">
-                    ${c.kehadiran === 'HADIR' ? `
+                    ${isKelEmpty ? `
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem. Silakan lengkapi kelompok jabatan terlebih dahulu.">
+                            <i data-lucide="slash" class="w-3 h-3 text-slate-400"></i>
+                            <span>Tidak tersedia</span>
+                        </span>
+                    ` : c.kehadiran === 'HADIR' ? `
                         <button onclick="toggleAttendance(${c.id}, 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer" title="Status: Hadir. Klik untuk ubah/batal">
                             <i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>
                             <span>Hadir</span>
@@ -2099,7 +2440,8 @@ function renderCandidateListTable() {
                         </div>
                     `}
                 </td>
-                <td class="p-3 whitespace-nowrap ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
+                <!-- Kolom Waktu (WIT) di-hide. Untuk mengaktifkan kembali, hapus class 'hidden' -->
+                <td class="p-3 whitespace-nowrap hidden ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
                     ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
                 </td>
                 <td class="p-3 text-center whitespace-nowrap">
@@ -2345,11 +2687,21 @@ window.exportCurrentCandidates = () => {
 };
 
 /**
- * Cetak Lembar Resmi Jadwal & Daftar Hadir
+ * Cetak Lembar Resmi Presensi Peserta Ujian Profiling ASN
+ * Menarik kondisi peserta yang sudah ditandai HADIR dan TIDAK HADIR saja.
+ * Menyesuaikan filter yang sedang aktif di daftar peserta, dan membuat tabel terpisah untuk setiap sesinya.
  */
 window.printOfficialSchedule = () => {
-    if (!currentExam || filteredCandidates.length === 0) {
-        showToast("Tidak ada data peserta untuk dicetak!", "warning");
+    if (!currentExam) {
+        showToast("Pilih instansi ujian terlebih dahulu!", "warning");
+        return;
+    }
+
+    // 1. Tarik HANYA peserta yang berstatus HADIR dan TIDAK HADIR dari filter aktif
+    const presensiCandidates = filteredCandidates.filter(c => c.kehadiran === 'HADIR' || c.kehadiran === 'TIDAK_HADIR');
+
+    if (presensiCandidates.length === 0) {
+        showToast("Tidak ada data peserta dengan status Hadir atau Tidak Hadir untuk dicetak pada filter aktif!", "warning");
         return;
     }
 
@@ -2358,26 +2710,36 @@ window.printOfficialSchedule = () => {
 
     const sortedDates = getSortedExamDates();
 
-    // Kelompokkan peserta berdasarkan sesi kumulatif
+    // 2. Kelompokkan peserta berdasarkan tanggal pelaksanaan dan sesi ujian
     const sessionsMap = new Map();
-    filteredCandidates.forEach(c => {
-        const cum = getCumulativeSessionNumber(c, sortedDates);
-        if (!sessionsMap.has(cum)) {
-            sessionsMap.set(cum, {
+    presensiCandidates.forEach(c => {
+        const cum = getCumulativeSessionNumber(c, sortedDates) || 0;
+        const key = `${c.pelaksanaan || 'Tanpa Tanggal'}___${c.sesi || 0}`;
+        if (!sessionsMap.has(key)) {
+            sessionsMap.set(key, {
+                key: key,
                 cumNum: cum,
                 cumFormatted: formatCumulativeSessionNumber(cum),
-                dailySession: c.sesi,
-                date: c.pelaksanaan,
-                waktu: c.waktu,
+                dailySession: c.sesi || '-',
+                date: c.pelaksanaan || '-',
+                waktu: c.waktu || '-',
                 candidates: []
             });
         }
-        sessionsMap.get(cum).candidates.push(c);
+        sessionsMap.get(key).candidates.push(c);
     });
 
-    const sortedSessionGroups = Array.from(sessionsMap.values()).sort((a, b) => a.cumNum - b.cumNum);
-    const todayStr = formatDateDisplay(new Date(), 'long');
+    // Urutkan grup sesi secara kronologis tanggal lalu nomor sesi
+    const sortedSessionGroups = Array.from(sessionsMap.values()).sort((a, b) => {
+        const da = parseFlexibleDate(a.date);
+        const db = parseFlexibleDate(b.date);
+        const ta = da ? da.getTime() : 0;
+        const tb = db ? db.getTime() : 0;
+        if (ta !== tb) return ta - tb;
+        return Number(a.dailySession || 0) - Number(b.dailySession || 0);
+    });
 
+    const todayStr = formatDateDisplay(new Date(), 'long');
     let fullHtml = '';
 
     sortedSessionGroups.forEach((group) => {
@@ -2387,6 +2749,9 @@ window.printOfficialSchedule = () => {
         );
 
         const dayName = group.date ? getDayNameID(group.date) : '';
+        const countHadir = sortedList.filter(c => c.kehadiran === 'HADIR').length;
+        const countTidakHadir = sortedList.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+        const totalPesertaSesi = sortedList.length;
 
         fullHtml += `
             <div class="print-session-page">
@@ -2394,10 +2759,10 @@ window.printOfficialSchedule = () => {
                 <div style="border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; text-align: center;">
                     <div style="font-size: 11pt; font-weight: bold; letter-spacing: 0.5px;">BADAN KEPEGAWAIAN NEGARA</div>
                     <div style="font-size: 10pt; font-weight: bold;">KANTOR REGIONAL XIV MANOKWARI</div>
-                    <div style="font-size: 12pt; font-weight: 800; margin-top: 4px; text-decoration: underline;">DAFTAR HADIR & JADWAL PESERTA UJIAN PROFILING ASN</div>
+                    <div style="font-size: 12pt; font-weight: 800; margin-top: 4px; text-decoration: underline;">DAFTAR PRESENSI PESERTA UJIAN PROFILING ASN</div>
                 </div>
 
-                <!-- HEADER KETERANGAN SESI YANG DICETAK -->
+                <!-- HEADER KETERANGAN SESI PRESENSI -->
                 <table style="width: 100%; font-size: 8.5pt; margin-bottom: 8px; border: none;">
                     <tr>
                         <td style="width: 18%; font-weight: bold; padding: 2px 0;">Instansi</td>
@@ -2405,7 +2770,7 @@ window.printOfficialSchedule = () => {
                         <td style="width: 45%; font-weight: bold; padding: 2px 0;">${currentExam.instansi}</td>
                         <td style="width: 15%; font-weight: bold; padding: 2px 0;">Sesi Ujian</td>
                         <td style="width: 2%; padding: 2px 0;">:</td>
-                        <td style="width: 18%; font-weight: bold; color: #1e3a8a; padding: 2px 0;">Sesi ${group.dailySession} (${group.cumFormatted})</td>
+                        <td style="width: 18%; font-weight: bold; color: #1e3a8a; padding: 2px 0;">Sesi ${group.dailySession} ${group.cumFormatted ? `(${group.cumFormatted})` : ''}</td>
                     </tr>
                     <tr>
                         <td style="font-weight: bold; padding: 2px 0;">Titik Lokasi</td>
@@ -2418,41 +2783,41 @@ window.printOfficialSchedule = () => {
                     <tr>
                         <td style="font-weight: bold; padding: 2px 0;">Hari / Tanggal</td>
                         <td style="padding: 2px 0;">:</td>
-                        <td style="padding: 2px 0;">${dayName ? `${dayName}, ` : ''}${group.date || '-'}</td>
-                        <td style="font-weight: bold; padding: 2px 0;">Jumlah Peserta</td>
+                        <td style="padding: 2px 0;">${dayName ? `${dayName}, ` : ''}${group.date}</td>
+                        <td style="font-weight: bold; padding: 2px 0;">Total Presensi</td>
                         <td style="padding: 2px 0;">:</td>
-                        <td style="padding: 2px 0; font-weight: bold;">${sortedList.length} Orang</td>
+                        <td style="padding: 2px 0; font-weight: bold;">${totalPesertaSesi} Orang <span style="font-weight: normal; color: #555;">(Hadir: ${countHadir}, Tidak Hadir: ${countTidakHadir})</span></td>
                     </tr>
                 </table>
 
-                <!-- TABEL PESERTA SESI INI (Kolom Waktu diganti Kolom Sesi & Kumulatif) -->
+                <!-- TABEL PRESENSI PESERTA SESI INI -->
                 <table class="print-table">
                     <thead>
                         <tr>
                             <th style="width: 28px;">No</th>
-                            <th style="width: 125px;">NIP</th>
+                            <th style="width: 130px;">NIP</th>
                             <th>Nama Peserta</th>
+                            <th style="width: 105px;">Kel. Jabatan</th>
                             <th>Unit Kerja / Jabatan</th>
-                            <th style="width: 100px;">Sesi</th>
-                            <th style="width: 115px;">Tanda Tangan</th>
+                            <th style="width: 100px;">Status Presensi</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${sortedList.map((c, idx) => {
-                            const statusBadge = c.kehadiran === 'HADIR'
-                                ? '<span style="color: #047857; font-weight: bold;">[ HADIR ]</span>'
-                                : (c.kehadiran === 'TIDAK_HADIR'
-                                    ? '<span style="color: #b91c1c; font-weight: bold;">[ TDK HADIR ]</span>'
-                                    : '');
+                            const isHadir = c.kehadiran === 'HADIR';
+                            const statusBadge = isHadir
+                                ? '<span style="display: inline-block; padding: 2px 6px; font-weight: 800; color: #047857; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; font-size: 7.5pt;">HADIR</span>'
+                                : '<span style="display: inline-block; padding: 2px 6px; font-weight: 800; color: #b91c1c; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; font-size: 7.5pt;">TIDAK HADIR</span>';
+                            
                             return `
                                 <tr>
                                     <td style="text-align: center;">${idx + 1}</td>
-                                    <td style="font-family: monospace; text-align: center;">${c.nip}</td>
+                                    <td style="font-family: monospace; text-align: center; font-size: 7.5pt;">${c.nip}</td>
                                     <td style="font-weight: bold;">${c.nama}</td>
-                                    <td>${c.unitKerja || '-'}${c.jabatan ? `<br><span style="font-size: 7.5pt; color: #444;">${c.jabatan}</span>` : ''}</td>
-                                    <td style="text-align: center; font-weight: bold;">Sesi ${c.sesi} (${group.cumFormatted})</td>
-                                    <td style="height: 24px; vertical-align: middle;">
-                                        ${statusBadge || `<span style="color: #888;">${idx + 1}. .........</span>`}
+                                    <td style="text-align: center; font-size: 7.5pt; font-weight: 600;">${c.kelJabatan && c.kelJabatan !== '-' ? c.kelJabatan : '-'}</td>
+                                    <td>${c.unitKerja && c.unitKerja !== 'NULL' ? c.unitKerja : '-'}${c.jabatan ? `<br><span style="font-size: 7.5pt; color: #555;">${c.jabatan}</span>` : ''}</td>
+                                    <td style="text-align: center; vertical-align: middle;">
+                                        ${statusBadge}
                                     </td>
                                 </tr>
                             `;
@@ -2460,12 +2825,19 @@ window.printOfficialSchedule = () => {
                     </tbody>
                 </table>
 
-                <!-- TANDA TANGAN PENANGGUNG JAWAB -->
-                <div style="margin-top: 18px; display: flex; justify-content: flex-end; page-break-inside: avoid;">
+                <!-- RINGKASAN PRESENSI & TANDA TANGAN PENANGGUNG JAWAB -->
+                <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: flex-start; page-break-inside: avoid;">
+                    <div style="font-size: 8pt; color: #333; padding: 4px 8px; border: 1px dashed #999; border-radius: 4px; max-width: 320px;">
+                        <div style="font-weight: bold; margin-bottom: 2px;">Rekapitulasi Sesi Ini:</div>
+                        <div>Peserta Hadir: <strong>${countHadir} Orang</strong></div>
+                        <div>Peserta Tidak Hadir: <strong>${countTidakHadir} Orang</strong></div>
+                        <div>Total Sesi: <strong>${totalPesertaSesi} Orang</strong></div>
+                    </div>
+
                     <div style="width: 240px; text-align: center; font-size: 8.5pt;">
                         <div>Manokwari, ${todayStr}</div>
                         <div style="margin-top: 4px; font-weight: bold;">Koordinator Tim Pelaksana CAT BKN,</div>
-                        <div style="height: 48px;"></div>
+                        <div style="height: 44px;"></div>
                         <div style="border-bottom: 1px solid #000; font-weight: bold;">( ..................................................... )</div>
                         <div style="font-size: 7.5pt; color: #555; margin-top: 2px;">NIP. .................................................</div>
                     </div>
@@ -3150,3 +3522,528 @@ window.disconnectCloudFirebase = () => {
         showToast("Koneksi Firebase diputuskan.", "info");
     }
 };
+
+// ==================== REKAPITULASI LAPORAN KEHADIRAN (MODAL 2 TAB & COPY) ====================
+
+/**
+ * Buka modal rekapitulasi laporan kehadiran
+ */
+window.openModalRekapKehadiran = () => {
+    const modal = document.getElementById('modalRekapKehadiran');
+    if (!modal) return;
+
+    // Tampilkan nama instansi aktif pada badge modal
+    const badgeInstansi = document.getElementById('rekapModalInstansiBadge');
+    if (badgeInstansi) {
+        badgeInstansi.textContent = currentExam ? currentExam.instansi : 'Belum Ada Ujian Terpilih';
+    }
+
+    // Tampilkan info filter tanggal yang sedang aktif
+    const filterInfo = document.getElementById('rekapModalFilterInfo');
+    const uniqueDates = getSortedExamDates();
+    const isAllDates = selectedDashboardDates.size === 0 || selectedDashboardDates.size === uniqueDates.length;
+    if (filterInfo) {
+        if (uniqueDates.length === 0) {
+            filterInfo.textContent = "Filter Tanggal Aktif: Belum ada jadwal ujian";
+        } else if (isAllDates) {
+            filterInfo.textContent = `Filter Tanggal Aktif: Semua Tanggal Pelaksanaan (${uniqueDates.length} Hari)`;
+        } else {
+            filterInfo.textContent = `Filter Tanggal Aktif: ${Array.from(selectedDashboardDates).join(', ')} (${selectedDashboardDates.size} Hari Terpilih)`;
+        }
+    }
+
+    // Render tabel Tab 1 dan Tab 2
+    renderRekapModalTables();
+
+    // Set default ke Tab 1
+    switchRekapModalTab('kel-jabatan');
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
+ * Tutup modal rekapitulasi laporan kehadiran
+ */
+window.closeModalRekapKehadiran = () => {
+    const modal = document.getElementById('modalRekapKehadiran');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Beralih tab di dalam modal rekapitulasi
+ */
+window.switchRekapModalTab = (tabName) => {
+    const btnKel = document.getElementById('tabBtnRekapKelJabatan');
+    const btnSesi = document.getElementById('tabBtnRekapSesi');
+    const paneKel = document.getElementById('paneRekapKelJabatan');
+    const paneSesi = document.getElementById('paneRekapSesi');
+
+    if (tabName === 'kel-jabatan') {
+        if (btnKel) {
+            btnKel.className = "px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-bkn-700 text-bkn-800 bg-white rounded-t-lg shadow-2xs transition flex items-center gap-2 cursor-pointer";
+        }
+        if (btnSesi) {
+            btnSesi.className = "px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg transition flex items-center gap-2 cursor-pointer";
+        }
+        if (paneKel) paneKel.classList.remove('hidden');
+        if (paneSesi) paneSesi.classList.add('hidden');
+    } else {
+        if (btnKel) {
+            btnKel.className = "px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg transition flex items-center gap-2 cursor-pointer";
+        }
+        if (btnSesi) {
+            btnSesi.className = "px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-bkn-700 text-bkn-800 bg-white rounded-t-lg shadow-2xs transition flex items-center gap-2 cursor-pointer";
+        }
+        if (paneKel) paneKel.classList.add('hidden');
+        if (paneSesi) paneSesi.classList.remove('hidden');
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
+ * Menghitung dan merender tabel rekapitulasi pada kedua tab
+ */
+function renderRekapModalTables() {
+    const tableKelContainer = document.getElementById('tableRekapKelJabatanContainer');
+    const tableSesiContainer = document.getElementById('tableRekapSesiContainer');
+
+    // 1. Saring kandidat sesuai filter tanggal aktif di Dashboard
+    const uniqueDates = getSortedExamDates();
+    const isAllDates = selectedDashboardDates.size === 0 || selectedDashboardDates.size === uniqueDates.length;
+    const activeDates = isAllDates
+        ? uniqueDates
+        : uniqueDates.filter(d => selectedDashboardDates.has(d));
+
+    const candidatesToRekap = isAllDates
+        ? currentCandidates
+        : currentCandidates.filter(c => selectedDashboardDates.has(c.pelaksanaan));
+
+    if (candidatesToRekap.length === 0 || activeDates.length === 0) {
+        const emptyMsg = `<div class="p-8 text-center text-slate-400 text-xs italic">Belum ada data peserta untuk tanggal yang dipilih.</div>`;
+        if (tableKelContainer) tableKelContainer.innerHTML = emptyMsg;
+        if (tableSesiContainer) tableSesiContainer.innerHTML = emptyMsg;
+        currentRekapData = { tab1Rows: [], tab2Rows: [] };
+        return;
+    }
+
+    // ==========================================
+    // TAB 1: REKAP KELOMPOK JABATAN PER TANGGAL
+    // Ketentuan:
+    // - 5 Pilar: JPT Pratama, Administrator, Pengawas, Jab. Fungsional, Pelaksana
+    // - Eselon V dimasukkan ke kelompok Pengawas
+    // - Jab. Fungsional gabungan semua ahli pertama, muda, madya, mahir, penyelia, terampil
+    // - Kolom: Tanggal | Hadir (5 Pilar) | Tidak Hadir (5 Pilar) | Total
+    // ==========================================
+    const tab1Rows = [];
+    const grandTab1 = {
+        hadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+        tidakHadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+        total: 0
+    };
+
+    let hasAnyKosong = false;
+
+    activeDates.forEach(dateStr => {
+        const candsDate = candidatesToRekap.filter(c => c.pelaksanaan === dateStr);
+        const rowData = {
+            date: dateStr,
+            hadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+            tidakHadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+            total: candsDate.length
+        };
+
+        candsDate.forEach(c => {
+            const cls = classifyCandidateKelompok(c);
+            const isHadir = c.kehadiran === 'HADIR';
+            const isTidakHadir = c.kehadiran === 'TIDAK_HADIR';
+            const targetObj = isHadir ? rowData.hadir : (isTidakHadir ? rowData.tidakHadir : null);
+
+            // Tentukan pilar
+            let pilar = 'pelaksana';
+            if (cls.category === 'JPT_PRATAMA') {
+                pilar = 'jpt';
+            } else if (cls.category === 'ADMINISTRATOR') {
+                pilar = 'admin';
+            } else if (cls.category === 'PENGAWAS' || cls.category === 'ESELON_V') {
+                // Eselon V dimasukkan ke kelompok Pengawas sesuai permintaan
+                pilar = 'pengawas';
+            } else if (cls.category === 'FUNGSIONAL') {
+                // Jabatan Fungsional gabungan semua jenjang
+                pilar = 'jf';
+            } else if (cls.category === 'PELAKSANA') {
+                pilar = 'pelaksana';
+            } else if (cls.category === 'KOSONG') {
+                pilar = 'kosong';
+                hasAnyKosong = true;
+            } else {
+                pilar = 'pelaksana';
+            }
+
+            if (targetObj) {
+                targetObj[pilar]++;
+            }
+        });
+
+        // Akumulasi grand total
+        ['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].forEach(k => {
+            grandTab1.hadir[k] += rowData.hadir[k];
+            grandTab1.tidakHadir[k] += rowData.tidakHadir[k];
+        });
+        grandTab1.total += rowData.total;
+
+        tab1Rows.push(rowData);
+    });
+
+    currentRekapData.tab1Rows = tab1Rows;
+    currentRekapData.grandTab1 = grandTab1;
+    currentRekapData.hasAnyKosong = hasAnyKosong;
+
+    // Render HTML Tab 1
+    if (tableKelContainer) {
+        let theadHtml = `
+            <thead class="bg-slate-900 text-white text-[10px] sm:text-[11px] uppercase font-bold sticky top-0 z-10 select-none">
+                <tr>
+                    <th rowspan="2" class="p-1 sm:p-2 text-center border-r border-slate-700" style="width: 11%;">Tanggal</th>
+                    <th colspan="5" class="p-1 sm:p-1.5 text-center bg-emerald-800 text-emerald-100 border-r border-slate-700 tracking-wider">
+                        KEHADIRAN (HADIR)
+                    </th>
+                    <th colspan="5" class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-slate-700 tracking-wider">
+                        TIDAK HADIR
+                    </th>
+                    <th rowspan="2" class="p-1 sm:p-2 text-center border-r border-slate-700" style="width: 8.5%;">Total</th>
+                    <th rowspan="2" class="p-1 sm:p-2 text-center" style="width: 8.5%;">Aksi</th>
+                </tr>
+                <tr class="text-[9px] sm:text-[10px] font-semibold">
+                    <!-- HADIR (5 PILAR) -->
+                    <th class="p-1 sm:p-1.5 text-center bg-emerald-900/90 border-r border-slate-700 truncate" style="width: 7.2%;" title="JPT Pratama">JPT</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-emerald-900/90 border-r border-slate-700 truncate" style="width: 7.2%;" title="Administrator">Admin</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-emerald-900/90 border-r border-slate-700 truncate" style="width: 7.2%;" title="Pengawas (Termasuk Eselon V)">Pengawas</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-emerald-900/90 border-r border-slate-700 truncate" style="width: 7.2%;" title="Jabatan Fungsional (Semua Jenjang)">JF</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-emerald-900/90 border-r border-slate-700 truncate" style="width: 7.2%;" title="Pelaksana">Pelaksana</th>
+                    <!-- TIDAK HADIR (5 PILAR) -->
+                    <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="JPT Pratama">JPT</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Administrator">Admin</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Pengawas (Termasuk Eselon V)">Pengawas</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Jabatan Fungsional (Semua Jenjang)">JF</th>
+                    <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Pelaksana">Pelaksana</th>
+                </tr>
+            </thead>
+        `;
+
+        let tbodyHtml = tab1Rows.map((r, idx) => `
+            <tr class="hover:bg-slate-50 transition border-b border-slate-100 text-[10px] sm:text-[11px]">
+                <td class="p-1 sm:p-1.5 text-center font-bold text-slate-800 border-r border-slate-200 bg-slate-50/50 truncate">${r.date}</td>
+                <!-- Hadir -->
+                <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-semibold border-r border-slate-100">${r.hadir.jpt}</td>
+                <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-semibold border-r border-slate-100">${r.hadir.admin}</td>
+                <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-semibold border-r border-slate-100">${r.hadir.pengawas}</td>
+                <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-bold border-r border-slate-100">${r.hadir.jf}</td>
+                <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-semibold border-r border-slate-200">${r.hadir.pelaksana}</td>
+                <!-- Tidak Hadir -->
+                <td class="p-1 sm:p-1.5 text-center text-rose-800 font-semibold border-r border-slate-100">${r.tidakHadir.jpt}</td>
+                <td class="p-1 sm:p-1.5 text-center text-rose-800 font-semibold border-r border-slate-100">${r.tidakHadir.admin}</td>
+                <td class="p-1 sm:p-1.5 text-center text-rose-800 font-semibold border-r border-slate-100">${r.tidakHadir.pengawas}</td>
+                <td class="p-1 sm:p-1.5 text-center text-rose-800 font-bold border-r border-slate-100">${r.tidakHadir.jf}</td>
+                <td class="p-1 sm:p-1.5 text-center text-rose-800 font-semibold border-r border-slate-200">${r.tidakHadir.pelaksana}</td>
+                <!-- Total -->
+                <td class="p-1 sm:p-1.5 text-center font-bold text-slate-900 border-r border-slate-200 bg-slate-50/50">${r.total}</td>
+                <!-- Aksi Copy Baris -->
+                <td class="p-1 sm:p-1.5 text-center">
+                    <button type="button" 
+                            onclick="copyRowRekapKelJabatan(${idx})" 
+                            class="w-full py-1 px-1 bg-slate-100 hover:bg-emerald-600 text-slate-700 hover:text-white rounded text-[10px] font-bold transition flex items-center justify-center gap-1 mx-auto cursor-pointer" 
+                            title="Copy baris ${r.date}">
+                        <i data-lucide="copy" class="w-3 h-3 flex-shrink-0"></i>
+                        <span class="hidden sm:inline">Copy</span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        // Baris Grand Total
+        let tfootHtml = `
+            <tfoot class="bg-slate-100 font-bold text-[10px] sm:text-[11px] border-t-2 border-slate-300 text-slate-800">
+                <tr>
+                    <td class="p-1 sm:p-1.5 text-center font-extrabold uppercase border-r border-slate-200">TOTAL</td>
+                    <!-- Total Hadir -->
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-extrabold border-r border-slate-200">${grandTab1.hadir.jpt}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-extrabold border-r border-slate-200">${grandTab1.hadir.admin}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-extrabold border-r border-slate-200">${grandTab1.hadir.pengawas}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-extrabold border-r border-slate-200">${grandTab1.hadir.jf}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-extrabold border-r border-slate-200">${grandTab1.hadir.pelaksana}</td>
+                    <!-- Total Tidak Hadir -->
+                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-extrabold border-r border-slate-200">${grandTab1.tidakHadir.jpt}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-extrabold border-r border-slate-200">${grandTab1.tidakHadir.admin}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-extrabold border-r border-slate-200">${grandTab1.tidakHadir.pengawas}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-extrabold border-r border-slate-200">${grandTab1.tidakHadir.jf}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-extrabold border-r border-slate-200">${grandTab1.tidakHadir.pelaksana}</td>
+                    <!-- Total Peserta -->
+                    <td class="p-1 sm:p-1.5 text-center font-extrabold text-slate-900 border-r border-slate-200">${grandTab1.total}</td>
+                    <td class="p-1 sm:p-1.5 text-center">
+                        <button type="button" 
+                                onclick="copyAllRekapKelJabatan()" 
+                                class="w-full py-1 px-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] sm:text-[10px] font-bold transition mx-auto cursor-pointer" title="Copy Semua Data">
+                            Copy
+                        </button>
+                    </td>
+                </tr>
+            </tfoot>
+        `;
+
+        tableKelContainer.innerHTML = `
+            <table class="w-full table-fixed text-left border-collapse">
+                ${theadHtml}
+                <tbody class="divide-y divide-slate-100 bg-white">
+                    ${tbodyHtml}
+                </tbody>
+                ${tfootHtml}
+            </table>
+        `;
+    }
+
+    // ==========================================
+    // TAB 2: REKAP KEHADIRAN PER SESI
+    // Kolom: Tanggal | Sesi | Hadir | Tidak Hadir | Total | Aksi
+    // ==========================================
+    const tab2Rows = [];
+    let grandHadirSesi = 0;
+    let grandTidakHadirSesi = 0;
+    let grandTotalSesi = 0;
+
+    activeDates.forEach(dateStr => {
+        const candsDate = candidatesToRekap.filter(c => c.pelaksanaan === dateStr);
+        // Sesi yang ada di hari ini: 1, 2, 3 (dan bila ada null/00)
+        const sessions = [1, 2, 3];
+        const hasSession0 = candsDate.some(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0);
+        if (hasSession0) sessions.unshift(0);
+
+        sessions.forEach(s => {
+            const candsSession = candsDate.filter(c => {
+                if (s === 0) return !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0;
+                return Number(c.sesi) === s;
+            });
+
+            // Hanya tampilkan sesi jika ada pesertanya atau jika s in 1..3
+            if (candsSession.length > 0 || (s >= 1 && s <= 3)) {
+                const h = candsSession.filter(c => c.kehadiran === 'HADIR').length;
+                const th = candsSession.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+                const tot = candsSession.length;
+
+                tab2Rows.push({
+                    date: dateStr,
+                    sesi: s === 0 ? 'Belum Terjadwal (00)' : `Sesi ${s}`,
+                    sesiNum: s,
+                    hadir: h,
+                    tidakHadir: th,
+                    total: tot
+                });
+
+                grandHadirSesi += h;
+                grandTidakHadirSesi += th;
+                grandTotalSesi += tot;
+            }
+        });
+    });
+
+    currentRekapData.tab2Rows = tab2Rows;
+    currentRekapData.grandTab2 = {
+        hadir: grandHadirSesi,
+        tidakHadir: grandTidakHadirSesi,
+        total: grandTotalSesi
+    };
+
+    // Render HTML Tab 2
+    if (tableSesiContainer) {
+        let theadSesi = `
+            <thead class="bg-slate-900 text-white text-xs uppercase font-bold sticky top-0 z-10 select-none">
+                <tr>
+                    <th class="p-2.5 text-center border-r border-slate-700" style="width: 22%;">Tanggal</th>
+                    <th class="p-2.5 text-center border-r border-slate-700" style="width: 22%;">Sesi</th>
+                    <th class="p-2.5 text-center border-r border-slate-700 text-emerald-300" style="width: 18%;">Hadir</th>
+                    <th class="p-2.5 text-center border-r border-slate-700 text-rose-300" style="width: 18%;">Tidak Hadir</th>
+                    <th class="p-2.5 text-center border-r border-slate-700 font-bold" style="width: 10%;">Total</th>
+                    <th class="p-2.5 text-center" style="width: 10%;">Aksi</th>
+                </tr>
+            </thead>
+        `;
+
+        let tbodySesi = tab2Rows.map((r, idx) => `
+            <tr class="hover:bg-slate-50 transition border-b border-slate-100 text-xs">
+                <td class="p-2.5 text-center font-bold text-slate-800 border-r border-slate-200 bg-slate-50/50 truncate">${r.date}</td>
+                <td class="p-2.5 text-center font-semibold text-slate-700 border-r border-slate-200">${r.sesi}</td>
+                <td class="p-2.5 text-center text-emerald-700 font-bold text-sm border-r border-slate-200">${r.hadir}</td>
+                <td class="p-2.5 text-center text-rose-700 font-bold text-sm border-r border-slate-200">${r.tidakHadir}</td>
+                <td class="p-2.5 text-center font-bold text-slate-900 border-r border-slate-200 bg-slate-50/50">${r.total}</td>
+                <td class="p-2.5 text-center">
+                    <button type="button" 
+                            onclick="copyRowRekapSesi(${idx})" 
+                            class="w-full py-1.5 px-2 bg-slate-100 hover:bg-emerald-600 text-slate-700 hover:text-white rounded text-[11px] font-bold transition flex items-center justify-center gap-1 mx-auto cursor-pointer" 
+                            title="Copy baris ini">
+                        <i data-lucide="copy" class="w-3 h-3 flex-shrink-0"></i>
+                        <span>Copy</span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        let tfootSesi = `
+            <tfoot class="bg-slate-100 font-bold text-xs border-t-2 border-slate-300 text-slate-800">
+                <tr>
+                    <td colspan="2" class="p-2.5 text-center font-extrabold uppercase border-r border-slate-200">TOTAL KESELURUHAN</td>
+                    <td class="p-2.5 text-center text-emerald-800 font-extrabold text-sm border-r border-slate-200">${grandHadirSesi}</td>
+                    <td class="p-2.5 text-center text-rose-800 font-extrabold text-sm border-r border-slate-200">${grandTidakHadirSesi}</td>
+                    <td class="p-2.5 text-center font-extrabold text-slate-900 border-r border-slate-200">${grandTotalSesi}</td>
+                    <td class="p-2.5 text-center">
+                        <button type="button" 
+                                onclick="copyAllRekapSesi()" 
+                                class="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold transition mx-auto cursor-pointer" title="Copy Semua Sesi">
+                            Copy Total
+                        </button>
+                    </td>
+                </tr>
+            </tfoot>
+        `;
+
+        tableSesiContainer.innerHTML = `
+            <table class="w-full table-fixed text-left border-collapse">
+                ${theadSesi}
+                <tbody class="divide-y divide-slate-100 bg-white">
+                    ${tbodySesi}
+                </tbody>
+                ${tfootSesi}
+            </table>
+        `;
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+// ==================== FUNGSI CLIPBOARD COPY REKAPITULASI ====================
+
+/**
+ * Menyalin teks ke clipboard pengguna dan memunculkan toast
+ */
+function copyTextToClipboard(text, successMsg = "Data berhasil disalin ke clipboard!") {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast(successMsg, "success");
+        }).catch(() => {
+            fallbackCopyText(text, successMsg);
+        });
+    } else {
+        fallbackCopyText(text, successMsg);
+    }
+}
+
+/**
+ * Fallback metode copy clipboard untuk browser jadul / insecure context
+ */
+function fallbackCopyText(text, successMsg) {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            showToast(successMsg, "success");
+        } else {
+            showToast("Gagal menyalin, peramban membatasi akses clipboard.", "error");
+        }
+    } catch (err) {
+        showToast("Gagal menyalin ke clipboard: " + err.message, "error");
+    }
+    document.body.removeChild(textArea);
+}
+
+/**
+ * Copy 1 baris Rekap Kelompok Jabatan (TSV Excel-Ready)
+ */
+window.copyRowRekapKelJabatan = (rowIndex) => {
+    const row = currentRekapData.tab1Rows[rowIndex];
+    if (!row) return;
+
+    const headerStr = `Tanggal\tHadir JPT Pratama\tHadir Administrator\tHadir Pengawas\tHadir Jab. Fungsional\tHadir Pelaksana\tTidak Hadir JPT Pratama\tTidak Hadir Administrator\tTidak Hadir Pengawas\tTidak Hadir Jab. Fungsional\tTidak Hadir Pelaksana\tTotal`;
+    const dataStr = `${row.date}\t${row.hadir.jpt}\t${row.hadir.admin}\t${row.hadir.pengawas}\t${row.hadir.jf}\t${row.hadir.pelaksana}\t${row.tidakHadir.jpt}\t${row.tidakHadir.admin}\t${row.tidakHadir.pengawas}\t${row.tidakHadir.jf}\t${row.tidakHadir.pelaksana}\t${row.total}`;
+
+    const textToCopy = `${headerStr}\n${dataStr}`;
+    copyTextToClipboard(textToCopy, `Data rekap tanggal ${row.date} berhasil disalin! Format siap di-paste ke Excel.`);
+};
+
+/**
+ * Copy seluruh data Rekap Kelompok Jabatan (Semua Baris + Total)
+ */
+window.copyAllRekapKelJabatan = () => {
+    const rows = currentRekapData.tab1Rows || [];
+    if (rows.length === 0) {
+        showToast("Tidak ada data rekapitulasi untuk disalin.", "info");
+        return;
+    }
+
+    const headerStr = `Tanggal\tHadir JPT Pratama\tHadir Administrator\tHadir Pengawas\tHadir Jab. Fungsional\tHadir Pelaksana\tTidak Hadir JPT Pratama\tTidak Hadir Administrator\tTidak Hadir Pengawas\tTidak Hadir Jab. Fungsional\tTidak Hadir Pelaksana\tTotal`;
+    const lines = [headerStr];
+
+    rows.forEach(r => {
+        const line = `${r.date}\t${r.hadir.jpt}\t${r.hadir.admin}\t${r.hadir.pengawas}\t${r.hadir.jf}\t${r.hadir.pelaksana}\t${r.tidakHadir.jpt}\t${r.tidakHadir.admin}\t${r.tidakHadir.pengawas}\t${r.tidakHadir.jf}\t${r.tidakHadir.pelaksana}\t${r.total}`;
+        lines.push(line);
+    });
+
+    // Tambahkan baris TOTAL
+    const g = currentRekapData.grandTab1;
+    if (g) {
+        const totalLine = `TOTAL\t${g.hadir.jpt}\t${g.hadir.admin}\t${g.hadir.pengawas}\t${g.hadir.jf}\t${g.hadir.pelaksana}\t${g.tidakHadir.jpt}\t${g.tidakHadir.admin}\t${g.tidakHadir.pengawas}\t${g.tidakHadir.jf}\t${g.tidakHadir.pelaksana}\t${g.total}`;
+        lines.push(totalLine);
+    }
+
+    copyTextToClipboard(lines.join('\n'), "Seluruh tabel Rekap Kelompok Jabatan berhasil disalin! Format siap di-paste ke Excel.");
+};
+
+/**
+ * Copy 1 baris Rekap Sesi
+ */
+window.copyRowRekapSesi = (rowIndex) => {
+    const row = currentRekapData.tab2Rows[rowIndex];
+    if (!row) return;
+
+    const headerStr = `Tanggal\tSesi\tHadir\tTidak Hadir\tTotal`;
+    const dataStr = `${row.date}\t${row.sesi}\t${row.hadir}\t${row.tidakHadir}\t${row.total}`;
+
+    copyTextToClipboard(`${headerStr}\n${dataStr}`, `Data ${row.sesi} (${row.date}) berhasil disalin!`);
+};
+
+/**
+ * Copy seluruh tabel Rekap Sesi (Semua Baris + Total)
+ */
+window.copyAllRekapSesi = () => {
+    const rows = currentRekapData.tab2Rows || [];
+    if (rows.length === 0) {
+        showToast("Tidak ada data sesi untuk disalin.", "info");
+        return;
+    }
+
+    const headerStr = `Tanggal\tSesi\tHadir\tTidak Hadir\tTotal`;
+    const lines = [headerStr];
+
+    rows.forEach(r => {
+        lines.push(`${r.date}\t${r.sesi}\t${r.hadir}\t${r.tidakHadir}\t${r.total}`);
+    });
+
+    const g = currentRekapData.grandTab2;
+    if (g) {
+        lines.push(`TOTAL KESELURUHAN\t-\t${g.hadir}\t${g.tidakHadir}\t${g.total}`);
+    }
+
+    copyTextToClipboard(lines.join('\n'), "Seluruh tabel Rekap Sesi berhasil disalin! Format siap di-paste ke Excel.");
+};
+
