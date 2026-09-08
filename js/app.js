@@ -2198,6 +2198,7 @@ function setupManualCandidateForm() {
             const id = document.getElementById('editCandidateId').value;
             const nip = document.getElementById('inputManualNip').value.trim();
             const nama = document.getElementById('inputManualNama').value.trim();
+            const kelJabatan = document.getElementById('inputManualKelJabatan') ? document.getElementById('inputManualKelJabatan').value.trim() : '';
             const unitKerja = document.getElementById('inputManualUnitKerja').value.trim();
             const jabatan = document.getElementById('inputManualJabatan').value.trim();
             const pelaksanaan = document.getElementById('inputManualPelaksanaan').value.trim();
@@ -2209,6 +2210,7 @@ function setupManualCandidateForm() {
                 examId: currentExam.id,
                 nip,
                 nama,
+                kelJabatan: kelJabatan || '-',
                 unitKerja,
                 jabatan,
                 pelaksanaan,
@@ -2234,6 +2236,7 @@ function setupManualCandidateForm() {
                 renderDashboardStats();
                 populatePelaksanaanFilterDropdown();
                 populateSesiFilterDropdown(currentDateFilter);
+                populateKelJabatanFilterDropdown();
                 applyCandidateFilters();
                 closeModalCandidateManual();
 
@@ -2254,6 +2257,9 @@ window.openModalAddCandidate = () => {
     title.textContent = "Tambah Peserta Manual";
     form.reset();
     document.getElementById('editCandidateId').value = '';
+    if (document.getElementById('inputManualKelJabatan')) {
+        document.getElementById('inputManualKelJabatan').value = '';
+    }
 
     if (currentExam && currentExam.startDate) {
         document.getElementById('inputManualPelaksanaan').value = formatDateDisplay(currentExam.startDate, 'short');
@@ -2276,6 +2282,9 @@ window.editCandidate = (candidateId) => {
     document.getElementById('editCandidateId').value = cand.id;
     document.getElementById('inputManualNip').value = cand.nip;
     document.getElementById('inputManualNama').value = cand.nama;
+    if (document.getElementById('inputManualKelJabatan')) {
+        document.getElementById('inputManualKelJabatan').value = cand.kelJabatan && cand.kelJabatan !== '-' ? cand.kelJabatan : '';
+    }
     document.getElementById('inputManualUnitKerja').value = cand.unitKerja || '';
     document.getElementById('inputManualJabatan').value = cand.jabatan || '';
     document.getElementById('inputManualPelaksanaan').value = cand.pelaksanaan || '';
