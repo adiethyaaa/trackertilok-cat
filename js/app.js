@@ -20,7 +20,7 @@ let currentSessionFilter = 'ALL';
 let currentCumulativeSessionFilter = 'ALL';
 let currentSearchTerm = '';
 let currentDateFilter = 'ALL';
-let currentSortColumn = 'no';
+let currentSortColumn = 'sesi';
 let currentSortDirection = 'asc';
 
 // Inisialisasi Aplikasi Saat Halaman Dimuat
@@ -1259,6 +1259,30 @@ function getCumulativeSessionNumber(c, sortedDates) {
 }
 
 /**
+ * Toggle Status Kehadiran Peserta (HADIR, TIDAK_HADIR, RESET)
+ */
+window.toggleAttendance = async (candidateId, action) => {
+    const cand = currentCandidates.find(c => c.id === candidateId);
+    if (!cand) return;
+
+    if (action === 'RESET') {
+        cand.kehadiran = null;
+    } else {
+        cand.kehadiran = action; // 'HADIR' atau 'TIDAK_HADIR'
+    }
+
+    try {
+        await db.updateCandidate(cand);
+        applyCandidateFilters();
+        const statusText = cand.kehadiran === 'HADIR' ? 'Hadir' : (cand.kehadiran === 'TIDAK_HADIR' ? 'Tidak Hadir' : 'Direset');
+        showToast(`Status ${cand.nama}: ${statusText}`, cand.kehadiran === 'HADIR' ? 'success' : (cand.kehadiran === 'TIDAK_HADIR' ? 'error' : 'info'));
+    } catch (err) {
+        console.error("Gagal update status kehadiran:", err);
+        showToast("Gagal menyimpan status kehadiran: " + err.message, "error");
+    }
+};
+
+/**
  * Mengurutkan tabel berdasarkan header yang diklik
  */
 window.sortTable = (colKey) => {
@@ -1276,7 +1300,7 @@ window.sortTable = (colKey) => {
  * Memperbarui ikon panah sorting pada header tabel
  */
 function updateSortIcons() {
-    const columns = ['no', 'nip', 'nama', 'unitKerja', 'jabatan', 'pelaksanaan', 'sesi', 'waktu'];
+    const columns = ['no', 'kehadiran', 'nip', 'nama', 'unitKerja', 'jabatan', 'pelaksanaan', 'sesi', 'waktu'];
     columns.forEach(col => {
         const iconEl = document.getElementById(`sort-icon-${col}`);
         if (!iconEl) return;
@@ -1324,7 +1348,7 @@ function applyCandidateFilters() {
         return true;
     });
 
-    // Pengurutan data (Sorting)
+    // Pengurutan data (Sorting) - Default Sesi ASC lalu Nama ASC
     filteredCandidates.sort((a, b) => {
         let valA, valB;
 
@@ -1333,30 +1357,28 @@ function applyCandidateFilters() {
                 valA = Number(a.no) || 0;
                 valB = Number(b.no) || 0;
                 break;
+            case 'kehadiran': {
+                const getAttWeight = (k) => k === 'HADIR' ? 1 : (k === 'TIDAK_HADIR' ? 2 : 3);
+                valA = getAttWeight(a.kehadiran);
+                valB = getAttWeight(b.kehadiran);
+                break;
+            }
             case 'nip':
                 valA = String(a.nip || '');
                 valB = String(b.nip || '');
-                return currentSortDirection === 'asc' 
-                    ? valA.localeCompare(valB, undefined, { numeric: true }) 
-                    : valB.localeCompare(valA, undefined, { numeric: true });
+                break;
             case 'nama':
                 valA = String(a.nama || '');
                 valB = String(b.nama || '');
-                return currentSortDirection === 'asc' 
-                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
-                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+                break;
             case 'unitKerja':
                 valA = String(a.unitKerja || '');
                 valB = String(b.unitKerja || '');
-                return currentSortDirection === 'asc' 
-                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
-                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+                break;
             case 'jabatan':
                 valA = String(a.jabatan || '');
                 valB = String(b.jabatan || '');
-                return currentSortDirection === 'asc' 
-                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
-                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+                break;
             case 'pelaksanaan': {
                 const da = parseFlexibleDate(a.pelaksanaan);
                 const db = parseFlexibleDate(b.pelaksanaan);
@@ -1372,17 +1394,31 @@ function applyCandidateFilters() {
             case 'waktu':
                 valA = String(a.waktu || '');
                 valB = String(b.waktu || '');
-                return currentSortDirection === 'asc' 
-                    ? valA.localeCompare(valB) 
-                    : valB.localeCompare(valA);
+                break;
             default:
-                valA = Number(a.no) || 0;
-                valB = Number(b.no) || 0;
+                valA = getCumulativeSessionNumber(a, sortedDates);
+                valB = getCumulativeSessionNumber(b, sortedDates);
         }
 
-        if (valA < valB) return currentSortDirection === 'asc' ? -1 : 1;
-        if (valA > valB) return currentSortDirection === 'asc' ? 1 : -1;
-        return 0;
+        let cmp = 0;
+        if (typeof valA === 'string' && typeof valB === 'string') {
+            cmp = currentSortDirection === 'asc' 
+                ? valA.localeCompare(valB, 'id', { sensitivity: 'base', numeric: true }) 
+                : valB.localeCompare(valA, 'id', { sensitivity: 'base', numeric: true });
+        } else {
+            if (valA < valB) cmp = currentSortDirection === 'asc' ? -1 : 1;
+            else if (valA > valB) cmp = currentSortDirection === 'asc' ? 1 : -1;
+            else cmp = 0;
+        }
+
+        // Secondary Sort: Jika nilai sama, selalu urutkan kedua berdasarkan NAMA ASCENDING (A-Z)
+        if (cmp === 0) {
+            const nameA = String(a.nama || '');
+            const nameB = String(b.nama || '');
+            return nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
+        }
+
+        return cmp;
     });
 
     renderCandidateListTable();
@@ -1401,7 +1437,7 @@ function renderCandidateListTable() {
     if (!currentExam) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" class="p-8 text-center text-slate-400">
+                <td colspan="10" class="p-8 text-center text-slate-400">
                     <i data-lucide="building" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-medium text-slate-600">Belum ada ujian aktif.</p>
                     <p class="text-xs text-slate-400 mt-1">Silakan buat ujian terlebih dahulu melalui tab <strong>Create Ujian</strong>.</p>
@@ -1415,7 +1451,7 @@ function renderCandidateListTable() {
     if (filteredCandidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" class="p-8 text-center text-slate-400">
+                <td colspan="10" class="p-8 text-center text-slate-400">
                     <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p>Tidak ada data peserta yang cocok dengan filter pencarian.</p>
                 </td>
@@ -1441,6 +1477,28 @@ function renderCandidateListTable() {
         return `
             <tr class="${isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50'} transition">
                 <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
+                <td class="p-2.5 text-center whitespace-nowrap">
+                    ${c.kehadiran === 'HADIR' ? `
+                        <button onclick="toggleAttendance(${c.id}, 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer" title="Status: Hadir. Klik untuk ubah/batal">
+                            <i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>
+                            <span>Hadir</span>
+                        </button>
+                    ` : c.kehadiran === 'TIDAK_HADIR' ? `
+                        <button onclick="toggleAttendance(${c.id}, 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer" title="Status: Tidak Hadir. Klik untuk ubah/batal">
+                            <i data-lucide="x" class="w-3.5 h-3.5 stroke-[3]"></i>
+                            <span>Tidak Hadir</span>
+                        </button>
+                    ` : `
+                        <div class="inline-flex items-center justify-center gap-1.5">
+                            <button onclick="toggleAttendance(${c.id}, 'HADIR')" class="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer" title="Tandai Hadir">
+                                <i data-lucide="check" class="w-4 h-4 stroke-[2.5]"></i>
+                            </button>
+                            <button onclick="toggleAttendance(${c.id}, 'TIDAK_HADIR')" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer" title="Tandai Tidak Hadir">
+                                <i data-lucide="x" class="w-4 h-4 stroke-[2.5]"></i>
+                            </button>
+                        </div>
+                    `}
+                </td>
                 <td class="p-3 font-mono font-medium text-slate-900">${c.nip}</td>
                 <td class="p-3 font-bold text-slate-900">${c.nama}</td>
                 <td class="p-3 text-slate-600 max-w-[220px] truncate" title="${c.unitKerja || '-'}">${c.unitKerja || '-'}</td>
@@ -1660,45 +1718,128 @@ window.printOfficialSchedule = () => {
         return;
     }
 
-    const printInstansi = document.getElementById('printInstansi');
-    const printLocation = document.getElementById('printLocation');
-    const printDate = document.getElementById('printDate');
-    const printSession = document.getElementById('printSession');
-    const printSignedDate = document.getElementById('printSignedDate');
-    const tbody = document.getElementById('tbodyPrintCandidates');
+    const printContainer = document.getElementById('officialPrintArea');
+    if (!printContainer) return;
 
-    if (printInstansi) printInstansi.textContent = `Instansi: ${currentExam.instansi}`;
-    if (printLocation) printLocation.textContent = `Tilok: ${currentExam.location}`;
+    const sortedDates = getSortedExamDates();
 
-    const dateTxt = currentDateFilter === 'ALL' ? 'Semua Tanggal' : currentDateFilter;
-    let sessionTxt = 'Semua Sesi';
-    if (currentCumulativeSessionFilter !== 'ALL') {
-        sessionTxt = `Sesi ${formatCumulativeSessionNumber(currentCumulativeSessionFilter)}`;
-    } else if (currentSessionFilter !== 'ALL') {
-        sessionTxt = `Sesi ${currentSessionFilter}`;
-    }
+    // Kelompokkan peserta berdasarkan sesi kumulatif
+    const sessionsMap = new Map();
+    filteredCandidates.forEach(c => {
+        const cum = getCumulativeSessionNumber(c, sortedDates);
+        if (!sessionsMap.has(cum)) {
+            sessionsMap.set(cum, {
+                cumNum: cum,
+                cumFormatted: formatCumulativeSessionNumber(cum),
+                dailySession: c.sesi,
+                date: c.pelaksanaan,
+                waktu: c.waktu,
+                candidates: []
+            });
+        }
+        sessionsMap.get(cum).candidates.push(c);
+    });
 
-    if (printDate) printDate.textContent = `Tanggal: ${dateTxt}`;
-    if (printSession) printSession.textContent = `Sesi: ${sessionTxt}`;
+    const sortedSessionGroups = Array.from(sessionsMap.values()).sort((a, b) => a.cumNum - b.cumNum);
+    const todayStr = formatDateDisplay(new Date(), 'long');
 
-    if (printSignedDate) {
-        const todayStr = formatDateDisplay(new Date(), 'long');
-        printSignedDate.textContent = `Manokwari, ${todayStr}`;
-    }
+    let fullHtml = '';
 
-    if (tbody) {
-        tbody.innerHTML = filteredCandidates.map((c, idx) => `
-            <tr>
-                <td style="text-align: center;">${idx + 1}</td>
-                <td style="font-family: monospace;">${c.nip}</td>
-                <td style="font-weight: bold;">${c.nama}</td>
-                <td>${c.unitKerja || '-'}<br><span style="font-size: 8pt; color: #555;">${c.jabatan || ''}</span></td>
-                <td>${c.waktu}</td>
-                <td style="height: 32px; border-bottom: 1px dotted #888;">${idx + 1}. ...............</td>
-            </tr>
-        `).join('');
-    }
+    sortedSessionGroups.forEach((group) => {
+        // Urutkan nama peserta A-Z dalam setiap sesi
+        const sortedList = [...group.candidates].sort((a, b) => 
+            String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' })
+        );
 
+        const dayName = group.date ? getDayNameID(group.date) : '';
+
+        fullHtml += `
+            <div class="print-session-page">
+                <!-- KOP RESMI BKN -->
+                <div style="border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; text-align: center;">
+                    <div style="font-size: 11pt; font-weight: bold; letter-spacing: 0.5px;">BADAN KEPEGAWAIAN NEGARA</div>
+                    <div style="font-size: 10pt; font-weight: bold;">KANTOR REGIONAL XIV MANOKWARI</div>
+                    <div style="font-size: 12pt; font-weight: 800; margin-top: 4px; text-decoration: underline;">DAFTAR HADIR & JADWAL PESERTA UJIAN PROFILING ASN</div>
+                </div>
+
+                <!-- HEADER KETERANGAN SESI YANG DICETAK -->
+                <table style="width: 100%; font-size: 8.5pt; margin-bottom: 8px; border: none;">
+                    <tr>
+                        <td style="width: 18%; font-weight: bold; padding: 2px 0;">Instansi</td>
+                        <td style="width: 2%; padding: 2px 0;">:</td>
+                        <td style="width: 45%; font-weight: bold; padding: 2px 0;">${currentExam.instansi}</td>
+                        <td style="width: 15%; font-weight: bold; padding: 2px 0;">Sesi Ujian</td>
+                        <td style="width: 2%; padding: 2px 0;">:</td>
+                        <td style="width: 18%; font-weight: bold; color: #1e3a8a; padding: 2px 0;">Sesi ${group.dailySession} (${group.cumFormatted})</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; padding: 2px 0;">Titik Lokasi</td>
+                        <td style="padding: 2px 0;">:</td>
+                        <td style="padding: 2px 0;">${currentExam.location}</td>
+                        <td style="font-weight: bold; padding: 2px 0;">Waktu Ujian</td>
+                        <td style="padding: 2px 0;">:</td>
+                        <td style="padding: 2px 0;">${group.waktu}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; padding: 2px 0;">Hari / Tanggal</td>
+                        <td style="padding: 2px 0;">:</td>
+                        <td style="padding: 2px 0;">${dayName ? `${dayName}, ` : ''}${group.date || '-'}</td>
+                        <td style="font-weight: bold; padding: 2px 0;">Jumlah Peserta</td>
+                        <td style="padding: 2px 0;">:</td>
+                        <td style="padding: 2px 0; font-weight: bold;">${sortedList.length} Orang</td>
+                    </tr>
+                </table>
+
+                <!-- TABEL PESERTA SESI INI (Kolom Waktu diganti Kolom Sesi & Kumulatif) -->
+                <table class="print-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 28px;">No</th>
+                            <th style="width: 125px;">NIP</th>
+                            <th>Nama Peserta</th>
+                            <th>Unit Kerja / Jabatan</th>
+                            <th style="width: 100px;">Sesi</th>
+                            <th style="width: 115px;">Tanda Tangan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedList.map((c, idx) => {
+                            const statusBadge = c.kehadiran === 'HADIR'
+                                ? '<span style="color: #047857; font-weight: bold;">[ HADIR ]</span>'
+                                : (c.kehadiran === 'TIDAK_HADIR'
+                                    ? '<span style="color: #b91c1c; font-weight: bold;">[ TDK HADIR ]</span>'
+                                    : '');
+                            return `
+                                <tr>
+                                    <td style="text-align: center;">${idx + 1}</td>
+                                    <td style="font-family: monospace; text-align: center;">${c.nip}</td>
+                                    <td style="font-weight: bold;">${c.nama}</td>
+                                    <td>${c.unitKerja || '-'}${c.jabatan ? `<br><span style="font-size: 7.5pt; color: #444;">${c.jabatan}</span>` : ''}</td>
+                                    <td style="text-align: center; font-weight: bold;">Sesi ${c.sesi} (${group.cumFormatted})</td>
+                                    <td style="height: 24px; vertical-align: middle;">
+                                        ${statusBadge || `<span style="color: #888;">${idx + 1}. .........</span>`}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+
+                <!-- TANDA TANGAN PENANGGUNG JAWAB -->
+                <div style="margin-top: 18px; display: flex; justify-content: flex-end; page-break-inside: avoid;">
+                    <div style="width: 240px; text-align: center; font-size: 8.5pt;">
+                        <div>Manokwari, ${todayStr}</div>
+                        <div style="margin-top: 4px; font-weight: bold;">Koordinator Tim Pelaksana CAT BKN,</div>
+                        <div style="height: 48px;"></div>
+                        <div style="border-bottom: 1px solid #000; font-weight: bold;">( ..................................................... )</div>
+                        <div style="font-size: 7.5pt; color: #555; margin-top: 2px;">NIP. .................................................</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    printContainer.innerHTML = fullHtml;
     window.print();
 };
 

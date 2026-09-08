@@ -30,6 +30,56 @@
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 10mm 8mm 12mm 8mm;
+            }
+            body {
+                background: white !important;
+                color: #111 !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 8.5pt !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            header, nav, main, footer,
+            #modalCandidateManual, #modalMasterInstansi, #modalDuplicateResolution, #toastContainer {
+                display: none !important;
+            }
+            #officialPrintArea {
+                display: block !important;
+                width: 100% !important;
+            }
+            .print-session-page {
+                page-break-after: always;
+                break-after: page;
+                margin-bottom: 20px;
+            }
+            .print-session-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+            table.print-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 8px;
+            }
+            table.print-table th, table.print-table td {
+                border: 1px solid #333 !important;
+                padding: 4px 6px !important;
+                font-size: 8pt !important;
+            }
+            table.print-table th {
+                background-color: #f1f5f9 !important;
+                font-weight: bold;
+                text-align: center;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
 
@@ -205,6 +255,12 @@
                                     <div class="flex items-center justify-center space-x-1">
                                         <span>No</span>
                                         <span id="sort-icon-no" class="text-slate-400 text-[10px]">▲</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('kehadiran')" class="p-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Status Kehadiran">
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <span>Kehadiran</span>
+                                        <span id="sort-icon-kehadiran" class="text-slate-400 text-[10px]">↕</span>
                                     </div>
                                 </th>
                                 <th onclick="sortTable('nip')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan NIP (A-Z)">
@@ -907,6 +963,9 @@
 
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <!-- Official Print Area (Khusus Media Cetak / PDF Portrait) -->
+    <div id="officialPrintArea" class="hidden"></div>
 
     <!-- Main Application Script (ES Module) -->
     <script type="module" src="js/app.js"></script>

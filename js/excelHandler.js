@@ -88,7 +88,7 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
     }
 
     const dataBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(dataBuffer, { type: 'array', cellDates: true, cellText: false });
+    const workbook = XLSX.read(dataBuffer, { type: 'array', cellDates: true, cellText: true });
 
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
@@ -162,19 +162,21 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
             let val = row[colIdx];
 
             if (fieldKey === 'pelaksanaan') {
-                if (val instanceof Date) {
-                    rowObj.pelaksanaan = formatDateDisplay(val, 'short');
-                } else if (typeof val === 'number') {
-                    // Tanggal serial Excel
-                    rowObj.pelaksanaan = formatDateDisplay(val, 'short');
+                // Cek apakah cell di worksheet memiliki formatted text (.w) asli dari Excel (misal: "09-Sep-26" atau "9/9/2026")
+                const cellAddress = XLSX.utils.encode_cell({ r: i, c: Number(colIdx) });
+                const directCell = worksheet[cellAddress];
+                const rawCellText = (directCell && directCell.w) ? directCell.w.trim() : null;
+
+                if (rawCellText) {
+                    const parsedFromText = parseFlexibleDate(rawCellText);
+                    rowObj.pelaksanaan = parsedFromText ? formatDateDisplay(parsedFromText, 'short') : rawCellText;
+                } else if (val instanceof Date || typeof val === 'number') {
+                    const parsed = parseFlexibleDate(val);
+                    rowObj.pelaksanaan = parsed ? formatDateDisplay(parsed, 'short') : String(val);
                 } else {
                     const strVal = String(val || '').trim();
                     const parsed = parseFlexibleDate(strVal);
-                    if (parsed) {
-                        rowObj.pelaksanaan = formatDateDisplay(parsed, 'short');
-                    } else {
-                        rowObj.pelaksanaan = strVal;
-                    }
+                    rowObj.pelaksanaan = parsed ? formatDateDisplay(parsed, 'short') : strVal;
                 }
             } else {
                 rowObj[fieldKey] = String(val !== undefined && val !== null ? val : '').trim();

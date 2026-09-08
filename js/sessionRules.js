@@ -40,11 +40,25 @@ export function parseFlexibleDate(dateInput) {
     if (!dateInput) return null;
 
     if (dateInput instanceof Date && !isNaN(dateInput)) {
-        // Hindari pergeseran hari karena UTC timezone offset pada Excel
+        // Ambil komponen tanggal dan hindari pergeseran hari karena UTC/local timezone
+        let y = dateInput.getFullYear();
+        let m = dateInput.getMonth();
+        let d = dateInput.getDate();
+
+        // Jika jam UTC adalah 00:00 (seperti yang dihasilkan oleh SheetJS untuk sel tanggal),
+        // di timezone manapun kita utamakan tanggal UTC-nya
         if (dateInput.getUTCHours() === 0 && dateInput.getUTCMinutes() === 0) {
-            return new Date(dateInput.getUTCFullYear(), dateInput.getUTCMonth(), dateInput.getUTCDate());
+            y = dateInput.getUTCFullYear();
+            m = dateInput.getUTCMonth();
+            d = dateInput.getUTCDate();
+        } else if (dateInput.getUTCHours() >= 20) {
+            // Misal 23:59:59 dari floating rounding error SheetJS, geser ke hari berikutnya
+            const next = new Date(dateInput.getTime() + (4 * 3600 * 1000));
+            y = next.getUTCFullYear();
+            m = next.getUTCMonth();
+            d = next.getUTCDate();
         }
-        return dateInput;
+        return new Date(y, m, d, 12, 0, 0);
     }
 
     // Jika berupa angka serial Excel (misal 45000+)
@@ -52,10 +66,11 @@ export function parseFlexibleDate(dateInput) {
         const serial = Number(dateInput);
         if (serial > 20000 && serial < 60000) {
             // Excel epoch dimulai dari 1899-12-30
-            const utcDays = Math.floor(serial - 25569);
-            const utcValue = utcDays * 86400;
-            const dateInfo = new Date(utcValue * 1000);
-            return new Date(dateInfo.getFullYear(), dateInfo.getMonth(), dateInfo.getDate());
+            // Tambahkan 0.0001 untuk mengatasi floating point 23:59:59.999
+            const totalDays = Math.floor(serial + 0.0001);
+            const utcMs = (totalDays - 25569) * 86400000;
+            const dateInfo = new Date(utcMs);
+            return new Date(dateInfo.getUTCFullYear(), dateInfo.getUTCMonth(), dateInfo.getUTCDate(), 12, 0, 0);
         }
     }
 
@@ -89,7 +104,7 @@ export function parseFlexibleDate(dateInput) {
             year = 2000 + year; // 26 -> 2026
         }
         if (monthMap[monStr] !== undefined) {
-            return new Date(year, monthMap[monStr], day);
+            return new Date(year, monthMap[monStr], day, 12, 0, 0);
         }
     }
 
@@ -100,13 +115,16 @@ export function parseFlexibleDate(dateInput) {
         const month = parseInt(ddmmyyyy[2], 10) - 1;
         let year = parseInt(ddmmyyyy[3], 10);
         if (year < 100) year = 2000 + year;
-        return new Date(year, month, day);
+        return new Date(year, month, day, 12, 0, 0);
     }
 
-    // Standard ISO format (YYYY-MM-DD)
-    const parsed = new Date(str);
-    if (!isNaN(parsed.getTime())) {
-        return parsed;
+    // Format ISO YYYY-MM-DD
+    const isoyyyymmdd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoyyyymmdd) {
+        const year = parseInt(isoyyyymmdd[1], 10);
+        const month = parseInt(isoyyyymmdd[2], 10) - 1;
+        const day = parseInt(isoyyyymmdd[3], 10);
+        return new Date(year, month, day, 12, 0, 0);
     }
 
     return null;
