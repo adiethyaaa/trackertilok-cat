@@ -283,15 +283,39 @@ export function listenCandidatesCloud(examId, callback) {
                 return;
             }
 
-            const candidatesList = Object.keys(val).map(key => ({
-                id: isNaN(Number(key)) ? key : Number(key),
-                ...val[key]
-            })).sort((a, b) => {
+            const candidatesList = [];
+            const keysToPurge = [];
+
+            Object.keys(val).forEach(key => {
+                const item = val[key];
+                // Saring dan buang entri corrupt / ghost (tanpa nama atau NIP)
+                if (!item || typeof item !== 'object' || !item.nama || item.nama === 'undefined' || !item.nip || item.nip === 'undefined') {
+                    keysToPurge.push(key);
+                    return;
+                }
+
+                candidatesList.push({
+                    id: String(item.nip || key).trim(),
+                    ...item,
+                    nip: String(item.nip || key).trim(),
+                    nama: String(item.nama).trim()
+                });
+            });
+
+            candidatesList.sort((a, b) => {
                 const sesiA = Number(a.sesi) || 0;
                 const sesiB = Number(b.sesi) || 0;
                 if (sesiA !== sesiB) return sesiA - sesiB;
                 return (Number(a.no) || 0) - (Number(b.no) || 0);
             });
+
+            // Otomatis bersihkan entri ghost di database Firebase di latar belakang
+            if (keysToPurge.length > 0) {
+                console.warn(`[Profiling ASN] Membersihkan ${keysToPurge.length} data ghost / undefined dari Firebase...`);
+                keysToPurge.forEach(k => {
+                    remove(ref(db, 'candidates/' + examId + '/' + k)).catch(() => {});
+                });
+            }
 
             callback(candidatesList);
         }, (err) => {
@@ -318,15 +342,36 @@ export async function getCandidatesByExamCloud(examId) {
     if (!snapshot.exists()) return [];
 
     const val = snapshot.val();
-    const candidatesList = Object.keys(val).map(key => ({
-        id: isNaN(Number(key)) ? key : key,
-        ...val[key]
-    })).sort((a, b) => {
+    const candidatesList = [];
+    const keysToPurge = [];
+
+    Object.keys(val).forEach(key => {
+        const item = val[key];
+        if (!item || typeof item !== 'object' || !item.nama || item.nama === 'undefined' || !item.nip || item.nip === 'undefined') {
+            keysToPurge.push(key);
+            return;
+        }
+
+        candidatesList.push({
+            id: String(item.nip || key).trim(),
+            ...item,
+            nip: String(item.nip || key).trim(),
+            nama: String(item.nama).trim()
+        });
+    });
+
+    candidatesList.sort((a, b) => {
         const sesiA = Number(a.sesi) || 0;
         const sesiB = Number(b.sesi) || 0;
         if (sesiA !== sesiB) return sesiA - sesiB;
         return (Number(a.no) || 0) - (Number(b.no) || 0);
     });
+
+    if (keysToPurge.length > 0) {
+        keysToPurge.forEach(k => {
+            remove(ref(db, 'candidates/' + examId + '/' + k)).catch(() => {});
+        });
+    }
 
     return candidatesList;
 }
@@ -339,14 +384,21 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
     const db = ensureDb();
 
     const updates = {};
+    let validCount = 0;
     candidateList.forEach((c, idx) => {
-        const key = String(c.nip || c.id || ('cand_' + idx)).trim().replace(/[.#$[\]/]/g, '_');
+        const rawNip = String(c.nip || '').trim();
+        const rawNama = String(c.nama || '').trim();
+        if (!rawNip || rawNip === 'undefined' || !rawNama || rawNama === 'undefined') {
+            return; // Abaikan data rusak
+        }
+
+        const key = rawNip.replace(/[.#$[\]/]/g, '_');
         const hasValidSesi = c.sesi !== undefined && c.sesi !== null && c.sesi !== '' && c.sesi !== 'NULL' && !isNaN(Number(c.sesi));
         updates['candidates/' + examId + '/' + key] = {
             examId: examId,
-            no: c.no || (idx + 1),
-            nip: String(c.nip || '').trim(),
-            nama: String(c.nama || '').trim(),
+            no: c.no || (validCount + 1),
+            nip: rawNip,
+            nama: rawNama,
             kelJabatan: String(c.kelJabatan || '-').trim(),
             unitKerja: String(c.unitKerja || '-').trim(),
             jabatan: String(c.jabatan || '-').trim(),
@@ -359,10 +411,13 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
             jenisTes: String(c.jenisTes || '').trim(),
             updatedAt: new Date().toISOString()
         };
+        validCount++;
     });
 
-    await update(ref(db), updates);
-    return candidateList.length;
+    if (validCount > 0) {
+        await update(ref(db), updates);
+    }
+    return validCount;
 }
 
 /**
@@ -373,7 +428,13 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
     const cExamId = examId || candidate.examId;
     if (!cExamId) throw new Error("examId diperlukan untuk menyimpan kandidat");
 
-    const key = String(candidate.nip || candidate.id || ('cand_' + Date.now())).trim().replace(/[.#$[\]/]/g, '_');
+    const rawNip = String(candidate.nip || '').trim();
+    const rawNama = String(candidate.nama || '').trim();
+    if (!rawNip || rawNip === 'undefined' || !rawNama || rawNama === 'undefined') {
+        throw new Error("NIP dan Nama peserta wajib diisi dengan benar.");
+    }
+
+    const key = rawNip.replace(/[.#$[\]/]/g, '_');
     const targetRef = ref(db, 'candidates/' + cExamId + '/' + key);
 
     const hasValidSesi = candidate.sesi !== undefined && candidate.sesi !== null && candidate.sesi !== '' && candidate.sesi !== 'NULL' && !isNaN(Number(candidate.sesi));
@@ -381,8 +442,8 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
     const data = {
         examId: cExamId,
         no: candidate.no || 1,
-        nip: String(candidate.nip || '').trim(),
-        nama: String(candidate.nama || '').trim(),
+        nip: rawNip,
+        nama: rawNama,
         kelJabatan: String(candidate.kelJabatan || '-').trim(),
         unitKerja: String(candidate.unitKerja || '-').trim(),
         jabatan: String(candidate.jabatan || '-').trim(),
@@ -406,9 +467,25 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
 export async function deleteCandidateCloud(examId, candidateIdOrNip) {
     if (!examId || !candidateIdOrNip) return false;
     const db = ensureDb();
-    const key = String(candidateIdOrNip).trim().replace(/[.#$[\]/]/g, '_');
-    const targetRef = ref(db, 'candidates/' + examId + '/' + key);
+    const safeKey = String(candidateIdOrNip).trim().replace(/[.#$[\]/]/g, '_');
+    const targetRef = ref(db, 'candidates/' + examId + '/' + safeKey);
     await remove(targetRef);
+
+    // Pastikan pembersihan menyeluruh jika data tersimpan dengan NIP asli
+    try {
+        const parentRef = ref(db, 'candidates/' + examId);
+        const snap = await get(parentRef);
+        if (snap.exists()) {
+            const data = snap.val();
+            for (const k of Object.keys(data)) {
+                if (data[k] && (data[k].nip === safeKey || String(data[k].id) === safeKey || k === safeKey)) {
+                    await remove(ref(db, 'candidates/' + examId + '/' + k));
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("Pembersihan kandidat cloud:", e);
+    }
     return true;
 }
 
@@ -448,19 +525,23 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
     const targetRef = ref(db, 'candidates/' + examId + '/' + safeKey);
 
     try {
-        await update(targetRef, {
-            kehadiran: status,
-            attendanceTimestamp: new Date().toISOString()
-        });
-        return true;
-    } catch (e) {
-        console.warn("Gagal update via direct key, mencoba pencarian NIP:", e);
+        // Cek dulu apakah targetRef memiliki data peserta lengkap sebelum update (hindari membuat node kosong)
+        const checkSnap = await get(targetRef);
+        if (checkSnap.exists() && checkSnap.val() && checkSnap.val().nama) {
+            await update(targetRef, {
+                kehadiran: status,
+                attendanceTimestamp: new Date().toISOString()
+            });
+            return true;
+        }
+
+        // Jika safeKey tidak cocok langsung, cari kandidat berdasarkan NIP di parent
         const parentRef = ref(db, 'candidates/' + examId);
         const snap = await get(parentRef);
         if (snap.exists()) {
             const data = snap.val();
             for (const key of Object.keys(data)) {
-                if (data[key].nip === String(candidateIdOrNip) || key === String(candidateIdOrNip)) {
+                if (data[key] && (data[key].nip === safeKey || key === safeKey)) {
                     await update(ref(db, 'candidates/' + examId + '/' + key), {
                         kehadiran: status,
                         attendanceTimestamp: new Date().toISOString()
@@ -469,6 +550,9 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
                 }
             }
         }
+        return false;
+    } catch (e) {
+        console.warn("Gagal update presensi di cloud:", e);
         return false;
     }
 }

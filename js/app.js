@@ -263,6 +263,7 @@ async function setActiveExam(examId) {
 
     setSelectedExamId(examId);
     currentExam = allExams.find(e => e.id === examId) || null;
+    window.currentExam = currentExam;
     selectedDashboardDates.clear();
 
     // Perbarui dropdown navbar & upload
@@ -2079,9 +2080,13 @@ function getCumulativeSessionNumber(c, sortedDates) {
 /**
  * Toggle Status Kehadiran Peserta (HADIR, TIDAK_HADIR, RESET)
  */
-window.toggleAttendance = async (candidateId, action) => {
-    const cand = currentCandidates.find(c => c.id === candidateId);
-    if (!cand) return;
+window.toggleAttendance = async (candidateNipOrId, action) => {
+    const lookup = String(candidateNipOrId || '').trim();
+    const cand = currentCandidates.find(c => String(c.nip || '').trim() === lookup || String(c.id || '').trim() === lookup);
+    if (!cand) {
+        console.warn("Peserta tidak ditemukan untuk presensi:", candidateNipOrId);
+        return;
+    }
 
     if (action === 'RESET') {
         cand.kehadiran = null;
@@ -2092,9 +2097,9 @@ window.toggleAttendance = async (candidateId, action) => {
     try {
         await db.updateCandidate(cand);
 
-        // Sinkronkan ke Firebase Cloud secara Realtime
+        // Sinkronkan ke Firebase Cloud secara Realtime dengan NIP string asli
         if (isCloudActive() && currentExam) {
-            updateAttendanceInCloud(currentExam.id, cand.id, cand.kehadiran);
+            updateAttendanceInCloud(currentExam.id, String(cand.nip || cand.id).trim(), cand.kehadiran);
         }
 
         applyCandidateFilters();
@@ -2367,31 +2372,43 @@ function renderCandidateListTable() {
             <tr class="${rowBgClass} transition">
                 <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">
-                    ${isKelEmpty ? `
-                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem. Silakan lengkapi kelompok jabatan terlebih dahulu.">
-                            <i data-lucide="slash" class="w-3 h-3 text-slate-400"></i>
-                            <span>Tidak tersedia</span>
-                        </span>
-                    ` : c.kehadiran === 'HADIR' ? `
-                        <button onclick="toggleAttendance(${c.id}, 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer" title="Status: Hadir. Klik untuk ubah/batal">
-                            <i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>
-                            <span>Hadir</span>
-                        </button>
-                    ` : c.kehadiran === 'TIDAK_HADIR' ? `
-                        <button onclick="toggleAttendance(${c.id}, 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer" title="Status: Tidak Hadir. Klik untuk ubah/batal">
-                            <i data-lucide="x" class="w-3.5 h-3.5 stroke-[3]"></i>
-                            <span>Tidak Hadir</span>
-                        </button>
-                    ` : `
-                        <div class="inline-flex items-center justify-center gap-1.5">
-                            <button onclick="toggleAttendance(${c.id}, 'HADIR')" class="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer" title="Tandai Hadir">
-                                <i data-lucide="check" class="w-4 h-4 stroke-[2.5]"></i>
-                            </button>
-                            <button onclick="toggleAttendance(${c.id}, 'TIDAK_HADIR')" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer" title="Tandai Tidak Hadir">
-                                <i data-lucide="x" class="w-4 h-4 stroke-[2.5]"></i>
-                            </button>
-                        </div>
-                    `}
+                    ${(() => {
+                        const candidateKey = String(c.nip || c.id || '').trim();
+                        if (isKelEmpty) {
+                            return `
+                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem. Silakan lengkapi kelompok jabatan terlebih dahulu.">
+                                    <i data-lucide="slash" class="w-3 h-3 text-slate-400"></i>
+                                    <span>Tidak tersedia</span>
+                                </span>
+                            `;
+                        }
+                        if (c.kehadiran === 'HADIR') {
+                            return `
+                                <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer" title="Status: Hadir. Klik untuk ubah/batal">
+                                    <i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>
+                                    <span>Hadir</span>
+                                </button>
+                            `;
+                        }
+                        if (c.kehadiran === 'TIDAK_HADIR') {
+                            return `
+                                <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer" title="Status: Tidak Hadir. Klik untuk ubah/batal">
+                                    <i data-lucide="x" class="w-3.5 h-3.5 stroke-[3]"></i>
+                                    <span>Tidak Hadir</span>
+                                </button>
+                            `;
+                        }
+                        return `
+                            <div class="inline-flex items-center justify-center gap-1.5">
+                                <button onclick="toggleAttendance('${candidateKey}', 'HADIR')" class="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer" title="Tandai Hadir">
+                                    <i data-lucide="check" class="w-4 h-4 stroke-[2.5]"></i>
+                                </button>
+                                <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer" title="Tandai Tidak Hadir">
+                                    <i data-lucide="x" class="w-4 h-4 stroke-[2.5]"></i>
+                                </button>
+                            </div>
+                        `;
+                    })()}
                 </td>
                 <td class="p-3 font-mono font-medium text-slate-900">${c.nip}</td>
                 <td class="p-3 font-bold text-slate-900">${c.nama}</td>
@@ -2445,12 +2462,18 @@ function renderCandidateListTable() {
                     ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
                 </td>
                 <td class="p-3 text-center whitespace-nowrap">
-                    <button onclick="editCandidate(${c.id})" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-1" title="Edit Data">
-                        <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button onclick="deleteSingleCandidate(${c.id}, '${c.nama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded" title="Hapus Peserta">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    </button>
+                    ${(() => {
+                        const candidateKey = String(c.nip || c.id || '').trim();
+                        const safeNama = String(c.nama || '').replace(/'/g, "\\'");
+                        return `
+                            <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-1" title="Edit Data">
+                                <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded" title="Hapus Peserta">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        `;
+                    })()}
                 </td>
             </tr>
         `;
@@ -2459,11 +2482,12 @@ function renderCandidateListTable() {
     if (window.lucide) window.lucide.createIcons();
 }
 
-window.deleteSingleCandidate = async (candidateId, name) => {
+window.deleteSingleCandidate = async (candidateIdOrNip, name) => {
     if (confirm(`Hapus peserta "${name}" dari jadwal ujian?`)) {
         try {
-            await db.deleteCandidate(candidateId);
-            currentCandidates = currentCandidates.filter(c => c.id !== candidateId);
+            const safeKey = String(candidateIdOrNip || '').trim();
+            await db.deleteCandidate(safeKey, currentExam ? currentExam.id : null);
+            currentCandidates = currentCandidates.filter(c => String(c.nip || '').trim() !== safeKey && String(c.id || '').trim() !== safeKey);
             renderDashboardStats();
             populatePelaksanaanFilterDropdown();
             populateSesiFilterDropdown(currentDateFilter);
@@ -2593,13 +2617,13 @@ function setupManualCandidateForm() {
 
             try {
                 if (id) {
-                    row.id = Number(id);
+                    row.id = String(id).trim();
                     await db.updateCandidate(row);
                     showToast(`Data peserta "${nama}" berhasil diperbarui.`, "success");
                 } else {
                     row.no = currentCandidates.length + 1;
                     const newId = await db.addCandidate(row);
-                    row.id = newId;
+                    row.id = String(newId || nip).trim();
                     showToast(`Peserta "${nama}" berhasil ditambahkan.`, "success");
                 }
 
@@ -2641,8 +2665,9 @@ window.openModalAddCandidate = () => {
     modal.classList.add('flex');
 };
 
-window.editCandidate = (candidateId) => {
-    const cand = currentCandidates.find(c => c.id === candidateId);
+window.editCandidate = (candidateIdOrNip) => {
+    const safeLookup = String(candidateIdOrNip || '').trim();
+    const cand = currentCandidates.find(c => String(c.nip || '').trim() === safeLookup || String(c.id || '').trim() === safeLookup);
     if (!cand) return;
 
     const modal = document.getElementById('modalCandidateManual');
