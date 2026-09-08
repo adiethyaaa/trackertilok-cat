@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profiling ASN - Kantor Regional XIV BKN</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bkn: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a',
+                            950: '#0f172a'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- SheetJS CDN untuk Parsing Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-bkn-900 text-white shadow-lg sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Brand & Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-bkn-950 font-extrabold shadow">
+                        <i data-lucide="award" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-bold text-lg tracking-tight">PROFILING ASN</span>
+                            <span class="text-[11px] bg-amber-400 text-bkn-950 font-bold px-2 py-0.5 rounded-full uppercase">CAT BKN</span>
+                        </div>
+                        <p class="text-xs text-blue-200">Kantor Regional XIV BKN - Penjadwalan Ujian Profiling ASN</p>
+                    </div>
+                </div>
+
+                <!-- Info Bar & Jam WIT & Active Exam Selector -->
+                <div class="flex items-center space-x-4">
+                    <div class="hidden md:flex flex-col text-right">
+                        <span id="liveClockWIT" class="font-mono text-sm font-semibold text-amber-300">--:--:-- WIT</span>
+                        <span id="liveDateWIT" class="text-xs text-blue-200">Memuat tanggal...</span>
+                    </div>
+
+                    <!-- Active Exam Badge / Switcher (Hanya menampilkan Nama Instansi yang sudah di-create) -->
+                    <div class="bg-bkn-800/90 border border-blue-400/30 rounded-lg px-3 py-1.5 flex items-center space-x-2 shadow-inner">
+                        <i data-lucide="building-2" class="w-4 h-4 text-amber-400"></i>
+                        <div class="text-left">
+                            <div class="text-[10px] text-blue-200 uppercase font-semibold">Ujian Aktif:</div>
+                            <select id="selectActiveExamNavbar" class="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer max-w-[190px] sm:max-w-[260px] truncate">
+                                <option value="" class="text-slate-800">Belum ada ujian aktif</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Navigation Menus (Tab Jadwal & Peserta diletakkan di PALING KIRI) -->
+            <nav class="flex space-x-1 sm:space-x-2 border-t border-bkn-800 pt-1 overflow-x-auto no-scrollbar">
+                <!-- 1. Jadwal & Peserta (Paling Kiri / Utama) -->
+                <button onclick="switchTab('daftar-peserta')" id="nav-daftar-peserta" class="nav-tab active-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-amber-400 text-white transition-all whitespace-nowrap">
+                    <i data-lucide="users" class="w-4 h-4"></i>
+                    <span>Jadwal & Peserta</span>
+                </button>
+
+                <!-- 2. Dashboard -->
+                <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+                    <span>Dashboard</span>
+                </button>
+
+                <!-- 3. Create Ujian -->
+                <button onclick="switchTab('create-ujian')" id="nav-create-ujian" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span>Create Ujian</span>
+                </button>
+
+                <!-- 4. Upload Excel -->
+                <button onclick="switchTab('upload-excel')" id="nav-upload-excel" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
+                    <i data-lucide="file-up" class="w-4 h-4"></i>
+                    <span>Upload Excel</span>
+                </button>
+
+                <!-- 5. Master Wilayah -->
+                <button onclick="switchTab('master-wilker')" id="nav-master-wilker" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
+                    <i data-lucide="map-pin" class="w-4 h-4"></i>
+                    <span>Master Wilayah</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- ==================== TAB 1 (DEFAULT ACTIVE): DAFTAR PESERTA & JADWAL ==================== -->
+        <section id="pane-daftar-peserta" class="tab-pane space-y-6 fade-in">
+            <!-- Filter Bar & Actions -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                    <!-- Session Filters -->
+                    <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span class="text-xs font-bold text-slate-500 uppercase mr-1">Filter Sesi:</span>
+                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition">
+                            Semua Sesi (<span id="countFilterAll">0</span>)
+                        </button>
+                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 1 (08.00-11.00) [<span id="countFilter1">0</span>]
+                        </button>
+                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 2 (11.00 / Jumat 13.00) [<span id="countFilter2">0</span>]
+                        </button>
+                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 3 (14.00-17.00) [<span id="countFilter3">0</span>]
+                        </button>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center space-x-2 w-full lg:w-auto">
+                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-xs rounded-lg transition border border-blue-200">
+                            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                            <span>Tambah Manual</span>
+                        </button>
+                        <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow transition">
+                            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                            <span>Cetak Absensi / Jadwal</span>
+                        </button>
+                        <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow transition">
+                            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                            <span>Export Excel</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Search & Date Filter -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100">
+                    <div class="sm:col-span-2 relative">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari berdasarkan NIP, Nama Peserta, atau Unit Kerja..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <select id="selectFilterPelaksanaan" onchange="renderCandidateTable()" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            <option value="ALL">-- Semua Tanggal Pelaksanaan --</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table Data Peserta -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Daftar Peserta Terdaftar</span>
+                        <span id="countTableVisible" class="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">0 Data</span>
+                    </div>
+                    <button onclick="confirmClearCandidates()" class="text-xs text-rose-600 hover:text-rose-800 font-semibold inline-flex items-center space-x-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>Kosongkan Peserta Ujian Ini</span>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-700">
+                        <thead class="bg-slate-100/70 text-slate-700 font-bold uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 text-center w-12">No</th>
+                                <th class="p-3">NIP</th>
+                                <th class="p-3">Nama Lengkap</th>
+                                <th class="p-3">Unit Kerja</th>
+                                <th class="p-3">Jabatan</th>
+                                <th class="p-3">Pelaksanaan</th>
+                                <th class="p-3 text-center">Sesi</th>
+                                <th class="p-3">Waktu (WIT)</th>
+                                <th class="p-3 text-center w-24">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyCandidateList" class="divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="9" class="p-8 text-center text-slate-400">Memuat data peserta...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination & Info footer -->
+                <div class="p-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+                    <span id="tablePaginationInfo">Menampilkan 0 dari 0 peserta</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== TAB 2: DASHBOARD ==================== -->
+        <section id="pane-dashboard" class="tab-pane hidden space-y-6 fade-in">
+            <!-- Banner Ujian Aktif -->
+            <div id="dashboardExamBanner" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="flex items-start space-x-4">
+                    <div class="p-3 bg-blue-50 text-bkn-700 rounded-xl">
+                        <i data-lucide="calendar-check" class="w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="dashRegionBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Wilayah</span>
+                            <span id="dashDateRange" class="text-xs text-slate-500 font-medium">-</span>
+                        </div>
+                        <h1 id="dashExamInstansiTitle" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">Belum Ada Ujian Aktif</h1>
+                        <p id="dashExamLocation" class="text-sm text-slate-600 flex items-center space-x-1 mt-1">
+                            <i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline"></i>
+                            <span>Titik Lokasi (Tilok): Belum ditentukan</span>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3 w-full md:w-auto">
+                    <button onclick="switchTab('upload-excel')" class="flex-1 md:flex-none inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white text-sm font-medium rounded-lg shadow-sm transition">
+                        <i data-lucide="upload" class="w-4 h-4"></i>
+                        <span>Upload Jadwal Excel</span>
+                    </button>
+                    <button onclick="switchTab('daftar-peserta')" class="flex-1 md:flex-none inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg shadow-sm transition">
+                        <i data-lucide="list" class="w-4 h-4"></i>
+                        <span>Buka Data Peserta</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Kartu Statistik Sesi -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Total Peserta -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Peserta</span>
+                        <div class="p-2 bg-slate-100 text-slate-600 rounded-lg">
+                            <i data-lucide="users" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <div id="statTotalPeserta" class="text-3xl font-bold text-slate-900">0</div>
+                        <p class="text-xs text-slate-500 mt-1">Terdaftar dalam database</p>
+                    </div>
+                </div>
+
+                <!-- Sesi 1 -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-blue-700 uppercase tracking-wider">Sesi 1</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">08.00 - 11.00</span>
+                    </div>
+                    <div class="mt-3">
+                        <div id="statSesi1" class="text-3xl font-bold text-blue-900">0</div>
+                        <p class="text-xs text-slate-500 mt-1">Peserta Sesi Pagi</p>
+                    </div>
+                </div>
+
+                <!-- Sesi 2 (Special Friday Note) -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-amber-200 relative overflow-hidden">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-amber-700 uppercase tracking-wider">Sesi 2</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">11.00 / 13.00</span>
+                    </div>
+                    <div class="mt-3">
+                        <div id="statSesi2" class="text-3xl font-bold text-amber-900">0</div>
+                        <p class="text-xs text-amber-700 font-medium mt-1 flex items-center gap-1">
+                            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                            <span>Jumat: 13.00 s.d. 16.00</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Sesi 3 -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Sesi 3</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">14.00 - 17.00</span>
+                    </div>
+                    <div class="mt-3">
+                        <div id="statSesi3" class="text-3xl font-bold text-emerald-900">0</div>
+                        <p class="text-xs text-slate-500 mt-1">Peserta Sesi Sore</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Aturan Waktu Pelaksanaan Ujian (Info Box) -->
+            <div class="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl p-6 shadow-md">
+                <div class="flex items-center space-x-3 mb-4">
+                    <i data-lucide="clock" class="w-6 h-6 text-amber-400"></i>
+                    <h2 class="text-lg font-bold">Ketentuan 3 Sesi Ujian & Jam Pelaksanaan WIT</h2>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div class="bg-white/10 p-4 rounded-lg border border-white/10">
+                        <div class="font-bold text-amber-300 text-base mb-1">Sesi 1</div>
+                        <div class="text-xl font-bold text-white mb-2">08.00 s.d. 11.00 WIT</div>
+                        <p class="text-xs text-blue-200">Berlaku untuk seluruh hari pelaksanaan (Senin s.d. Minggu).</p>
+                    </div>
+                    <div class="bg-white/10 p-4 rounded-lg border border-amber-400/40 relative">
+                        <span class="absolute top-3 right-3 text-[10px] bg-amber-400 text-slate-900 font-bold px-2 py-0.5 rounded">ATURAN KHUSUS</span>
+                        <div class="font-bold text-amber-300 text-base mb-1">Sesi 2</div>
+                        <div class="text-lg font-bold text-white mb-1">11.00 s.d. 14.00 WIT <span class="text-xs font-normal text-blue-200">(Hari Biasa)</span></div>
+                        <div class="text-lg font-bold text-amber-300">13.00 s.d. 16.00 WIT <span class="text-xs font-semibold text-amber-200">(Khusus Jumat)</span></div>
+                        <p class="text-xs text-blue-200 mt-1">Penyesuaian ibadah Sholat Jumat otomatis terdeteksi.</p>
+                    </div>
+                    <div class="bg-white/10 p-4 rounded-lg border border-white/10">
+                        <div class="font-bold text-amber-300 text-base mb-1">Sesi 3</div>
+                        <div class="text-xl font-bold text-white mb-2">14.00 s.d. 17.00 WIT</div>
+                        <p class="text-xs text-blue-200">Berlaku untuk seluruh hari pelaksanaan ujian.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ringkasan Unit Kerja & Distribusi Peserta -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+                        <i data-lucide="building" class="w-5 h-5 text-bkn-700"></i>
+                        <span>Distribusi Peserta Berdasarkan Unit Kerja</span>
+                    </h3>
+                </div>
+                <div id="dashboardDistributionContainer" class="overflow-x-auto">
+                    <p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian ini. Silakan upload file Excel terlebih dahulu.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== TAB 3: CREATE UJIAN ==================== -->
+        <section id="pane-create-ujian" class="tab-pane hidden space-y-6 fade-in">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Form Buat Ujian (Disederhanakan: tanpa judul manual dan tanpa kolom wilker) -->
+                <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <div class="flex items-center space-x-3 mb-6 pb-4 border-b border-slate-100">
+                        <div class="p-2.5 bg-blue-100 text-bkn-800 rounded-lg">
+                            <i data-lucide="calendar-plus" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Form Buat Jadwal Ujian</h2>
+                            <p class="text-xs text-slate-500">Pilih instansi untuk membuat jadwal ujian baru</p>
+                        </div>
+                    </div>
+
+                    <form id="formCreateExam" class="space-y-4">
+                        <!-- Dropdown Instansi -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Instansi / Kabupaten / Kota *</label>
+                            <select id="selectExamInstansi" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                                <option value="">-- Memuat daftar instansi... --</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <!-- Tanggal Mulai -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Mulai Pelaksanaan *</label>
+                                <input type="date" id="inputExamStartDate" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            </div>
+
+                            <!-- Tanggal Selesai -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Selesai Pelaksanaan</label>
+                                <input type="date" id="inputExamEndDate" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <!-- Titik Lokasi (Tilok) / Ruangan -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Titik Lokasi (Tilok) / Ruangan *</label>
+                                <input type="text" id="inputExamLocation" required placeholder="Contoh: Lab CAT BKD / Ruang Ujian" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            </div>
+
+                            <!-- Kapasitas PC / Kuota Per Sesi -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Kapasitas PC / Kuota Per Sesi</label>
+                                <input type="number" id="inputExamQuota" min="1" value="50" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Catatan Tambahan -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Catatan Tambahan</label>
+                            <textarea id="inputExamNotes" rows="2" placeholder="Catatan teknis, nomor surat, atau keterangan ruangan..." class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none"></textarea>
+                        </div>
+
+                        <div class="pt-4 flex items-center justify-end space-x-3">
+                            <button type="reset" class="px-4 py-2.5 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition">Reset</button>
+                            <button type="submit" class="px-5 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2">
+                                <i data-lucide="check-circle" class="w-4 h-4"></i>
+                                <span>Simpan Ujian</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Daftar Ujian Yang Sudah Dibuat -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                        <h3 class="text-base font-bold text-slate-900">Daftar Instansi Terjadwal</h3>
+                        <span id="examCountBadge" class="text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">0 Instansi</span>
+                    </div>
+
+                    <div id="listExamContainer" class="flex-1 overflow-y-auto space-y-3 max-h-[520px] pr-1">
+                        <p class="text-sm text-slate-500 py-6 text-center">Belum ada ujian dibuat.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== TAB 4: UPLOAD EXCEL PESERTA ==================== -->
+        <section id="pane-upload-excel" class="tab-pane hidden space-y-6 fade-in">
+            <!-- Header Upload & Template Download -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="file-spreadsheet" class="w-6 h-6 text-emerald-600"></i>
+                            <span>Upload File Excel Peserta Ujian</span>
+                        </h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Membaca setiap baris file Excel secara cerdas. Baris kosong akan dilewati otomatis, dan baris dengan NIP & NAMA lengkap akan dimasukkan ke database.</p>
+                    </div>
+                    <button onclick="triggerDownloadTemplate()" class="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Download Template Excel (.xlsx)</span>
+                    </button>
+                </div>
+
+                <!-- Petunjuk Format Kolom Sesuai Permintaan User -->
+                <div class="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Format Kolom Referensi Excel:</span>
+                        <span class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">8 Kolom Standar</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
+                            <thead class="bg-slate-100 text-slate-700 font-bold uppercase">
+                                <tr>
+                                    <th class="p-2 border">No</th>
+                                    <th class="p-2 border">NIP</th>
+                                    <th class="p-2 border">NAMA</th>
+                                    <th class="p-2 border">UNIT KERJA</th>
+                                    <th class="p-2 border">JABATAN</th>
+                                    <th class="p-2 border">WAKTU</th>
+                                    <th class="p-2 border">PELAKSANAAN</th>
+                                    <th class="p-2 border">SESI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="text-slate-500">
+                                    <td class="p-2 border">1</td>
+                                    <td class="p-2 border font-mono">197809092014091001</td>
+                                    <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
+                                    <td class="p-2 border">-</td>
+                                    <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
+                                    <td class="p-2 border text-blue-700 font-semibold">08.00 - 11.00 WIT</td>
+                                    <td class="p-2 border">11-Sep-26</td>
+                                    <td class="p-2 border text-center font-bold">1</td>
+                                </tr>
+                                <tr class="text-slate-500 bg-amber-50/50">
+                                    <td class="p-2 border">2</td>
+                                    <td class="p-2 border font-mono">197812052014091002</td>
+                                    <td class="p-2 border font-semibold text-slate-800">DARIUS AKWAN</td>
+                                    <td class="p-2 border">SUB BAGIAN UMUM DAN KEPEGAWAIAN</td>
+                                    <td class="p-2 border">PENGADMINISTRASI UMUM</td>
+                                    <td class="p-2 border text-amber-700 font-bold">13.00 - 16.00 WIT (Jumat)</td>
+                                    <td class="p-2 border">11-Sep-26</td>
+                                    <td class="p-2 border text-center font-bold">2</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Konfigurasi Target Instansi & Opsi Waktu -->
+                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Target Instansi Penerima Data *</label>
+                        <select id="selectUploadTargetExam" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            <option value="">-- Pilih Instansi Terlebih Dahulu --</option>
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col justify-end">
+                        <label class="flex items-center space-x-2 text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg p-2.5 cursor-pointer">
+                            <input type="checkbox" id="checkAutoStandardize" checked class="w-4 h-4 text-bkn-600 rounded focus:ring-bkn-500">
+                            <div>
+                                <span class="font-semibold text-slate-800 text-xs">Sinkronkan Jam Sesi Otomatis (Direkomendasikan)</span>
+                                <p class="text-[11px] text-slate-500">Otomatis ubah Sesi 2 hari Jumat menjadi 13.00 - 16.00 WIT & sesi lainnya sesuai standar BKN.</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Dropzone Upload Area -->
+                <div class="mt-6">
+                    <div id="dropzoneExcel" class="border-2 border-dashed border-slate-300 hover:border-bkn-600 hover:bg-blue-50/30 transition-all rounded-xl p-8 text-center cursor-pointer flex flex-col items-center justify-center">
+                        <input type="file" id="fileInputExcel" accept=".xlsx, .xls, .csv" class="hidden">
+                        <div class="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mb-3">
+                            <i data-lucide="cloud-upload" class="w-7 h-7"></i>
+                        </div>
+                        <h4 class="text-base font-bold text-slate-800">Klik untuk memilih file Excel atau seret file ke sini</h4>
+                        <p class="text-xs text-slate-500 mt-1">Mendukung format .xlsx, .xls, atau .csv (Sanggup membaca ribuan baris data)</p>
+                        <span id="uploadFileNameBadge" class="hidden mt-3 text-xs bg-emerald-100 text-emerald-800 font-semibold px-3 py-1 rounded-full flex items-center space-x-1">
+                            <i data-lucide="file-check" class="w-3.5 h-3.5"></i>
+                            <span id="uploadFileNameText">file.xlsx</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preview Data Excel Sebelum Disimpan ke Database -->
+            <div id="previewCard" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="eye" class="w-5 h-5 text-bkn-700"></i>
+                            <span>Preview Data Terbaca</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">Periksa ringkasan sebelum data dimasukkan ke dalam database.</p>
+                    </div>
+
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <button onclick="cancelUploadPreview()" class="flex-1 sm:flex-none px-4 py-2 border border-slate-300 text-slate-700 text-xs sm:text-sm font-medium rounded-lg hover:bg-slate-50">
+                            Batal
+                        </button>
+                        <button id="btnSaveExcelToDB" onclick="savePreviewDataToDatabase()" class="flex-1 sm:flex-none px-5 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs sm:text-sm font-semibold rounded-lg shadow flex items-center justify-center space-x-2">
+                            <i data-lucide="database" class="w-4 h-4"></i>
+                            <span>Simpan ke Database</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Summary Badges -->
+                <div id="previewSummaryContainer" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <!-- Dinamis via JS -->
+                </div>
+
+                <!-- Preview Table -->
+                <div class="overflow-x-auto max-h-[400px] border border-slate-200 rounded-lg">
+                    <table class="w-full text-xs text-left text-slate-700">
+                        <thead class="bg-slate-100 text-slate-700 font-bold uppercase sticky top-0 z-10">
+                            <tr>
+                                <th class="p-2.5 border-b">No</th>
+                                <th class="p-2.5 border-b">NIP</th>
+                                <th class="p-2.5 border-b">Nama Peserta</th>
+                                <th class="p-2.5 border-b">Unit Kerja</th>
+                                <th class="p-2.5 border-b">Jabatan</th>
+                                <th class="p-2.5 border-b">Pelaksanaan</th>
+                                <th class="p-2.5 border-b">Sesi</th>
+                                <th class="p-2.5 border-b">Waktu Ujian</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyExcelPreview" class="divide-y divide-slate-100">
+                            <!-- Dinamis via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== TAB 5: MASTER WILAYAH ==================== -->
+        <section id="pane-master-wilker" class="tab-pane hidden space-y-6 fade-in">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="map" class="w-6 h-6 text-bkn-700"></i>
+                            <span>Master Instansi Papua Barat & Papua Barat Daya</span>
+                        </h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Daftar instansi pemerintah daerah dan instansi vertikal di bawah lingkup Kantor Regional XIV BKN.</p>
+                    </div>
+
+                    <button onclick="openModalAddMasterInstansi()" class="inline-flex items-center space-x-2 px-4 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <span>Tambah Instansi Baru</span>
+                    </button>
+                </div>
+
+                <!-- Ringkasan Instansi -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+                    <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                        <div class="text-xs font-bold text-blue-700 uppercase">Wilayah Papua Barat</div>
+                        <div id="countWilkerPB" class="text-2xl font-bold text-blue-950 mt-1">8 Kabupaten/Prov</div>
+                        <p class="text-[11px] text-blue-600 mt-1">Manokwari, Mansel, Pegaf, Bintuni, Wondama, Fakfak, Kaimana, dll.</p>
+                    </div>
+
+                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
+                        <div class="text-xs font-bold text-emerald-700 uppercase">Wilayah Papua Barat Daya</div>
+                        <div id="countWilkerPBD" class="text-2xl font-bold text-emerald-950 mt-1">7 Kota/Kabupaten</div>
+                        <p class="text-[11px] text-emerald-600 mt-1">Kota Sorong, Raja Ampat, Tambrauw, Maybrat, Sorsel, dll.</p>
+                    </div>
+
+                    <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                        <div class="text-xs font-bold text-amber-700 uppercase">Instansi Vertikal</div>
+                        <div id="countWilkerVertikal" class="text-2xl font-bold text-amber-950 mt-1">11 Instansi</div>
+                        <p class="text-[11px] text-amber-600 mt-1">Mahkamah Agung, Kejaksaan, Kemenkumham, dll.</p>
+                    </div>
+                </div>
+
+                <!-- Tabel Master Instansi -->
+                <div class="mt-6 border border-slate-200 rounded-xl overflow-hidden">
+                    <table class="w-full text-xs text-left text-slate-700">
+                        <thead class="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3">Nama Instansi / Pemerintah Daerah</th>
+                                <th class="p-3">Wilayah</th>
+                                <th class="p-3 text-center w-28">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyMasterInstansiList" class="divide-y divide-slate-100">
+                            <!-- Dinamis via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ==================== PRINT TEMPLATE (PRINT ONLY) ==================== -->
+    <div id="printSheetContainer" class="print-only">
+        <div class="text-center pb-3 border-b-2 border-slate-900 mb-4">
+            <h2 class="text-base font-bold uppercase tracking-wider">DAFTAR HADIR & JADWAL SESI UJIAN PROFILING ASN</h2>
+            <h3 class="text-sm font-semibold uppercase text-slate-800">KANTOR REGIONAL XIV BKN</h3>
+            <div class="flex justify-between items-center text-xs mt-2 font-medium">
+                <span id="printInstansi">Instansi: -</span>
+                <span id="printLocation">Tilok: -</span>
+                <span id="printDate">Tanggal: -</span>
+                <span id="printSession" class="font-bold text-slate-900">Sesi: -</span>
+            </div>
+        </div>
+
+        <table class="print-table">
+            <thead>
+                <tr>
+                    <th style="width: 5%;">NO</th>
+                    <th style="width: 20%;">NIP</th>
+                    <th style="width: 25%;">NAMA PESERTA</th>
+                    <th style="width: 25%;">UNIT KERJA / JABATAN</th>
+                    <th style="width: 12%;">WAKTU (WIT)</th>
+                    <th style="width: 13%;">TANDA TANGAN</th>
+                </tr>
+            </thead>
+            <tbody id="tbodyPrintCandidates">
+                <!-- Data cetak dinamis -->
+            </tbody>
+        </table>
+
+        <div class="mt-8 flex justify-between text-xs pt-4">
+            <div class="text-center w-48">
+                <p>Mengetahui,</p>
+                <p class="font-semibold">Penanggung Jawab Tilok</p>
+                <div class="h-16"></div>
+                <p class="border-b border-slate-700 font-bold">( ............................................ )</p>
+                <p class="text-[10px] text-slate-600">NIP. ........................................</p>
+            </div>
+
+            <div class="text-center w-48">
+                <p id="printSignedDate">Manokwari, .....................</p>
+                <p class="font-semibold">Petugas / Pengawas CAT</p>
+                <div class="h-16"></div>
+                <p class="border-b border-slate-700 font-bold">( ............................................ )</p>
+                <p class="text-[10px] text-slate-600">NIP. ........................................</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL TAMBAH PESERTA MANUAL ==================== -->
+    <div id="modalCandidateManual" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full p-6 space-y-4 fade-in">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 id="modalCandidateTitle" class="text-base font-bold text-slate-900">Tambah Peserta Manual</h3>
+                <button onclick="closeModalCandidateManual()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="formCandidateManual" class="space-y-3">
+                <input type="hidden" id="editCandidateId">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">NIP Peserta *</label>
+                    <input type="text" id="inputManualNip" required placeholder="Contoh: 197809092014091001" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nama Lengkap *</label>
+                    <input type="text" id="inputManualNama" required placeholder="Contoh: GARDEN SEMUEL KARUBUY" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Unit Kerja</label>
+                    <input type="text" id="inputManualUnitKerja" placeholder="Contoh: DINAS LINGKUNGAN HIDUP" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Jabatan</label>
+                    <input type="text" id="inputManualJabatan" placeholder="Contoh: PENGADMINISTRASI UMUM" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Pelaksanaan *</label>
+                        <input type="text" id="inputManualPelaksanaan" required placeholder="11-Sep-26" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Sesi Ujian *</label>
+                        <select id="selectManualSesi" required class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            <option value="1">Sesi 1 (08.00 - 11.00)</option>
+                            <option value="2">Sesi 2 (11.00 / Jumat 13.00)</option>
+                            <option value="3">Sesi 3 (14.00 - 17.00)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Waktu Ujian</label>
+                    <input type="text" id="inputManualWaktu" placeholder="Otomatis dihitung sesuai sesi & hari" class="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 text-slate-700 rounded-lg focus:outline-none">
+                </div>
+
+                <div class="pt-3 flex items-center justify-end space-x-2">
+                    <button type="button" onclick="closeModalCandidateManual()" class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50">Batal</button>
+                    <button type="submit" class="px-5 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-semibold rounded-lg shadow">Simpan Data</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL TAMBAH MASTER INSTANSI ==================== -->
+    <div id="modalMasterInstansi" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4 fade-in">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="text-base font-bold text-slate-900">Tambah Instansi Baru</h3>
+                <button onclick="closeModalAddMasterInstansi()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="formAddMasterInstansiCustom" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nama Instansi / Kabupaten / Kota *</label>
+                    <input type="text" id="newMasterInstansiNameCustom" required placeholder="Contoh: Kab. Teluk Bintuni" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Wilayah *</label>
+                    <select id="newMasterInstansiWilkerCustom" required class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        <option value="Papua Barat">Papua Barat</option>
+                        <option value="Papua Barat Daya">Papua Barat Daya</option>
+                        <option value="Instansi Vertikal">Instansi Vertikal</option>
+                    </select>
+                </div>
+
+                <div class="pt-3 flex items-center justify-end space-x-2">
+                    <button type="button" onclick="closeModalAddMasterInstansi()" class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50">Batal</button>
+                    <button type="submit" class="px-5 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-semibold rounded-lg shadow">Tambah</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL KONFIRMASI DUPLIKASI DATA PESERTA ==================== -->
+    <div id="modalDuplicateResolution" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full p-6 space-y-4 fade-in max-h-[90vh] flex flex-col">
+            <!-- Header Modal -->
+            <div class="flex items-start justify-between pb-3 border-b border-slate-200">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-slate-900">Konfirmasi Duplikasi NIP Peserta</h3>
+                        <p class="text-xs text-slate-500">Ditemukan peserta dengan NIP yang sama di file Excel atau sudah ada di database. Silakan centang data yang ingin dimasukkan ke sistem.</p>
+                    </div>
+                </div>
+                <button onclick="closeModalDuplicateResolution()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Summary Count Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                    <div class="text-[10px] font-bold text-amber-800 uppercase">Total NIP Duplikat</div>
+                    <div id="countModalTotalDupNip" class="text-xl font-bold text-amber-950 mt-0.5">0 NIP</div>
+                </div>
+                <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div class="text-[10px] font-bold text-blue-800 uppercase">Duplikat di File Excel</div>
+                    <div id="countModalInternalDup" class="text-xl font-bold text-blue-950 mt-0.5">0 NIP</div>
+                </div>
+                <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl">
+                    <div class="text-[10px] font-bold text-rose-800 uppercase">Sudah Ada di Database</div>
+                    <div id="countModalExistingDup" class="text-xl font-bold text-rose-950 mt-0.5">0 NIP</div>
+                </div>
+            </div>
+
+            <!-- Quick Action Toolbar -->
+            <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                <div class="flex items-center space-x-2">
+                    <label class="flex items-center space-x-1.5 font-semibold text-slate-700 cursor-pointer">
+                        <input type="checkbox" id="checkSelectAllDuplicates" onchange="toggleSelectAllDuplicates(this.checked)" class="w-4 h-4 text-bkn-600 rounded">
+                        <span>Pilih / Centang Semua</span>
+                    </label>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <button type="button" onclick="autoSelectFirstDuplicates()" class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium rounded-lg shadow-xs transition">
+                        Pilih Baris Pertama Saja Tiap NIP
+                    </button>
+                    <button type="button" onclick="autoSelectLatestExcelDuplicates()" class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-blue-700 font-medium rounded-lg shadow-xs transition">
+                        Ganti Data Database dengan File Baru
+                    </button>
+                    <button type="button" onclick="toggleSelectAllDuplicates(false)" class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-rose-600 font-medium rounded-lg shadow-xs transition">
+                        Hapus Semua Centang
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollable Duplicates Container -->
+            <div id="containerDuplicateGroups" class="flex-1 overflow-y-auto space-y-4 pr-1 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                <!-- Dinamis via JS -->
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div class="text-slate-600">
+                    <span id="labelSelectedDuplicateCount" class="font-bold text-bkn-700">0</span> peserta duplikat dipilih untuk dimasukkan ke jadwal.
+                </div>
+                <div class="flex items-center space-x-2 w-full sm:w-auto">
+                    <button type="button" onclick="closeModalDuplicateResolution()" class="flex-1 sm:flex-none px-4 py-2 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-100">
+                        Batal Upload
+                    </button>
+                    <button type="button" id="btnApplyDuplicates" onclick="applyDuplicateResolutionAndProceed()" class="flex-1 sm:flex-none px-5 py-2 bg-bkn-700 hover:bg-bkn-800 text-white font-semibold rounded-lg shadow flex items-center justify-center space-x-1.5">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>Terapkan & Lanjutkan Upload</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <!-- Main Application Script (ES Module) -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

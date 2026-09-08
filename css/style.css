@@ -1,0 +1,100 @@
+/* style.css - Profiling ASN Styling & Print Sheet */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    --primary: #1e3a8a;
+    --primary-hover: #1e40af;
+    --accent-gold: #d97706;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    color: #1e293b;
+    background-color: #f8fafc;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Badge Special Friday */
+.badge-friday {
+    background-color: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+}
+
+/* Animation for Modals & Tabs */
+.fade-in {
+    animation: fadeIn 0.2s ease-in-out forwards;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Print Styles */
+@media print {
+    /* Sembunyikan elemen navigasi dan tombol saat mencetak */
+    nav, header, .no-print, button, .tab-pane:not(.active-print) {
+        display: none !important;
+    }
+
+    body {
+        background: #ffffff !important;
+        font-size: 11pt;
+        color: #000000 !important;
+        margin: 0;
+        padding: 10mm;
+    }
+
+    .print-only {
+        display: block !important;
+    }
+
+    .print-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin-top: 15px !important;
+    }
+
+    .print-table th, .print-table td {
+        border: 1px solid #333333 !important;
+        padding: 5px 8px !important;
+        font-size: 9.5pt !important;
+    }
+
+    .print-table th {
+        background-color: #f3f4f6 !important;
+        color: #000000 !important;
+    }
+
+    .page-break {
+        page-break-after: always;
+    }
+}
+
+.print-only {
+    display: none;
+}
+

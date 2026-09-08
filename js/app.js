@@ -1,0 +1,1175 @@
+/**
+ * app.js
+ * Controller Utama Aplikasi "Profiling ASN"
+ * Mengintegrasikan IndexedDB, Excel Handler, Session Rules, dan Manajemen Wilayah Papua Barat & PB Daya
+ */
+
+import { masterInstansiData, toTitleCase } from '../masterInstansi.js';
+import * as db from './db.js';
+import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID } from './sessionRules.js';
+import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel } from './excelHandler.js';
+import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
+
+// State Aplikasi
+let currentExam = null;
+let allExams = [];
+let currentCandidates = [];
+let filteredCandidates = [];
+let previewParsedData = null;
+let currentSessionFilter = 'ALL';
+let currentSearchTerm = '';
+let currentDateFilter = 'ALL';
+
+// Inisialisasi Aplikasi Saat Halaman Dimuat
+document.addEventListener('DOMContentLoaded', async () => {
+    initLiveClockWIT();
+    setupTabNavigation();
+    setupCreateExamForm();
+    setupExcelUpload();
+    setupManualCandidateForm();
+    setupMasterInstansiUI();
+
+    // Isi dropdown instansi
+    populateInstansiDropdown('selectExamInstansi');
+
+    // Muat data dari IndexedDB
+    await loadInitialData();
+
+    // Set default tab ke Jadwal & Peserta (Tab paling awal/kiri)
+    switchTab('daftar-peserta');
+
+    // Refresh icon Lucide
+    if (window.lucide) {
+        window.lucide.createIcons();
+    }
+});
+
+/**
+ * Live Clock Waktu Indonesia Timur (WIT / UTC+9)
+ */
+function initLiveClockWIT() {
+    const clockEl = document.getElementById('liveClockWIT');
+    const dateEl = document.getElementById('liveDateWIT');
+
+    function updateTime() {
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const witDate = new Date(utc + (3600000 * 9));
+
+        const hours = String(witDate.getHours()).padStart(2, '0');
+        const minutes = String(witDate.getMinutes()).padStart(2, '0');
+        const seconds = String(witDate.getSeconds()).padStart(2, '0');
+
+        if (clockEl) {
+            clockEl.textContent = `${hours}:${minutes}:${seconds} WIT`;
+        }
+
+        if (dateEl) {
+            const dayName = getDayNameID(witDate);
+            const formatted = formatDateDisplay(witDate, 'long');
+            dateEl.textContent = `${dayName}, ${formatted}`;
+        }
+    }
+
+    updateTime();
+    setInterval(updateTime, 1000);
+}
+
+/**
+ * Memuat data awal dari IndexedDB
+ */
+async function loadInitialData() {
+    try {
+        allExams = await db.getAllExams();
+
+        renderExamSelectDropdowns();
+        renderExamListInCreateTab();
+
+        let activeId = getSelectedExamId();
+
+        // Validasi apakah activeId masih ada di database
+        if (activeId && !allExams.some(e => e.id === activeId)) {
+            activeId = null;
+            setSelectedExamId(null);
+        }
+
+        if (!activeId && allExams.length > 0) {
+            activeId = allExams[0].id;
+            setSelectedExamId(activeId);
+        }
+
+        if (activeId) {
+            await setActiveExam(activeId);
+        } else {
+            // Jika belum ada ujian sama sekali
+            currentExam = null;
+            currentCandidates = [];
+            renderDashboardExamInfo();
+            renderDashboardStats();
+            applyCandidateFilters();
+        }
+
+    } catch (err) {
+        console.error("Gagal memuat data awal:", err);
+        showToast("Terjadi kendala memuat database: " + err.message, "error");
+    }
+}
+
+/**
+ * Mengubah Ujian Aktif dan memperbarui seluruh tampilan
+ */
+async function setActiveExam(examId) {
+    setSelectedExamId(examId);
+    currentExam = allExams.find(e => e.id === examId) || null;
+
+    // Perbarui dropdown navbar & upload
+    const selectNav = document.getElementById('selectActiveExamNavbar');
+    if (selectNav) selectNav.value = examId || '';
+
+    const selectUpload = document.getElementById('selectUploadTargetExam');
+    if (selectUpload) selectUpload.value = examId || '';
+
+    // Render ulang tampilan
+    renderDashboardExamInfo();
+    renderExamListInCreateTab();
+
+    // Muat data kandidat ujian ini
+    if (currentExam) {
+        currentCandidates = await db.getCandidatesByExam(currentExam.id);
+    } else {
+        currentCandidates = [];
+    }
+
+    renderDashboardStats();
+    populatePelaksanaanFilterDropdown();
+    applyCandidateFilters();
+}
+
+/**
+ * Render opsi pada dropdown ujian (Hanya menampilkan nama Instansi yang sudah di-create)
+ */
+function renderExamSelectDropdowns() {
+    const selectNav = document.getElementById('selectActiveExamNavbar');
+    const selectUpload = document.getElementById('selectUploadTargetExam');
+
+    if (allExams.length === 0) {
+        const emptyHtml = `<option value="">Belum ada ujian aktif</option>`;
+        if (selectNav) selectNav.innerHTML = emptyHtml;
+        if (selectUpload) selectUpload.innerHTML = `<option value="">-- Belum ada instansi yang dibuat --</option>`;
+        return;
+    }
+
+    // Hanya tampilkan nama Instansi pada pilihan
+    const optionsHtml = allExams.map(e => `
+        <option value="${e.id}" class="text-slate-800">${e.instansi}</option>
+    `).join('');
+
+    if (selectNav) {
+        selectNav.innerHTML = optionsHtml;
+        selectNav.onchange = (e) => setActiveExam(e.target.value);
+    }
+
+    if (selectUpload) {
+        selectUpload.innerHTML = `<option value="">-- Pilih Instansi Penerima Data --</option>` + optionsHtml;
+    }
+}
+
+/**
+ * Render info ujian di banner Dashboard
+ */
+function renderDashboardExamInfo() {
+    const instansiTitleEl = document.getElementById('dashExamInstansiTitle');
+    const regionBadge = document.getElementById('dashRegionBadge');
+    const dateRangeEl = document.getElementById('dashDateRange');
+    const locationEl = document.getElementById('dashExamLocation');
+
+    if (!currentExam) {
+        if (instansiTitleEl) instansiTitleEl.textContent = 'Belum Ada Ujian Aktif';
+        if (regionBadge) regionBadge.textContent = 'Status';
+        if (dateRangeEl) dateRangeEl.textContent = '-';
+        if (locationEl) locationEl.innerHTML = '<i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline"></i> <span>Silakan buat atau pilih ujian terlebih dahulu</span>';
+        return;
+    }
+
+    if (instansiTitleEl) instansiTitleEl.textContent = currentExam.instansi;
+    if (regionBadge) {
+        regionBadge.textContent = currentExam.wilker || 'Instansi Terdaftar';
+        if (currentExam.wilker === 'Papua Barat Daya') {
+            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
+        } else if (currentExam.wilker === 'Instansi Vertikal') {
+            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800';
+        } else {
+            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800';
+        }
+    }
+
+    if (dateRangeEl) {
+        const start = currentExam.startDate ? formatDateDisplay(currentExam.startDate, 'short') : '-';
+        const end = currentExam.endDate ? formatDateDisplay(currentExam.endDate, 'short') : start;
+        dateRangeEl.textContent = `${start} s.d. ${end}`;
+    }
+
+    if (locationEl) {
+        locationEl.innerHTML = `
+            <i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline mr-1"></i>
+            <span>Tilok: <strong>${currentExam.location}</strong> (Kapasitas: ${currentExam.quotaPerSession} PC/Sesi)</span>
+        `;
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * Render statistik di Dashboard
+ */
+function renderDashboardStats() {
+    const statTotal = document.getElementById('statTotalPeserta');
+    const statS1 = document.getElementById('statSesi1');
+    const statS2 = document.getElementById('statSesi2');
+    const statS3 = document.getElementById('statSesi3');
+    const distContainer = document.getElementById('dashboardDistributionContainer');
+
+    const total = currentCandidates.length;
+    const s1 = currentCandidates.filter(c => c.sesi === 1).length;
+    const s2 = currentCandidates.filter(c => c.sesi === 2).length;
+    const s3 = currentCandidates.filter(c => c.sesi === 3).length;
+
+    if (statTotal) statTotal.textContent = total;
+    if (statS1) statS1.textContent = s1;
+    if (statS2) statS2.textContent = s2;
+    if (statS3) statS3.textContent = s3;
+
+    // Filter badge counts di Tab Jadwal
+    const cfAll = document.getElementById('countFilterAll');
+    const cf1 = document.getElementById('countFilter1');
+    const cf2 = document.getElementById('countFilter2');
+    const cf3 = document.getElementById('countFilter3');
+    if (cfAll) cfAll.textContent = total;
+    if (cf1) cf1.textContent = s1;
+    if (cf2) cf2.textContent = s2;
+    if (cf3) cf3.textContent = s3;
+
+    // Render tabel distribusi berdasarkan unit kerja
+    if (distContainer) {
+        if (total === 0) {
+            distContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian ini. Silakan upload file Excel terlebih dahulu.</p>`;
+            return;
+        }
+
+        const byUnit = {};
+        currentCandidates.forEach(c => {
+            const u = c.unitKerja || '(Unit Kerja Tidak Terisi)';
+            if (!byUnit[u]) byUnit[u] = { s1: 0, s2: 0, s3: 0, total: 0 };
+            if (c.sesi === 1) byUnit[u].s1++;
+            else if (c.sesi === 2) byUnit[u].s2++;
+            else if (c.sesi === 3) byUnit[u].s3++;
+            byUnit[u].total++;
+        });
+
+        const sortedUnits = Object.keys(byUnit).sort((a, b) => byUnit[b].total - byUnit[a].total);
+
+        distContainer.innerHTML = `
+            <table class="w-full text-xs text-left text-slate-700">
+                <thead class="bg-slate-100 text-slate-700 font-bold uppercase">
+                    <tr>
+                        <th class="p-2.5">Unit Kerja / OPD</th>
+                        <th class="p-2.5 text-center">Sesi 1 (Pagi)</th>
+                        <th class="p-2.5 text-center">Sesi 2 (Siang)</th>
+                        <th class="p-2.5 text-center">Sesi 3 (Sore)</th>
+                        <th class="p-2.5 text-center font-bold">Total Peserta</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    ${sortedUnits.slice(0, 10).map(u => `
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-2.5 font-medium text-slate-800">${u}</td>
+                            <td class="p-2.5 text-center text-blue-700 font-semibold">${byUnit[u].s1}</td>
+                            <td class="p-2.5 text-center text-amber-700 font-semibold">${byUnit[u].s2}</td>
+                            <td class="p-2.5 text-center text-emerald-700 font-semibold">${byUnit[u].s3}</td>
+                            <td class="p-2.5 text-center font-bold text-slate-900">${byUnit[u].total}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+}
+
+/**
+ * Setup Form Create Ujian Baru
+ * (Disesuaikan: Tanpa input Nama/Judul Kegiatan, hanya Instansi, Tanggal, Tilok, Kuota, Catatan)
+ */
+function setupCreateExamForm() {
+    const form = document.getElementById('formCreateExam');
+    const selectInstansi = document.getElementById('selectExamInstansi');
+
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const instansi = selectInstansi.value;
+            const selectedOpt = selectInstansi.options[selectInstansi.selectedIndex];
+            const region = selectedOpt.getAttribute('data-region') || 'Papua Barat';
+
+            const startDate = document.getElementById('inputExamStartDate').value;
+            const endDate = document.getElementById('inputExamEndDate').value || startDate;
+            const location = document.getElementById('inputExamLocation').value.trim();
+            const quota = document.getElementById('inputExamQuota').value;
+            const notes = document.getElementById('inputExamNotes').value.trim();
+
+            if (!instansi) {
+                showToast("Instansi wajib dipilih!", "warning");
+                return;
+            }
+
+            try {
+                const newExam = await createNewExam({
+                    title: instansi,
+                    instansi: instansi,
+                    wilker: region,
+                    startDate,
+                    endDate,
+                    location,
+                    quotaPerSession: quota,
+                    notes
+                });
+
+                allExams.unshift(newExam);
+                renderExamSelectDropdowns();
+                await setActiveExam(newExam.id);
+
+                showToast(`Ujian untuk "${instansi}" berhasil dibuat!`, "success");
+                form.reset();
+
+                // Beralih ke tab upload excel
+                switchTab('upload-excel');
+
+            } catch (err) {
+                console.error(err);
+                showToast("Gagal membuat ujian: " + err.message, "error");
+            }
+        });
+    }
+}
+
+/**
+ * Render daftar ujian yang sudah dibuat pada Tab Create Ujian
+ */
+function renderExamListInCreateTab() {
+    const container = document.getElementById('listExamContainer');
+    const countBadge = document.getElementById('examCountBadge');
+    if (!container) return;
+
+    if (countBadge) countBadge.textContent = `${allExams.length} Instansi`;
+
+    if (allExams.length === 0) {
+        container.innerHTML = `<p class="text-sm text-slate-400 py-8 text-center">Belum ada ujian yang dibuat.</p>`;
+        return;
+    }
+
+    const activeId = getSelectedExamId();
+
+    container.innerHTML = allExams.map(exam => {
+        const isActive = exam.id === activeId;
+        return `
+            <div class="p-3.5 rounded-xl border ${isActive ? 'border-bkn-600 bg-blue-50/60 ring-2 ring-bkn-600/20' : 'border-slate-200 bg-white hover:border-slate-300'} transition flex flex-col justify-between space-y-2">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${exam.wilker === 'Papua Barat Daya' ? 'bg-emerald-100 text-emerald-800' : (exam.wilker === 'Instansi Vertikal' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800')}">${exam.wilker}</span>
+                        ${isActive ? '<span class="text-[10px] font-bold text-bkn-700 bg-blue-100 px-2 py-0.5 rounded">AKTIF</span>' : ''}
+                    </div>
+                    <h4 class="font-bold text-sm text-slate-900 mt-1 line-clamp-1">${exam.instansi}</h4>
+                    <p class="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                        <i data-lucide="map-pin" class="w-3 h-3 text-slate-400 inline"></i>
+                        <span>${exam.location}</span>
+                    </p>
+                </div>
+                <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span class="text-[11px] text-slate-400">${exam.startDate ? formatDateDisplay(exam.startDate, 'short') : '-'}</span>
+                    <div class="flex items-center space-x-1.5">
+                        ${!isActive ? `
+                            <button onclick="selectAndActivateExam('${exam.id}')" class="px-2.5 py-1 text-[11px] bg-bkn-700 hover:bg-bkn-800 text-white font-medium rounded transition">
+                                Pilih
+                            </button>
+                        ` : ''}
+                        <button onclick="confirmDeleteExam('${exam.id}', '${exam.instansi}')" class="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition" title="Hapus Ujian">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+window.selectAndActivateExam = async (examId) => {
+    await setActiveExam(examId);
+    showToast("Instansi aktif berhasil dipilih.", "info");
+};
+
+window.confirmDeleteExam = async (examId, instansiName) => {
+    if (confirm(`Yakin ingin menghapus ujian untuk "${instansiName}"?\nSeluruh data peserta di dalam ujian ini juga akan terhapus permanen.`)) {
+        try {
+            await db.deleteExam(examId);
+            allExams = allExams.filter(e => e.id !== examId);
+            showToast(`Ujian "${instansiName}" berhasil dihapus.`, "success");
+
+            if (getSelectedExamId() === examId) {
+                const nextId = allExams.length > 0 ? allExams[0].id : null;
+                await setActiveExam(nextId);
+            } else {
+                renderExamSelectDropdowns();
+                renderExamListInCreateTab();
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Gagal menghapus ujian: " + err.message, "error");
+        }
+    }
+};
+
+/**
+ * Setup Upload Excel & Drag Drop Area
+ */
+function setupExcelUpload() {
+    const dropzone = document.getElementById('dropzoneExcel');
+    const fileInput = document.getElementById('fileInputExcel');
+
+    if (!dropzone || !fileInput) return;
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('border-bkn-600', 'bg-blue-50/50');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('border-bkn-600', 'bg-blue-50/50');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('border-bkn-600', 'bg-blue-50/50');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleSelectedExcelFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            handleSelectedExcelFile(e.target.files[0]);
+        }
+    });
+}
+
+/**
+ * Memproses file Excel yang dipilih (Mendukung ribuan baris data)
+ */
+async function handleSelectedExcelFile(file) {
+    const targetExamSelect = document.getElementById('selectUploadTargetExam');
+    const targetExamId = targetExamSelect ? targetExamSelect.value : getSelectedExamId();
+
+    if (!targetExamId) {
+        showToast("Harap pilih target instansi penerima data terlebih dahulu!", "warning");
+        return;
+    }
+
+    const nameBadge = document.getElementById('uploadFileNameBadge');
+    const nameText = document.getElementById('uploadFileNameText');
+    if (nameBadge && nameText) {
+        nameText.textContent = file.name;
+        nameBadge.classList.remove('hidden');
+    }
+
+    const autoTime = document.getElementById('checkAutoStandardize')?.checked ?? true;
+
+    try {
+        showToast("Sedang memproses & membaca file Excel...", "info");
+        const parseResult = await parseExcelFile(file, { autoStandardizeTime: autoTime });
+
+        if (!parseResult.candidates || parseResult.candidates.length === 0) {
+            showToast("Tidak ditemukan baris peserta dengan Nama dan NIP yang valid!", "warning");
+            return;
+        }
+
+        previewParsedData = {
+            examId: targetExamId,
+            candidates: parseResult.candidates,
+            summary: parseResult.summary
+        };
+
+        renderExcelPreview(parseResult);
+        showToast(`Berhasil membaca ${parseResult.candidates.length} baris peserta (${parseResult.summary.skippedRows} baris kosong/tidak lengkap dilewati)!`, "success");
+
+    } catch (err) {
+        console.error("Gagal membaca Excel:", err);
+        showToast("Error membaca Excel: " + err.message, "error");
+    }
+}
+
+/**
+ * Render Tabel Preview dan Ringkasan Sesi sebelum Simpan
+ */
+function renderExcelPreview(result) {
+    const previewCard = document.getElementById('previewCard');
+    const summaryContainer = document.getElementById('previewSummaryContainer');
+    const tbody = document.getElementById('tbodyExcelPreview');
+
+    if (!previewCard || !tbody) return;
+
+    previewCard.classList.remove('hidden');
+
+    const s = result.summary;
+    if (summaryContainer) {
+        summaryContainer.innerHTML = `
+            <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <div class="text-[10px] uppercase font-bold text-blue-700">Total Terbaca</div>
+                <div class="text-xl font-bold text-blue-900 mt-0.5">${s.totalRows} Peserta</div>
+            </div>
+            <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                <div class="text-[10px] uppercase font-bold text-indigo-700">Sesi 1 (08.00-11.00)</div>
+                <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.sesi1} Orang</div>
+            </div>
+            <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 relative">
+                ${s.fridayRows > 0 ? '<span class="absolute top-2 right-2 text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.2 rounded">JUMAT DETECTED</span>' : ''}
+                <div class="text-[10px] uppercase font-bold text-amber-700">Sesi 2 (11.00 / Jumat 13.00)</div>
+                <div class="text-xl font-bold text-amber-900 mt-0.5">${s.sesi2} Orang</div>
+            </div>
+            <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                <div class="text-[10px] uppercase font-bold text-emerald-700">Sesi 3 (14.00-17.00)</div>
+                <div class="text-xl font-bold text-emerald-900 mt-0.5">${s.sesi3} Orang</div>
+            </div>
+        `;
+    }
+
+    const previewList = result.candidates.slice(0, 25);
+    tbody.innerHTML = previewList.map((c, idx) => {
+        const isFri = c.isFriday && c.sesi === 2;
+        return `
+            <tr class="${isFri ? 'bg-amber-50/60 font-medium' : 'hover:bg-slate-50'}">
+                <td class="p-2.5 text-center text-slate-500">${c.no || (idx + 1)}</td>
+                <td class="p-2.5 font-mono text-slate-900">${c.nip}</td>
+                <td class="p-2.5 font-semibold text-slate-900">${c.nama}</td>
+                <td class="p-2.5 text-slate-600">${c.unitKerja || '-'}</td>
+                <td class="p-2.5 text-slate-600">${c.jabatan || '-'}</td>
+                <td class="p-2.5 whitespace-nowrap">
+                    <span class="font-medium ${c.isFriday ? 'text-amber-800' : 'text-slate-800'}">${c.pelaksanaan}</span>
+                    ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-1">Jumat</span>' : ''}
+                </td>
+                <td class="p-2.5 text-center">
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                        Sesi ${c.sesi}
+                    </span>
+                </td>
+                <td class="p-2.5 whitespace-nowrap font-medium ${isFri ? 'text-amber-800 font-bold' : 'text-slate-700'}">
+                    ${c.waktu}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    if (result.candidates.length > 25) {
+        tbody.innerHTML += `
+            <tr>
+                <td colspan="8" class="p-3 text-center text-xs text-slate-500 bg-slate-50 font-medium italic">
+                    ... dan ${result.candidates.length - 25} peserta lainnya akan dimasukkan ke database saat disimpan.
+                </td>
+            </tr>
+        `;
+    }
+}
+
+/**
+ * Batalkan preview upload
+ */
+window.cancelUploadPreview = () => {
+    previewParsedData = null;
+    const previewCard = document.getElementById('previewCard');
+    const fileInput = document.getElementById('fileInputExcel');
+    const nameBadge = document.getElementById('uploadFileNameBadge');
+
+    if (previewCard) previewCard.classList.add('hidden');
+    if (fileInput) fileInput.value = '';
+    if (nameBadge) nameBadge.classList.add('hidden');
+};
+
+/**
+ * Simpan Data Hasil Parsing Excel ke IndexedDB
+ */
+window.savePreviewDataToDatabase = async () => {
+    if (!previewParsedData || !previewParsedData.candidates || previewParsedData.candidates.length === 0) {
+        showToast("Tidak ada data untuk disimpan!", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnSaveExcelToDB');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin inline mr-1"></i> Menyimpan ke DB...`;
+    }
+
+    try {
+        const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
+        showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
+
+        await setActiveExam(previewParsedData.examId);
+        window.cancelUploadPreview();
+
+        // Beralih otomatis ke tab data peserta
+        switchTab('daftar-peserta');
+
+    } catch (err) {
+        console.error("Gagal simpan ke DB:", err);
+        showToast("Gagal menyimpan ke database: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="database" class="w-4 h-4 inline mr-1"></i> Simpan ke Database`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
+
+/**
+ * Download Template Excel
+ */
+window.triggerDownloadTemplate = () => {
+    downloadExcelTemplate();
+    showToast("Template Excel berhasil diunduh!", "info");
+};
+
+/**
+ * Filter dan Render Tabel Data Peserta
+ */
+window.setCandidateFilterSession = (session) => {
+    currentSessionFilter = session;
+
+    document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+        btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+    });
+
+    const activeBtn = session === 'ALL' 
+        ? document.getElementById('btnFilterSesiAll') 
+        : document.getElementById(`btnFilterSesi${session}`);
+
+    if (activeBtn) {
+        activeBtn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+    }
+
+    applyCandidateFilters();
+};
+
+let debounceTimer = null;
+window.debounceSearchCandidate = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        const input = document.getElementById('inputSearchCandidate');
+        currentSearchTerm = input ? input.value.trim().toLowerCase() : '';
+        applyCandidateFilters();
+    }, 200);
+};
+
+window.renderCandidateTable = () => {
+    const selectDate = document.getElementById('selectFilterPelaksanaan');
+    currentDateFilter = selectDate ? selectDate.value : 'ALL';
+    applyCandidateFilters();
+};
+
+function populatePelaksanaanFilterDropdown() {
+    const select = document.getElementById('selectFilterPelaksanaan');
+    if (!select) return;
+
+    const uniqueDates = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(Boolean)));
+    
+    let html = `<option value="ALL">-- Semua Tanggal Pelaksanaan (${uniqueDates.length} Tanggal) --</option>`;
+    uniqueDates.forEach(d => {
+        const fri = isFriday(d);
+        html += `<option value="${d}">${d} ${fri ? '(Hari Jumat - Sesi 2: 13.00)' : ''}</option>`;
+    });
+
+    select.innerHTML = html;
+}
+
+function applyCandidateFilters() {
+    filteredCandidates = currentCandidates.filter(c => {
+        // Filter Sesi
+        if (currentSessionFilter !== 'ALL' && c.sesi !== Number(currentSessionFilter)) {
+            return false;
+        }
+
+        // Filter Tanggal
+        if (currentDateFilter !== 'ALL' && c.pelaksanaan !== currentDateFilter) {
+            return false;
+        }
+
+        // Filter Search (NIP, Nama, Unit Kerja)
+        if (currentSearchTerm) {
+            const matchNip = String(c.nip || '').toLowerCase().includes(currentSearchTerm);
+            const matchNama = String(c.nama || '').toLowerCase().includes(currentSearchTerm);
+            const matchUnit = String(c.unitKerja || '').toLowerCase().includes(currentSearchTerm);
+            if (!matchNip && !matchNama && !matchUnit) return false;
+        }
+
+        return true;
+    });
+
+    renderCandidateListTable();
+}
+
+function renderCandidateListTable() {
+    const tbody = document.getElementById('tbodyCandidateList');
+    const countBadge = document.getElementById('countTableVisible');
+    const paginationInfo = document.getElementById('tablePaginationInfo');
+
+    if (!tbody) return;
+
+    if (countBadge) countBadge.textContent = `${filteredCandidates.length} Data`;
+    if (paginationInfo) paginationInfo.textContent = `Menampilkan ${filteredCandidates.length} dari ${currentCandidates.length} total peserta`;
+
+    if (!currentExam) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="p-8 text-center text-slate-400">
+                    <i data-lucide="building" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="font-medium text-slate-600">Belum ada ujian aktif.</p>
+                    <p class="text-xs text-slate-400 mt-1">Silakan buat ujian terlebih dahulu melalui tab <strong>Create Ujian</strong>.</p>
+                </td>
+            </tr>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+
+    if (filteredCandidates.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="p-8 text-center text-slate-400">
+                    <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p>Tidak ada data peserta yang cocok dengan filter pencarian.</p>
+                </td>
+            </tr>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+
+    tbody.innerHTML = filteredCandidates.map((c, idx) => {
+        const isFriSession2 = c.isFriday && c.sesi === 2;
+        return `
+            <tr class="${isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50'} transition">
+                <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
+                <td class="p-3 font-mono font-medium text-slate-900">${c.nip}</td>
+                <td class="p-3 font-bold text-slate-900">${c.nama}</td>
+                <td class="p-3 text-slate-600 max-w-[220px] truncate" title="${c.unitKerja || '-'}">${c.unitKerja || '-'}</td>
+                <td class="p-3 text-slate-600 max-w-[200px] truncate" title="${c.jabatan || '-'}">${c.jabatan || '-'}</td>
+                <td class="p-3 whitespace-nowrap">
+                    <span class="font-semibold text-slate-800">${c.pelaksanaan}</span>
+                    ${c.isFriday ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded ml-1">Jumat</span>' : ''}
+                </td>
+                <td class="p-3 text-center">
+                    <span class="px-2 py-0.5 rounded text-xs font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                        Sesi ${c.sesi}
+                    </span>
+                </td>
+                <td class="p-3 whitespace-nowrap ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
+                    ${c.waktu}
+                </td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    <button onclick="editCandidate(${c.id})" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-1" title="Edit Data">
+                        <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button onclick="deleteSingleCandidate(${c.id}, '${c.nama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded" title="Hapus Peserta">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+window.deleteSingleCandidate = async (candidateId, name) => {
+    if (confirm(`Hapus peserta "${name}" dari jadwal ujian?`)) {
+        try {
+            await db.deleteCandidate(candidateId);
+            currentCandidates = currentCandidates.filter(c => c.id !== candidateId);
+            renderDashboardStats();
+            applyCandidateFilters();
+            showToast(`Peserta "${name}" berhasil dihapus.`, "info");
+        } catch (err) {
+            console.error(err);
+            showToast("Gagal menghapus peserta: " + err.message, "error");
+        }
+    }
+};
+
+window.confirmClearCandidates = async () => {
+    if (!currentExam) return;
+    if (confirm(`APAKAH ANDA YAKIN?\nSeluruh (${currentCandidates.length}) data peserta untuk instansi "${currentExam.instansi}" akan dihapus dari database.`)) {
+        try {
+            await db.deleteCandidatesByExam(currentExam.id);
+            currentCandidates = [];
+            renderDashboardStats();
+            populatePelaksanaanFilterDropdown();
+            applyCandidateFilters();
+            showToast("Semua data peserta berhasil dikosongkan.", "success");
+        } catch (err) {
+            console.error(err);
+            showToast("Gagal mengosongkan peserta: " + err.message, "error");
+        }
+    }
+};
+
+/**
+ * Setup Modal & Form Tambah/Edit Peserta Manual
+ */
+function setupManualCandidateForm() {
+    const form = document.getElementById('formCandidateManual');
+    const inputDate = document.getElementById('inputManualPelaksanaan');
+    const selectSesi = document.getElementById('selectManualSesi');
+    const inputWaktu = document.getElementById('inputManualWaktu');
+
+    function autoCalculateTime() {
+        const d = inputDate.value.trim();
+        const s = selectSesi.value;
+        if (d && s) {
+            inputWaktu.value = getSessionTime(s, d);
+        }
+    }
+
+    if (inputDate) inputDate.addEventListener('input', autoCalculateTime);
+    if (selectSesi) selectSesi.addEventListener('change', autoCalculateTime);
+
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentExam) {
+                showToast("Harap pilih atau buat ujian terlebih dahulu!", "warning");
+                return;
+            }
+
+            const id = document.getElementById('editCandidateId').value;
+            const nip = document.getElementById('inputManualNip').value.trim();
+            const nama = document.getElementById('inputManualNama').value.trim();
+            const unitKerja = document.getElementById('inputManualUnitKerja').value.trim();
+            const jabatan = document.getElementById('inputManualJabatan').value.trim();
+            const pelaksanaan = document.getElementById('inputManualPelaksanaan').value.trim();
+            const sesi = Number(document.getElementById('selectManualSesi').value) || 1;
+            const waktu = document.getElementById('inputManualWaktu').value.trim() || getSessionTime(sesi, pelaksanaan);
+            const fri = isFriday(pelaksanaan);
+
+            const row = {
+                examId: currentExam.id,
+                nip,
+                nama,
+                unitKerja,
+                jabatan,
+                pelaksanaan,
+                sesi,
+                waktu,
+                isFriday: fri,
+                status: 'Terjadwal'
+            };
+
+            try {
+                if (id) {
+                    row.id = Number(id);
+                    await db.updateCandidate(row);
+                    showToast(`Data peserta "${nama}" berhasil diperbarui.`, "success");
+                } else {
+                    row.no = currentCandidates.length + 1;
+                    const newId = await db.addCandidate(row);
+                    row.id = newId;
+                    showToast(`Peserta "${nama}" berhasil ditambahkan.`, "success");
+                }
+
+                currentCandidates = await db.getCandidatesByExam(currentExam.id);
+                renderDashboardStats();
+                populatePelaksanaanFilterDropdown();
+                applyCandidateFilters();
+                closeModalCandidateManual();
+
+            } catch (err) {
+                console.error(err);
+                showToast("Gagal menyimpan peserta: " + err.message, "error");
+            }
+        });
+    }
+}
+
+window.openModalAddCandidate = () => {
+    const modal = document.getElementById('modalCandidateManual');
+    const title = document.getElementById('modalCandidateTitle');
+    const form = document.getElementById('formCandidateManual');
+    if (!modal || !form) return;
+
+    title.textContent = "Tambah Peserta Manual";
+    form.reset();
+    document.getElementById('editCandidateId').value = '';
+
+    if (currentExam && currentExam.startDate) {
+        document.getElementById('inputManualPelaksanaan').value = formatDateDisplay(currentExam.startDate, 'short');
+        document.getElementById('inputManualWaktu').value = getSessionTime(1, currentExam.startDate);
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+};
+
+window.editCandidate = (candidateId) => {
+    const cand = currentCandidates.find(c => c.id === candidateId);
+    if (!cand) return;
+
+    const modal = document.getElementById('modalCandidateManual');
+    const title = document.getElementById('modalCandidateTitle');
+    if (!modal) return;
+
+    title.textContent = "Edit Data Peserta";
+    document.getElementById('editCandidateId').value = cand.id;
+    document.getElementById('inputManualNip').value = cand.nip;
+    document.getElementById('inputManualNama').value = cand.nama;
+    document.getElementById('inputManualUnitKerja').value = cand.unitKerja || '';
+    document.getElementById('inputManualJabatan').value = cand.jabatan || '';
+    document.getElementById('inputManualPelaksanaan').value = cand.pelaksanaan || '';
+    document.getElementById('selectManualSesi').value = cand.sesi || 1;
+    document.getElementById('inputManualWaktu').value = cand.waktu || '';
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+};
+
+window.closeModalCandidateManual = () => {
+    const modal = document.getElementById('modalCandidateManual');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Export Peserta Ujian ke Excel
+ */
+window.exportCurrentCandidates = () => {
+    if (!currentExam || filteredCandidates.length === 0) {
+        showToast("Tidak ada data peserta untuk diekspor!", "warning");
+        return;
+    }
+    exportCandidatesToExcel(currentExam.instansi, filteredCandidates);
+    showToast("File Excel berhasil di-generate!", "success");
+};
+
+/**
+ * Cetak Lembar Resmi Jadwal & Daftar Hadir
+ */
+window.printOfficialSchedule = () => {
+    if (!currentExam || filteredCandidates.length === 0) {
+        showToast("Tidak ada data peserta untuk dicetak!", "warning");
+        return;
+    }
+
+    const printInstansi = document.getElementById('printInstansi');
+    const printLocation = document.getElementById('printLocation');
+    const printDate = document.getElementById('printDate');
+    const printSession = document.getElementById('printSession');
+    const printSignedDate = document.getElementById('printSignedDate');
+    const tbody = document.getElementById('tbodyPrintCandidates');
+
+    if (printInstansi) printInstansi.textContent = `Instansi: ${currentExam.instansi}`;
+    if (printLocation) printLocation.textContent = `Tilok: ${currentExam.location}`;
+
+    const dateTxt = currentDateFilter === 'ALL' ? 'Semua Tanggal' : currentDateFilter;
+    const sessionTxt = currentSessionFilter === 'ALL' ? 'Semua Sesi' : `Sesi ${currentSessionFilter}`;
+
+    if (printDate) printDate.textContent = `Tanggal: ${dateTxt}`;
+    if (printSession) printSession.textContent = `Sesi: ${sessionTxt}`;
+
+    if (printSignedDate) {
+        const todayStr = formatDateDisplay(new Date(), 'long');
+        printSignedDate.textContent = `Manokwari, ${todayStr}`;
+    }
+
+    if (tbody) {
+        tbody.innerHTML = filteredCandidates.map((c, idx) => `
+            <tr>
+                <td style="text-align: center;">${idx + 1}</td>
+                <td style="font-family: monospace;">${c.nip}</td>
+                <td style="font-weight: bold;">${c.nama}</td>
+                <td>${c.unitKerja || '-'}<br><span style="font-size: 8pt; color: #555;">${c.jabatan || ''}</span></td>
+                <td>${c.waktu}</td>
+                <td style="height: 32px; border-bottom: 1px dotted #888;">${idx + 1}. ...............</td>
+            </tr>
+        `).join('');
+    }
+
+    window.print();
+};
+
+/**
+ * Setup Navigasi Tab
+ */
+function setupTabNavigation() {
+    window.switchTab = (tabName) => {
+        document.querySelectorAll('.nav-tab').forEach(btn => {
+            btn.classList.remove('border-amber-400', 'text-white');
+            btn.classList.add('border-transparent', 'text-blue-200');
+        });
+
+        const activeNav = document.getElementById(`nav-${tabName}`);
+        if (activeNav) {
+            activeNav.classList.remove('border-transparent', 'text-blue-200');
+            activeNav.classList.add('border-amber-400', 'text-white');
+        }
+
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.add('hidden');
+        });
+
+        const activePane = document.getElementById(`pane-${tabName}`);
+        if (activePane) {
+            activePane.classList.remove('hidden');
+        }
+
+        if (tabName === 'master-wilker') {
+            renderMasterInstansiTableFull();
+        } else if (tabName === 'daftar-peserta') {
+            applyCandidateFilters();
+        } else if (tabName === 'dashboard') {
+            renderDashboardStats();
+        }
+
+        if (window.lucide) window.lucide.createIcons();
+    };
+}
+
+/**
+ * Setup Master Instansi UI
+ */
+function setupMasterInstansiUI() {
+    const formCustom = document.getElementById('formAddMasterInstansiCustom');
+    if (formCustom) {
+        formCustom.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const inputName = document.getElementById('newMasterInstansiNameCustom');
+            const selectWilker = document.getElementById('newMasterInstansiWilkerCustom');
+
+            if (!inputName || !selectWilker) return;
+
+            const nameValue = toTitleCase(inputName.value.trim());
+            const wilkerValue = selectWilker.value;
+
+            if (!nameValue) {
+                showToast("Nama instansi tidak boleh kosong!", "warning");
+                return;
+            }
+
+            const exists = masterInstansiData.some(i => i.name.toLowerCase() === nameValue.toLowerCase());
+            if (exists) {
+                showToast(`Instansi "${nameValue}" sudah ada!`, "warning");
+                return;
+            }
+
+            masterInstansiData.push({ name: nameValue, wilker: wilkerValue });
+            localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+
+            inputName.value = '';
+            populateInstansiDropdown('selectExamInstansi');
+            renderMasterInstansiTableFull();
+            closeModalAddMasterInstansi();
+            showToast(`Instansi "${nameValue}" berhasil ditambahkan!`, "success");
+        });
+    }
+}
+
+function renderMasterInstansiTableFull() {
+    const tbody = document.getElementById('tbodyMasterInstansiList');
+    const countPB = document.getElementById('countWilkerPB');
+    const countPBD = document.getElementById('countWilkerPBD');
+    const countVertikal = document.getElementById('countWilkerVertikal');
+
+    const pbList = masterInstansiData.filter(i => i.wilker === 'Papua Barat');
+    const pbdList = masterInstansiData.filter(i => i.wilker === 'Papua Barat Daya');
+    const vertikalList = masterInstansiData.filter(i => i.wilker === 'Instansi Vertikal');
+
+    if (countPB) countPB.textContent = `${pbList.length} Kabupaten/Prov`;
+    if (countPBD) countPBD.textContent = `${pbdList.length} Kota/Kabupaten`;
+    if (countVertikal) countVertikal.textContent = `${vertikalList.length} Instansi`;
+
+    if (!tbody) return;
+
+    tbody.innerHTML = masterInstansiData.map((item, idx) => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${item.name}</td>
+            <td class="p-3">
+                <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full ${item.wilker === 'Papua Barat Daya' ? 'bg-emerald-100 text-emerald-800' : (item.wilker === 'Instansi Vertikal' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800')}">
+                    ${item.wilker}
+                </span>
+            </td>
+            <td class="p-3 text-center">
+                <button onclick="deleteMasterItem(${idx}, '${item.name}')" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] rounded transition">
+                    Hapus
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+window.deleteMasterItem = (index, name) => {
+    if (confirm(`Hapus "${name}" dari master instansi?`)) {
+        masterInstansiData.splice(index, 1);
+        localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+        populateInstansiDropdown('selectExamInstansi');
+        renderMasterInstansiTableFull();
+        showToast(`"${name}" telah dihapus.`, "info");
+    }
+};
+
+window.openModalAddMasterInstansi = () => {
+    const modal = document.getElementById('modalMasterInstansi');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+};
+
+window.closeModalAddMasterInstansi = () => {
+    const modal = document.getElementById('modalMasterInstansi');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Toast Notification Helper
+ */
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    const colorClass = type === 'success' ? 'bg-emerald-800 text-white' : 
+                       type === 'error' ? 'bg-rose-800 text-white' : 
+                       type === 'warning' ? 'bg-amber-800 text-white' : 'bg-slate-900 text-white';
+
+    const iconName = type === 'success' ? 'check-circle-2' : 
+                     type === 'error' ? 'alert-octagon' : 
+                     type === 'warning' ? 'alert-triangle' : 'info';
+
+    toast.className = `${colorClass} px-4 py-3 rounded-xl shadow-lg text-xs sm:text-sm font-medium flex items-center space-x-2.5 transition-all duration-300 pointer-events-auto max-w-md`;
+    toast.innerHTML = `
+        <i data-lucide="${iconName}" class="w-4 h-4 flex-shrink-0"></i>
+        <span>${message}</span>
+    `;
+
+    container.appendChild(toast);
+    if (window.lucide) window.lucide.createIcons();
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
