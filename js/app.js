@@ -9,6 +9,21 @@ import * as db from './db.js';
 import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber } from './sessionRules.js';
 import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel, analyzeDuplicates } from './excelHandler.js';
 import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
+import {
+    initFirebaseService,
+    getFirebaseConfig,
+    saveFirebaseConfig,
+    removeFirebaseConfig,
+    onConnectionStatusChange,
+    isCloudActive,
+    listenExamsCloud,
+    listenCandidatesCloud,
+    saveExamToCloud,
+    deleteExamFromCloud,
+    bulkAddCandidatesToCloud,
+    updateAttendanceInCloud,
+    migrateIndexedDBToFirebase
+} from './firebaseService.js';
 
 // State Aplikasi
 let currentExam = null;
@@ -25,6 +40,8 @@ let currentSortColumn = 'sesi';
 let currentSortDirection = 'asc';
 let isPinAuthorized = false;
 let pendingTargetTab = null;
+let pendingActionAfterPin = null;
+let activeCandidatesUnsubscribe = null;
 
 // Inisialisasi Aplikasi Saat Halaman Dimuat
 document.addEventListener('DOMContentLoaded', async () => {
@@ -35,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupExcelUpload();
     setupManualCandidateForm();
     setupMasterInstansiUI();
+    setupFirebaseIntegration();
 
     // Isi dropdown instansi
     populateInstansiDropdown('selectExamInstansi');
@@ -143,8 +161,28 @@ async function setActiveExam(examId) {
     // Muat data kandidat ujian ini
     if (currentExam) {
         currentCandidates = await db.getCandidatesByExam(currentExam.id);
+
+        // Pasang Realtime Listener jika Firebase Cloud aktif
+        if (isCloudActive()) {
+            if (activeCandidatesUnsubscribe) {
+                activeCandidatesUnsubscribe();
+            }
+            activeCandidatesUnsubscribe = listenCandidatesCloud(currentExam.id, (cloudCandidates) => {
+                if (cloudCandidates && cloudCandidates.length > 0) {
+                    currentCandidates = cloudCandidates;
+                    renderDashboardStats();
+                    populatePelaksanaanFilterDropdown();
+                    populateSesiFilterDropdown(currentDateFilter || 'ALL');
+                    applyCandidateFilters();
+                }
+            });
+        }
     } else {
         currentCandidates = [];
+        if (activeCandidatesUnsubscribe) {
+            activeCandidatesUnsubscribe();
+            activeCandidatesUnsubscribe = null;
+        }
     }
 
     renderDashboardStats();
@@ -420,6 +458,9 @@ function setupCreateExamForm() {
                 });
 
                 allExams.unshift(newExam);
+                if (isCloudActive()) {
+                    await saveExamToCloud(newExam);
+                }
                 renderExamSelectDropdowns();
                 await setActiveExam(newExam.id);
 
@@ -561,6 +602,10 @@ function setupEditExamForm() {
                 await db.updateExam(updatedExam);
                 allExams[examIndex] = updatedExam;
 
+                if (isCloudActive()) {
+                    await saveExamToCloud(updatedExam);
+                }
+
                 if (currentExam && currentExam.id === examId) {
                     currentExam = updatedExam;
                     renderDashboardExamInfo();
@@ -581,6 +626,9 @@ window.confirmDeleteExam = async (examId, instansiName) => {
     if (confirm(`Yakin ingin menghapus ujian untuk "${instansiName}"?\nSeluruh data peserta di dalam ujian ini juga akan terhapus permanen.`)) {
         try {
             await db.deleteExam(examId);
+            if (isCloudActive()) {
+                await deleteExamFromCloud(examId);
+            }
             allExams = allExams.filter(e => e.id !== examId);
             showToast(`Ujian "${instansiName}" berhasil dihapus.`, "success");
 
@@ -1175,6 +1223,9 @@ window.savePreviewDataToDatabase = async () => {
         }
 
         const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
+        if (isCloudActive()) {
+            await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
+        }
         showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
 
         await setActiveExam(previewParsedData.examId);
@@ -1438,6 +1489,12 @@ window.toggleAttendance = async (candidateId, action) => {
 
     try {
         await db.updateCandidate(cand);
+
+        // Sinkronkan ke Firebase Cloud secara Realtime
+        if (isCloudActive() && currentExam) {
+            updateAttendanceInCloud(currentExam.id, cand.id, cand.kehadiran);
+        }
+
         applyCandidateFilters();
         const statusText = cand.kehadiran === 'HADIR' ? 'Hadir' : (cand.kehadiran === 'TIDAK_HADIR' ? 'Tidak Hadir' : 'Direset');
         showToast(`Status ${cand.nama}: ${statusText}`, cand.kehadiran === 'HADIR' ? 'success' : (cand.kehadiran === 'TIDAK_HADIR' ? 'error' : 'info'));
@@ -2059,6 +2116,12 @@ function setupTabNavigation() {
             window.closeModalPinAccess();
             showToast("Akses administrator berhasil dibuka!", "success");
 
+            if (pendingActionAfterPin === 'OPEN_FIREBASE_CONFIG') {
+                pendingActionAfterPin = null;
+                window.openModalFirebaseConfig();
+                return;
+            }
+
             if (pendingTargetTab) {
                 const target = pendingTargetTab;
                 pendingTargetTab = null;
@@ -2081,6 +2144,7 @@ function setupTabNavigation() {
             modal.classList.remove('flex');
         }
         pendingTargetTab = null;
+        pendingActionAfterPin = null;
     };
 
     window.switchTab = (tabName) => {
@@ -2245,3 +2309,199 @@ function showToast(message, type = 'info') {
         setTimeout(() => toast.remove(), 300);
     }, 4000);
 }
+
+// ---------------------- FIREBASE REALTIME CLOUD INTEGRATION ----------------------
+
+function setupFirebaseIntegration() {
+    onConnectionStatusChange((online) => {
+        updateCloudStatusUI(online);
+    });
+
+    // Inisialisasi service dengan config yang tersimpan atau di-inject
+    const initialized = initFirebaseService();
+    updateCloudStatusUI(initialized);
+
+    setupFirebaseConfigForm();
+}
+
+function updateCloudStatusUI(online) {
+    const isOnline = Boolean(online && isCloudActive());
+
+    // 1. Badge di Header Navbar
+    const dot = document.getElementById('cloudStatusDot');
+    const text = document.getElementById('cloudStatusText');
+    if (dot) {
+        dot.className = `w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-slate-400'}`;
+    }
+    if (text) {
+        text.textContent = isOnline ? 'Online' : 'Offline';
+        text.className = `text-xs font-bold ${isOnline ? 'text-emerald-300' : 'text-slate-300'}`;
+    }
+
+    // 2. Badge di Modal Pengaturan Cloud
+    const mDot = document.getElementById('modalCloudStatusDot');
+    const mTitle = document.getElementById('modalCloudStatusTitle');
+    const mDesc = document.getElementById('modalCloudStatusDesc');
+    const btnDisc = document.getElementById('btnDisconnectCloud');
+
+    if (mDot) {
+        mDot.className = `w-3 h-3 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-slate-400'}`;
+    }
+    if (mTitle) {
+        mTitle.textContent = isOnline ? 'Terhubung ke Firebase Cloud Realtime' : 'Mode Offline (IndexedDB Lokal)';
+        mTitle.className = `text-xs font-bold ${isOnline ? 'text-emerald-800' : 'text-slate-800'}`;
+    }
+    if (mDesc) {
+        const config = getFirebaseConfig();
+        mDesc.textContent = isOnline 
+            ? `Proyek: ${config?.projectId || 'Aktif'} (Realtime Sync Berjalan)`
+            : 'Data tersimpan lokal di peramban komputer ini.';
+    }
+    if (btnDisc) {
+        if (isOnline) {
+            btnDisc.classList.remove('hidden');
+        } else {
+            btnDisc.classList.add('hidden');
+        }
+    }
+
+    // 3. Badge di Tab Wilayah
+    const bWilayah = document.getElementById('badgeCloudWilayahStatus');
+    if (bWilayah) {
+        bWilayah.textContent = isOnline ? 'Online Realtime' : 'Offline';
+        bWilayah.className = `text-[10px] font-bold px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`;
+    }
+}
+
+function setupFirebaseConfigForm() {
+    const form = document.getElementById('formFirebaseConfig');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const textarea = document.getElementById('inputFirebaseConfigJson');
+            const inputVal = textarea ? textarea.value.trim() : '';
+            if (!inputVal) {
+                showToast("Silakan masukkan objek konfigurasi Firebase!", "warning");
+                return;
+            }
+
+            try {
+                // Parsing fleksibel: mendukung JSON murni atau objek JS (membersihkan const/var deklarasi)
+                let cleaned = inputVal
+                    .replace(/^[^{]*\{/, '{')
+                    .replace(/\}[^}]*$/, '}')
+                    .replace(/([a-zA-Z0-9_]+)\s*:/g, '"$1":')
+                    .replace(/,\s*}/g, '}');
+
+                let parsed;
+                try {
+                    parsed = JSON.parse(inputVal);
+                } catch {
+                    parsed = JSON.parse(cleaned);
+                }
+
+                if (!parsed.apiKey || !parsed.databaseURL) {
+                    showToast("Konfigurasi wajib memiliki 'apiKey' dan 'databaseURL'!", "error");
+                    return;
+                }
+
+                saveFirebaseConfig(parsed);
+                showToast("Konfigurasi Firebase berhasil disimpan dan terhubung!", "success");
+                window.closeModalFirebaseConfig();
+
+                // Segera refresh listener ujian aktif
+                if (currentExam) {
+                    setActiveExam(currentExam.id);
+                }
+            } catch (err) {
+                console.error("Gagal parsing konfigurasi Firebase:", err);
+                showToast("Format konfigurasi tidak valid! Pastikan format JSON benar.", "error");
+            }
+        });
+    }
+}
+
+window.requestOpenFirebaseConfig = () => {
+    if (isPinAuthorized) {
+        window.openModalFirebaseConfig();
+    } else {
+        pendingActionAfterPin = 'OPEN_FIREBASE_CONFIG';
+        const modal = document.getElementById('modalPinAccess');
+        const inputPin = document.getElementById('inputAccessPin');
+        const errorMsg = document.getElementById('pinErrorMessage');
+        if (errorMsg) errorMsg.classList.add('hidden');
+        if (inputPin) {
+            inputPin.value = '';
+            inputPin.classList.remove('border-rose-500');
+        }
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => { if (inputPin) inputPin.focus(); }, 100);
+        }
+        if (window.lucide) window.lucide.createIcons();
+    }
+};
+
+window.openModalFirebaseConfig = () => {
+    const modal = document.getElementById('modalFirebaseConfig');
+    const textarea = document.getElementById('inputFirebaseConfigJson');
+    const currentConf = getFirebaseConfig();
+
+    if (textarea && currentConf) {
+        textarea.value = JSON.stringify(currentConf, null, 2);
+    }
+
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    if (window.lucide) window.lucide.createIcons();
+};
+
+window.closeModalFirebaseConfig = () => {
+    const modal = document.getElementById('modalFirebaseConfig');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+window.disconnectCloudFirebase = () => {
+    if (confirm("Yakin ingin memutuskan koneksi Firebase Cloud? Aplikasi akan kembali ke mode Offline (IndexedDB lokal).")) {
+        removeFirebaseConfig();
+        const textarea = document.getElementById('inputFirebaseConfigJson');
+        if (textarea) textarea.value = '';
+        updateCloudStatusUI(false);
+        showToast("Koneksi Firebase diputuskan. Berjalan dalam mode Offline lokal.", "info");
+    }
+};
+
+window.triggerMigrateIndexedDBToCloud = async () => {
+    if (!isCloudActive()) {
+        showToast("Koneksi Firebase belum aktif! Silakan simpan konfigurasi terlebih dahulu.", "warning");
+        window.requestOpenFirebaseConfig();
+        return;
+    }
+
+    const btn = document.getElementById('btnMigrateToCloud');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Mengunggah Data...</span>`;
+    }
+
+    try {
+        const result = await migrateIndexedDBToFirebase(db.getAllExams, db.getCandidatesByExam);
+        showToast(`Migrasi sukses! ${result.examsCount} Ujian & ${result.candidatesCount} Peserta berhasil diunggah ke Cloud.`, "success");
+        window.closeModalFirebaseConfig();
+    } catch (err) {
+        console.error("Gagal migrasi ke cloud:", err);
+        showToast("Gagal migrasi data: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="upload-cloud" class="w-4 h-4"></i> <span>Migrasi ke Cloud</span>`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
