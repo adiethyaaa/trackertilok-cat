@@ -177,3 +177,15 @@ export function getSessionTime(sessionNum, dateInput) {
     }
     return "-";
 }
+
+/**
+ * Format nomor sesi kumulatif dengan leading zero untuk angka 1-9 (01 - 09, 10, ...)
+ * @param {number|string} num 
+ * @returns {string} Contoh: 1 -> "01", 7 -> "07", 10 -> "10"
+ */
+export function formatCumulativeSessionNumber(num) {
+    const n = Number(num);
+    if (isNaN(n) || n <= 0) return '00';
+    return String(n).padStart(2, '0');
+}
+

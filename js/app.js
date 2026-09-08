@@ -6,7 +6,7 @@
 
 import { masterInstansiData, toTitleCase } from '../masterInstansi.js';
 import * as db from './db.js';
-import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID } from './sessionRules.js';
+import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber } from './sessionRules.js';
 import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel, analyzeDuplicates } from './excelHandler.js';
 import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
 
@@ -17,8 +17,11 @@ let currentCandidates = [];
 let filteredCandidates = [];
 let previewParsedData = null;
 let currentSessionFilter = 'ALL';
+let currentCumulativeSessionFilter = 'ALL';
 let currentSearchTerm = '';
 let currentDateFilter = 'ALL';
+let currentSortColumn = 'no';
+let currentSortDirection = 'asc';
 
 // Inisialisasi Aplikasi Saat Halaman Dimuat
 document.addEventListener('DOMContentLoaded', async () => {
@@ -142,6 +145,7 @@ async function setActiveExam(examId) {
 
     renderDashboardStats();
     populatePelaksanaanFilterDropdown();
+    populateSesiFilterDropdown('ALL');
     applyCandidateFilters();
 }
 
@@ -1040,6 +1044,7 @@ window.triggerDownloadTemplate = () => {
 window.setCandidateFilterSession = (session) => {
     currentSessionFilter = session;
 
+    // Update status aktif tombol pills
     document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
         btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
     });
@@ -1052,6 +1057,72 @@ window.setCandidateFilterSession = (session) => {
         activeBtn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
     }
 
+    if (session === 'ALL') {
+        currentCumulativeSessionFilter = 'ALL';
+        const inputTyping = document.getElementById('inputFilterSesiTyping');
+        const selectDropdown = document.getElementById('selectFilterSesiDropdown');
+        if (inputTyping) inputTyping.value = '';
+        if (selectDropdown) selectDropdown.value = 'ALL';
+    }
+
+    applyCandidateFilters();
+};
+
+/**
+ * Event handler saat dropdown filter tanggal pelaksanaan berubah
+ * Mengatur filter tanggal sekaligus menyaring opsi filter sesi agar hanya sesi pada tanggal tersebut yang aktif
+ */
+window.onFilterPelaksanaanChange = (dateVal) => {
+    currentDateFilter = dateVal || 'ALL';
+    populateSesiFilterDropdown(currentDateFilter);
+    applyCandidateFilters();
+};
+
+/**
+ * Event handler saat user mengetik angka sesi pada input (misal ketik 7 atau 07)
+ */
+let sessionTypeDebounce = null;
+window.onFilterSesiTypeInput = (inputVal) => {
+    clearTimeout(sessionTypeDebounce);
+    sessionTypeDebounce = setTimeout(() => {
+        const select = document.getElementById('selectFilterSesiDropdown');
+        const clean = String(inputVal || '').trim();
+
+        if (!clean) {
+            currentCumulativeSessionFilter = 'ALL';
+            if (select) select.value = 'ALL';
+            applyCandidateFilters();
+            return;
+        }
+
+        const num = parseInt(clean, 10);
+        if (!isNaN(num) && num > 0) {
+            currentCumulativeSessionFilter = num;
+            if (select) {
+                const opt = select.querySelector(`option[value="${num}"]`);
+                if (opt) {
+                    select.value = String(num);
+                } else {
+                    select.value = 'ALL';
+                }
+            }
+            applyCandidateFilters();
+        }
+    }, 150);
+};
+
+/**
+ * Event handler saat dropdown filter sesi dipilih
+ */
+window.onFilterSesiDropdownChange = (sessionValue) => {
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    if (sessionValue === 'ALL') {
+        currentCumulativeSessionFilter = 'ALL';
+        if (inputTyping) inputTyping.value = '';
+    } else {
+        currentCumulativeSessionFilter = Number(sessionValue);
+        if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(sessionValue);
+    }
     applyCandidateFilters();
 };
 
@@ -1067,15 +1138,14 @@ window.debounceSearchCandidate = () => {
 
 window.renderCandidateTable = () => {
     const selectDate = document.getElementById('selectFilterPelaksanaan');
-    currentDateFilter = selectDate ? selectDate.value : 'ALL';
-    applyCandidateFilters();
+    window.onFilterPelaksanaanChange(selectDate ? selectDate.value : 'ALL');
 };
 
 function populatePelaksanaanFilterDropdown() {
     const select = document.getElementById('selectFilterPelaksanaan');
     if (!select) return;
 
-    const uniqueDates = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(Boolean)));
+    const uniqueDates = getSortedExamDates();
     
     let html = `<option value="ALL">-- Semua Tanggal Pelaksanaan (${uniqueDates.length} Tanggal) --</option>`;
     uniqueDates.forEach(d => {
@@ -1086,27 +1156,233 @@ function populatePelaksanaanFilterDropdown() {
     select.innerHTML = html;
 }
 
-function applyCandidateFilters() {
-    filteredCandidates = currentCandidates.filter(c => {
-        // Filter Sesi
-        if (currentSessionFilter !== 'ALL' && c.sesi !== Number(currentSessionFilter)) {
-            return false;
-        }
+/**
+ * Mengisi dropdown filter sesi kumulatif (1..36)
+ * Jika selectedDate !== 'ALL', otomatis hanya menampilkan sesi pada tanggal tersebut
+ */
+function populateSesiFilterDropdown(selectedDate = 'ALL') {
+    const select = document.getElementById('selectFilterSesiDropdown');
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    if (!select) return;
 
+    const sortedDates = getSortedExamDates();
+
+    // Saring kandidat sesuai tanggal jika dipilih
+    const poolCandidates = (selectedDate && selectedDate !== 'ALL')
+        ? currentCandidates.filter(c => c.pelaksanaan === selectedDate)
+        : currentCandidates;
+
+    // Kumpulkan seluruh sesi kumulatif unik pada pool ini
+    const sessionMap = new Map();
+    poolCandidates.forEach(c => {
+        const cum = getCumulativeSessionNumber(c, sortedDates);
+        if (!sessionMap.has(cum)) {
+            sessionMap.set(cum, {
+                cumNum: cum,
+                formattedCum: formatCumulativeSessionNumber(cum),
+                dateStr: c.pelaksanaan,
+                dailySession: c.sesi,
+                count: 0
+            });
+        }
+        sessionMap.get(cum).count++;
+    });
+
+    const sortedSessions = Array.from(sessionMap.values()).sort((a, b) => a.cumNum - b.cumNum);
+
+    let defaultText = selectedDate === 'ALL'
+        ? `-- Semua Sesi (${sortedSessions.length > 0 ? `01 s.d. ${formatCumulativeSessionNumber(sortedSessions[sortedSessions.length - 1].cumNum)}` : '0 Sesi'}) --`
+        : `-- Semua Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
+
+    let html = `<option value="ALL">${defaultText}</option>`;
+
+    sortedSessions.forEach(s => {
+        const dateLabel = selectedDate === 'ALL' ? `${s.dateStr} - ` : '';
+        html += `<option value="${s.cumNum}">Sesi ${s.formattedCum} (${dateLabel}Sesi ${s.dailySession}) [${s.count} Peserta]</option>`;
+    });
+
+    select.innerHTML = html;
+
+    // Update placeholder input ketik sesi
+    if (inputTyping) {
+        if (sortedSessions.length > 0) {
+            const minCum = sortedSessions[0].formattedCum;
+            const maxCum = sortedSessions[sortedSessions.length - 1].formattedCum;
+            inputTyping.placeholder = `${minCum}-${maxCum}`;
+            inputTyping.title = `Ketik angka sesi kumulatif (${minCum} s.d. ${maxCum})`;
+        } else {
+            inputTyping.placeholder = 'Sesi #';
+        }
+    }
+
+    // Validasi apakah filter sesi terpilih masih ada di dalam daftar sesi yang aktif
+    if (currentCumulativeSessionFilter !== 'ALL') {
+        const exists = sortedSessions.some(s => s.cumNum === Number(currentCumulativeSessionFilter));
+        if (exists) {
+            select.value = String(currentCumulativeSessionFilter);
+            if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(currentCumulativeSessionFilter);
+        } else {
+            currentCumulativeSessionFilter = 'ALL';
+            select.value = 'ALL';
+            if (inputTyping) inputTyping.value = '';
+        }
+    } else {
+        select.value = 'ALL';
+        if (inputTyping && !inputTyping.value) inputTyping.value = '';
+    }
+}
+
+/**
+ * Mendapatkan daftar tanggal pelaksanaan unik yang terurut secara kronologis
+ */
+function getSortedExamDates() {
+    const dateStrings = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(Boolean)));
+    return dateStrings.sort((a, b) => {
+        const da = parseFlexibleDate(a);
+        const db = parseFlexibleDate(b);
+        const ta = da ? da.getTime() : 0;
+        const tb = db ? db.getTime() : 0;
+        return ta - tb;
+    });
+}
+
+/**
+ * Menghitung nomor sesi kumulatif berlanjut antar hari
+ * Hari 1: Sesi 1 -> 1, Sesi 2 -> 2, Sesi 3 -> 3
+ * Hari 2: Sesi 1 -> 4, Sesi 2 -> 5, Sesi 3 -> 6, dst.
+ */
+function getCumulativeSessionNumber(c, sortedDates) {
+    if (!c || !c.pelaksanaan) return Number(c.sesi) || 1;
+    const dayIndex = sortedDates.indexOf(c.pelaksanaan);
+    if (dayIndex === -1) return Number(c.sesi) || 1;
+    return (dayIndex * 3) + (Number(c.sesi) || 1);
+}
+
+/**
+ * Mengurutkan tabel berdasarkan header yang diklik
+ */
+window.sortTable = (colKey) => {
+    if (currentSortColumn === colKey) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortColumn = colKey;
+        currentSortDirection = 'asc';
+    }
+    updateSortIcons();
+    applyCandidateFilters();
+};
+
+/**
+ * Memperbarui ikon panah sorting pada header tabel
+ */
+function updateSortIcons() {
+    const columns = ['no', 'nip', 'nama', 'unitKerja', 'jabatan', 'pelaksanaan', 'sesi', 'waktu'];
+    columns.forEach(col => {
+        const iconEl = document.getElementById(`sort-icon-${col}`);
+        if (!iconEl) return;
+        if (col === currentSortColumn) {
+            iconEl.textContent = currentSortDirection === 'asc' ? '▲' : '▼';
+            iconEl.className = 'text-bkn-800 font-bold text-[11px]';
+        } else {
+            iconEl.textContent = '↕';
+            iconEl.className = 'text-slate-400 text-[10px]';
+        }
+    });
+}
+
+function applyCandidateFilters() {
+    const sortedDates = getSortedExamDates();
+
+    filteredCandidates = currentCandidates.filter(c => {
         // Filter Tanggal
         if (currentDateFilter !== 'ALL' && c.pelaksanaan !== currentDateFilter) {
             return false;
         }
 
-        // Filter Search (NIP, Nama, Unit Kerja)
+        // Filter Sesi Kumulatif (1..36)
+        if (currentCumulativeSessionFilter !== 'ALL') {
+            const cum = getCumulativeSessionNumber(c, sortedDates);
+            if (cum !== Number(currentCumulativeSessionFilter)) {
+                return false;
+            }
+        } else if (currentSessionFilter !== 'ALL') {
+            // Filter Sesi Harian (1, 2, 3) jika sesi kumulatif ALL
+            if (c.sesi !== Number(currentSessionFilter)) {
+                return false;
+            }
+        }
+
+        // Filter Search (NIP, Nama, Unit Kerja, Jabatan)
         if (currentSearchTerm) {
             const matchNip = String(c.nip || '').toLowerCase().includes(currentSearchTerm);
             const matchNama = String(c.nama || '').toLowerCase().includes(currentSearchTerm);
             const matchUnit = String(c.unitKerja || '').toLowerCase().includes(currentSearchTerm);
-            if (!matchNip && !matchNama && !matchUnit) return false;
+            const matchJabatan = String(c.jabatan || '').toLowerCase().includes(currentSearchTerm);
+            if (!matchNip && !matchNama && !matchUnit && !matchJabatan) return false;
         }
 
         return true;
+    });
+
+    // Pengurutan data (Sorting)
+    filteredCandidates.sort((a, b) => {
+        let valA, valB;
+
+        switch (currentSortColumn) {
+            case 'no':
+                valA = Number(a.no) || 0;
+                valB = Number(b.no) || 0;
+                break;
+            case 'nip':
+                valA = String(a.nip || '');
+                valB = String(b.nip || '');
+                return currentSortDirection === 'asc' 
+                    ? valA.localeCompare(valB, undefined, { numeric: true }) 
+                    : valB.localeCompare(valA, undefined, { numeric: true });
+            case 'nama':
+                valA = String(a.nama || '');
+                valB = String(b.nama || '');
+                return currentSortDirection === 'asc' 
+                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
+                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+            case 'unitKerja':
+                valA = String(a.unitKerja || '');
+                valB = String(b.unitKerja || '');
+                return currentSortDirection === 'asc' 
+                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
+                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+            case 'jabatan':
+                valA = String(a.jabatan || '');
+                valB = String(b.jabatan || '');
+                return currentSortDirection === 'asc' 
+                    ? valA.localeCompare(valB, 'id', { sensitivity: 'base' }) 
+                    : valB.localeCompare(valA, 'id', { sensitivity: 'base' });
+            case 'pelaksanaan': {
+                const da = parseFlexibleDate(a.pelaksanaan);
+                const db = parseFlexibleDate(b.pelaksanaan);
+                valA = da ? da.getTime() : 0;
+                valB = db ? db.getTime() : 0;
+                break;
+            }
+            case 'sesi': {
+                valA = getCumulativeSessionNumber(a, sortedDates);
+                valB = getCumulativeSessionNumber(b, sortedDates);
+                break;
+            }
+            case 'waktu':
+                valA = String(a.waktu || '');
+                valB = String(b.waktu || '');
+                return currentSortDirection === 'asc' 
+                    ? valA.localeCompare(valB) 
+                    : valB.localeCompare(valA);
+            default:
+                valA = Number(a.no) || 0;
+                valB = Number(b.no) || 0;
+        }
+
+        if (valA < valB) return currentSortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSortDirection === 'asc' ? 1 : -1;
+        return 0;
     });
 
     renderCandidateListTable();
@@ -1149,8 +1425,19 @@ function renderCandidateListTable() {
         return;
     }
 
+    const sortedDates = getSortedExamDates();
+
     tbody.innerHTML = filteredCandidates.map((c, idx) => {
         const isFriSession2 = c.isFriday && c.sesi === 2;
+        const cumSesi = getCumulativeSessionNumber(c, sortedDates);
+        const cumSesiFormatted = formatCumulativeSessionNumber(cumSesi);
+
+        const sesiColorBadge = c.sesi === 1 
+            ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+            : (c.sesi === 2 
+                ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
+
         return `
             <tr class="${isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50'} transition">
                 <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
@@ -1162,10 +1449,15 @@ function renderCandidateListTable() {
                     <span class="font-semibold text-slate-800">${c.pelaksanaan}</span>
                     ${c.isFriday ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded ml-1">Jumat</span>' : ''}
                 </td>
-                <td class="p-3 text-center whitespace-nowrap min-w-[95px]">
-                    <span class="inline-block whitespace-nowrap px-3 py-1 rounded text-xs font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
-                        Sesi ${c.sesi}
-                    </span>
+                <td class="p-3 text-center whitespace-nowrap min-w-[130px]">
+                    <div class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                        <span class="inline-block whitespace-nowrap px-2.5 py-1 rounded-md text-xs font-bold ${sesiColorBadge}">
+                            Sesi ${c.sesi}
+                        </span>
+                        <span class="inline-block whitespace-nowrap px-2 py-1 rounded-md text-xs font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
+                            ${cumSesiFormatted}
+                        </span>
+                    </div>
                 </td>
                 <td class="p-3 whitespace-nowrap ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
                     ${c.waktu}
@@ -1191,6 +1483,8 @@ window.deleteSingleCandidate = async (candidateId, name) => {
             await db.deleteCandidate(candidateId);
             currentCandidates = currentCandidates.filter(c => c.id !== candidateId);
             renderDashboardStats();
+            populatePelaksanaanFilterDropdown();
+            populateSesiFilterDropdown(currentDateFilter);
             applyCandidateFilters();
             showToast(`Peserta "${name}" berhasil dihapus.`, "info");
         } catch (err) {
@@ -1208,6 +1502,7 @@ window.confirmClearCandidates = async () => {
             currentCandidates = [];
             renderDashboardStats();
             populatePelaksanaanFilterDropdown();
+            populateSesiFilterDropdown('ALL');
             applyCandidateFilters();
             showToast("Semua data peserta berhasil dikosongkan.", "success");
         } catch (err) {
@@ -1283,6 +1578,7 @@ function setupManualCandidateForm() {
                 currentCandidates = await db.getCandidatesByExam(currentExam.id);
                 renderDashboardStats();
                 populatePelaksanaanFilterDropdown();
+                populateSesiFilterDropdown(currentDateFilter);
                 applyCandidateFilters();
                 closeModalCandidateManual();
 
@@ -1375,7 +1671,12 @@ window.printOfficialSchedule = () => {
     if (printLocation) printLocation.textContent = `Tilok: ${currentExam.location}`;
 
     const dateTxt = currentDateFilter === 'ALL' ? 'Semua Tanggal' : currentDateFilter;
-    const sessionTxt = currentSessionFilter === 'ALL' ? 'Semua Sesi' : `Sesi ${currentSessionFilter}`;
+    let sessionTxt = 'Semua Sesi';
+    if (currentCumulativeSessionFilter !== 'ALL') {
+        sessionTxt = `Sesi ${formatCumulativeSessionNumber(currentCumulativeSessionFilter)}`;
+    } else if (currentSessionFilter !== 'ALL') {
+        sessionTxt = `Sesi ${currentSessionFilter}`;
+    }
 
     if (printDate) printDate.textContent = `Tanggal: ${dateTxt}`;
     if (printSession) printSession.textContent = `Sesi: ${sessionTxt}`;

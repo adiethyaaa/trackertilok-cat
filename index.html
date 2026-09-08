@@ -148,17 +148,38 @@
                     </div>
                 </div>
 
-                <!-- Search & Date Filter -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100">
-                    <div class="sm:col-span-2 relative">
+                <!-- Search & Filters (Pencarian, Filter Tanggal, & Filter Sesi Ketik + Dropdown Kumulatif) -->
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t border-slate-100">
+                    <div class="sm:col-span-5 relative">
                         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
                         <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari berdasarkan NIP, Nama Peserta, atau Unit Kerja..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
                     </div>
 
-                    <div>
-                        <select id="selectFilterPelaksanaan" onchange="renderCandidateTable()" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                    <div class="sm:col-span-4">
+                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs">
                             <option value="ALL">-- Semua Tanggal Pelaksanaan --</option>
                         </select>
+                    </div>
+
+                    <div class="sm:col-span-3 flex items-center gap-1.5">
+                        <!-- Input ketik untuk panggil angka sesi -->
+                        <div class="w-20 sm:w-24 flex-shrink-0" title="Ketik angka sesi (misal: 7 atau 07) untuk langsung memanggil sesi">
+                            <input type="text" 
+                                   id="inputFilterSesiTyping" 
+                                   oninput="onFilterSesiTypeInput(this.value)" 
+                                   placeholder="Sesi #" 
+                                   maxlength="4" 
+                                   class="w-full px-2 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white font-bold text-center text-bkn-900 focus:ring-2 focus:ring-bkn-600 focus:outline-none placeholder:font-normal placeholder:text-slate-400 shadow-xs">
+                        </div>
+
+                        <!-- Dropdown pemilihan sesi kumulatif (menyesuaikan tanggal aktif) -->
+                        <div class="flex-1 min-w-0">
+                            <select id="selectFilterSesiDropdown" 
+                                    onchange="onFilterSesiDropdownChange(this.value)" 
+                                    class="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none truncate shadow-xs">
+                                <option value="ALL">-- Semua Sesi --</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -180,14 +201,54 @@
                     <table class="w-full text-xs text-left text-slate-700">
                         <thead class="bg-slate-100/70 text-slate-700 font-bold uppercase border-b border-slate-200">
                             <tr>
-                                <th class="p-3 text-center w-12">No</th>
-                                <th class="p-3">NIP</th>
-                                <th class="p-3">Nama Lengkap</th>
-                                <th class="p-3">Unit Kerja</th>
-                                <th class="p-3">Jabatan</th>
-                                <th class="p-3">Pelaksanaan</th>
-                                <th class="p-3 text-center min-w-[95px] whitespace-nowrap">Sesi</th>
-                                <th class="p-3">Waktu (WIT)</th>
+                                <th onclick="sortTable('no')" class="p-3 text-center w-14 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan No">
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <span>No</span>
+                                        <span id="sort-icon-no" class="text-slate-400 text-[10px]">▲</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('nip')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan NIP (A-Z)">
+                                    <div class="flex items-center space-x-1">
+                                        <span>NIP</span>
+                                        <span id="sort-icon-nip" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('nama')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Nama (A-Z)">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Nama Lengkap</span>
+                                        <span id="sort-icon-nama" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('unitKerja')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Unit Kerja (A-Z)">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Unit Kerja</span>
+                                        <span id="sort-icon-unitKerja" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('jabatan')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Jabatan (A-Z)">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Jabatan</span>
+                                        <span id="sort-icon-jabatan" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('pelaksanaan')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Tanggal Pelaksanaan">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Pelaksanaan</span>
+                                        <span id="sort-icon-pelaksanaan" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('sesi')" class="p-3 text-center min-w-[130px] whitespace-nowrap cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Sesi Ujian">
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <span>Sesi & Kumulatif</span>
+                                        <span id="sort-icon-sesi" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
+                                <th onclick="sortTable('waktu')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Jam/Waktu Ujian">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Waktu (WIT)</span>
+                                        <span id="sort-icon-waktu" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
                                 <th class="p-3 text-center w-24">Aksi</th>
                             </tr>
                         </thead>
