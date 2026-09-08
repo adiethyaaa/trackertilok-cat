@@ -7,12 +7,13 @@
 
 import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay } from './sessionRules.js';
 
-// Header acuan standar sesuai instruksi user (termasuk variasi ejaan "PELAKSAAN" dan "PELAKSANAAN")
+// Header acuan standar sesuai instruksi user
 export const REQUIRED_COLUMNS = [
     { key: 'no', label: 'No', aliases: ['no', 'nomor', 'no.', 'urut', 'num'] },
     { key: 'nip', label: 'NIP', aliases: ['nip', 'nip baru', 'nomor induk pegawai', 'nrp', 'nip_peserta', 'nip peserta'] },
     { key: 'nama', label: 'NAMA', aliases: ['nama', 'nama lengkap', 'nama peserta', 'pegawai', 'nama_pegawai', 'nama pegawai'] },
-    { key: 'unitKerja', label: 'UNIT KERJA', aliases: ['unit kerja', 'unit_kerja', 'instansi / unit kerja', 'skpd', 'opd', 'bagian', 'satuan kerja', 'satker', 'unit'] },
+    { key: 'kelJabatan', label: 'KEL JABATAN', aliases: ['kel jabatan', 'kel. jabatan', 'kelompok jabatan', 'kel_jabatan', 'kelompok_jabatan', 'kelompok'] },
+    { key: 'unitKerja', label: 'UNIT KERJA', aliases: ['unit kerja', 'unit_kerja', 'instansi / unit kerja', 'skpd', 'opd', 'bagian', 'satuan kerja', 'satker', 'unit', 'nama instansi', 'nama_instansi', 'instansi'] },
     { key: 'jabatan', label: 'JABATAN', aliases: ['jabatan', 'nama jabatan', 'posisi', 'jabatan sekarang'] },
     { key: 'waktu', label: 'WAKTU', aliases: ['waktu', 'jam', 'waktu ujian', 'pukul', 'jadwal', 'jam ujian', 'waktu pelaksanaan', 'jam pelaksanaan'] },
     { key: 'pelaksanaan', label: 'PELAKSANAAN', aliases: [
@@ -22,7 +23,8 @@ export const REQUIRED_COLUMNS = [
         'hari/tanggal', 'hari / tanggal', 'hari, tanggal', 'hari tanggal', 'tanggal ujian', 'tgl ujian',
         'tgl_pelaksanaan', 'tgl_pelaksaan'
     ] },
-    { key: 'sesi', label: 'SESI', aliases: ['sesi', 'sesi ujian', 'sesi ke', 'tahap', 'sesi_ujian', 'sesi pelaksanaan'] }
+    { key: 'sesi', label: 'SESI', aliases: ['sesi', 'sesi ujian', 'sesi ke', 'tahap', 'sesi_ujian', 'sesi pelaksanaan'] },
+    { key: 'jenisTes', label: 'JENIS TES', aliases: ['jenis tes', 'jenis_tes', 'jenis ujian', 'tes'] }
 ];
 
 /**
@@ -44,14 +46,20 @@ export function findMatchingKey(headerName) {
         }
     }
 
-    // 2. Cek pencocokan parsial / keyword
+    // 2. Cek pencocokan parsial / keyword (Urutan diperhatikan!)
+    if (clean.includes('kel') && clean.includes('jabatan')) {
+        return 'kelJabatan';
+    }
+    if (clean.includes('jenis') && clean.includes('tes')) {
+        return 'jenisTes';
+    }
     if (clean.includes('pelaksaan') || clean.includes('pelaksanaan') || clean.includes('tanggal') || clean.includes('tgl')) {
         return 'pelaksanaan';
     }
     if (clean === 'nip' || clean.startsWith('nip ') || clean.includes('nomor induk')) {
         return 'nip';
     }
-    if (clean.includes('nama')) {
+    if (clean.includes('nama') && !clean.includes('instansi')) {
         return 'nama';
     }
     if (clean.includes('sesi')) {
@@ -60,7 +68,7 @@ export function findMatchingKey(headerName) {
     if (clean.includes('waktu') || clean.includes('pukul') || (clean.includes('jam') && !clean.includes('jambatan'))) {
         return 'waktu';
     }
-    if (clean.includes('unit') || clean.includes('kerja') || clean.includes('opd') || clean.includes('skpd') || clean.includes('satker')) {
+    if (clean.includes('unit') || clean.includes('kerja') || clean.includes('opd') || clean.includes('skpd') || clean.includes('satker') || clean.includes('instansi')) {
         return 'unitKerja';
     }
     if (clean.includes('jabatan')) {
@@ -75,14 +83,15 @@ export function findMatchingKey(headerName) {
 
 /**
  * Membaca file Excel dan mengonversi ke array data peserta terstruktur.
- * Mendukung ribuan baris data dengan scanning baris demi baris, melewati baris kosong,
- * dan hanya memasukkan baris yang memenuhi kondisi NAMA dan NIP terisi.
+ * Mendukung dua mode:
+ * 1. Mode 'SYSTEM': Data peserta awal dari sistem (NIP, Nama, Jabatan, Kel Jabatan, Nama Instansi, Jenis Tes) -> Jadwal & Sesi diset NULL.
+ * 2. Mode 'SCHEDULE': Data jadwal peserta (NIP, Pelaksanaan, Sesi, Waktu) -> Untuk melengkapi jadwal tanpa menimpa nama/jabatan sistem.
  * 
  * @param {File} file Objek File dari input
- * @param {Object} options Opsi { autoStandardizeTime: boolean, defaultPelaksanaan?: string }
- * @returns {Promise<Object>} { success, candidates, summary }
+ * @param {Object} options Opsi { autoStandardizeTime: boolean, defaultPelaksanaan?: string, uploadMode?: 'AUTO'|'SYSTEM'|'SCHEDULE', defaultInstansi?: string }
+ * @returns {Promise<Object>} { success, candidates, mode, summary }
  */
-export async function parseExcelFile(file, options = { autoStandardizeTime: true, defaultPelaksanaan: '' }) {
+export async function parseExcelFile(file, options = { autoStandardizeTime: true, defaultPelaksanaan: '', uploadMode: 'AUTO', defaultInstansi: '' }) {
     if (typeof XLSX === 'undefined') {
         throw new Error("Library SheetJS (XLSX) belum dimuat.");
     }
@@ -130,7 +139,20 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
     }
 
     if (headerRowIndex === -1) {
-        throw new Error("Format kolom Excel tidak dikenali. Pastikan terdapat kolom NIP dan NAMA (serta PELAKSANAAN / PELAKSAAN, UNIT KERJA, JABATAN, WAKTU, SESI).");
+        throw new Error("Format kolom Excel tidak dikenali. Pastikan terdapat kolom NIP dan NAMA.");
+    }
+
+    // Deteksi mode file: SYSTEM atau SCHEDULE
+    const hasKelJabatan = Object.values(headerMap).includes('kelJabatan');
+    const hasPelaksanaan = Object.values(headerMap).includes('pelaksanaan');
+
+    let effectiveMode = options.uploadMode || 'AUTO';
+    if (effectiveMode === 'AUTO') {
+        if (hasKelJabatan || !hasPelaksanaan) {
+            effectiveMode = 'SYSTEM';
+        } else {
+            effectiveMode = 'SCHEDULE';
+        }
     }
 
     const parsedCandidates = [];
@@ -148,21 +170,24 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
             no: '',
             nip: '',
             nama: '',
-            unitKerja: '',
-            jabatan: '',
-            waktu: '',
-            pelaksanaan: '',
-            sesi: 1,
+            kelJabatan: '-',
+            unitKerja: options.defaultInstansi || '-',
+            jabatan: '-',
+            waktu: effectiveMode === 'SYSTEM' ? 'NULL' : '',
+            pelaksanaan: effectiveMode === 'SYSTEM' ? 'NULL' : '',
+            sesi: effectiveMode === 'SYSTEM' ? 'NULL' : 1,
             isFriday: false,
-            excelRowNumber: i + 1 // catat nomor baris asli di file Excel
+            status: effectiveMode === 'SYSTEM' ? 'Belum Terjadwal' : 'Terjadwal',
+            jenisTes: '',
+            kehadiran: null,
+            excelRowNumber: i + 1
         };
 
         Object.keys(headerMap).forEach(colIdx => {
             const fieldKey = headerMap[colIdx];
             let val = row[colIdx];
 
-            if (fieldKey === 'pelaksanaan') {
-                // Cek apakah cell di worksheet memiliki formatted text (.w) asli dari Excel (misal: "09-Sep-26" atau "9/9/2026")
+            if (fieldKey === 'pelaksanaan' && effectiveMode !== 'SYSTEM') {
                 const cellAddress = XLSX.utils.encode_cell({ r: i, c: Number(colIdx) });
                 const directCell = worksheet[cellAddress];
                 const rawCellText = (directCell && directCell.w) ? directCell.w.trim() : null;
@@ -178,7 +203,7 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
                     const parsed = parseFlexibleDate(strVal);
                     rowObj.pelaksanaan = parsed ? formatDateDisplay(parsed, 'short') : strVal;
                 }
-            } else {
+            } else if (fieldKey !== 'pelaksanaan' || effectiveMode !== 'SYSTEM') {
                 rowObj[fieldKey] = String(val !== undefined && val !== null ? val : '').trim();
             }
         });
@@ -196,34 +221,44 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
         rowObj.nip = cleanNip;
         rowObj.nama = cleanNama;
         rowObj.no = parsedCandidates.length + 1;
-
-        // Normalisasi Sesi (default 1 jika kosong atau tidak valid)
-        let sesiNum = parseInt(rowObj.sesi, 10);
-        if (isNaN(sesiNum) || sesiNum < 1 || sesiNum > 3) {
-            sesiNum = 1;
-        }
-        rowObj.sesi = sesiNum;
-
-        // Jika kolom pelaksanaan masih kosong di Excel, gunakan default dari ujian jika tersedia
-        if (!rowObj.pelaksanaan && options.defaultPelaksanaan) {
-            rowObj.pelaksanaan = options.defaultPelaksanaan;
-        }
-
-        // Cek apakah tanggal pelaksanaan jatuh pada hari Jumat
-        if (rowObj.pelaksanaan) {
-            const parsedDate = parseFlexibleDate(rowObj.pelaksanaan);
-            if (parsedDate) {
-                rowObj.pelaksanaan = formatDateDisplay(parsedDate, 'short');
-                rowObj.isFriday = isFriday(parsedDate);
-            } else {
-                rowObj.isFriday = false;
+        rowObj.kelJabatan = rowObj.kelJabatan && rowObj.kelJabatan !== '' ? rowObj.kelJabatan : '-';
+        rowObj.jabatan = rowObj.jabatan && rowObj.jabatan !== '' ? rowObj.jabatan : '-';
+        if (effectiveMode === 'SYSTEM') {
+            // Pada file sistem: unit kerja dibiarkan 'NULL' (tidak mengambil nama instansi/template)
+            rowObj.unitKerja = 'NULL';
+            rowObj.pelaksanaan = 'NULL';
+            rowObj.sesi = '00'; // Diberikan nilai 00 agar bisa dipilih dan dipanggil di filter
+            rowObj.waktu = 'NULL';
+            rowObj.status = 'Belum Terjadwal';
+            rowObj.isFriday = false;
+        } else {
+            rowObj.unitKerja = rowObj.unitKerja && rowObj.unitKerja !== '' ? rowObj.unitKerja : (options.defaultInstansi || '-');
+            // Mode SCHEDULE (Jadwal)
+            let sesiNum = parseInt(rowObj.sesi, 10);
+            if (isNaN(sesiNum) || sesiNum < 1 || sesiNum > 3) {
+                sesiNum = 1;
             }
-        }
+            rowObj.sesi = sesiNum;
 
-        // Penentuan Jam Ujian Otomatis berdasarkan Sesi & Aturan Khusus Hari Jumat
-        const standardTime = getSessionTime(rowObj.sesi, rowObj.pelaksanaan);
-        if (options.autoStandardizeTime || !rowObj.waktu || rowObj.waktu === '-' || rowObj.waktu.trim() === '') {
-            rowObj.waktu = standardTime;
+            if (!rowObj.pelaksanaan && options.defaultPelaksanaan) {
+                rowObj.pelaksanaan = options.defaultPelaksanaan;
+            }
+
+            if (rowObj.pelaksanaan && rowObj.pelaksanaan !== 'NULL') {
+                const parsedDate = parseFlexibleDate(rowObj.pelaksanaan);
+                if (parsedDate) {
+                    rowObj.pelaksanaan = formatDateDisplay(parsedDate, 'short');
+                    rowObj.isFriday = isFriday(parsedDate);
+                } else {
+                    rowObj.isFriday = false;
+                }
+            }
+
+            const standardTime = getSessionTime(rowObj.sesi, rowObj.pelaksanaan);
+            if (options.autoStandardizeTime || !rowObj.waktu || rowObj.waktu === '-' || rowObj.waktu.trim() === '') {
+                rowObj.waktu = standardTime;
+            }
+            rowObj.status = 'Terjadwal';
         }
 
         parsedCandidates.push(rowObj);
@@ -232,12 +267,15 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
     return {
         success: parsedCandidates.length > 0,
         candidates: parsedCandidates,
+        mode: effectiveMode,
         summary: {
             totalRows: parsedCandidates.length,
             skippedRows: skippedCount,
-            sesi1: parsedCandidates.filter(c => c.sesi === 1).length,
-            sesi2: parsedCandidates.filter(c => c.sesi === 2).length,
-            sesi3: parsedCandidates.filter(c => c.sesi === 3).length,
+            mode: effectiveMode,
+            sesi1: parsedCandidates.filter(c => Number(c.sesi) === 1).length,
+            sesi2: parsedCandidates.filter(c => Number(c.sesi) === 2).length,
+            sesi3: parsedCandidates.filter(c => Number(c.sesi) === 3).length,
+            nullScheduleRows: parsedCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
             fridayRows: parsedCandidates.filter(c => c.isFriday).length
         }
     };
@@ -330,9 +368,114 @@ export function analyzeDuplicates(parsedCandidates, existingCandidates = []) {
 }
 
 /**
- * Generate dan unduh template file Excel kosong/contoh dengan format yang presisi
+ * Merge Data Jadwal Ujian dengan Data Peserta Eksisting (Dari File Sistem)
+ * ATURAN INTEGRITAS DATA:
+ * - File sistem memegang otoritas penuh atas nama, jabatan, dan kelJabatan.
+ * - File jadwal hanya melengkapi pelaksanaan, sesi, dan waktu.
+ * - Data nama dan jabatan asli sistem TIDAK BOLEH ditimpa oleh data file jadwal.
+ * 
+ * @param {Array} incomingCandidates Data peserta dari file Excel jadwal
+ * @param {Array} existingCandidates Data peserta yang sudah tersimpan di database
+ * @returns {Object} { updatedCandidates, newCandidates, untouchedExisting, allMerged, matchedCount, newCount }
  */
-export function downloadExcelTemplate() {
+export function mergeScheduleWithExisting(incomingCandidates, existingCandidates = []) {
+    const existingMap = new Map();
+    existingCandidates.forEach(c => {
+        const clean = String(c.nip || '').trim();
+        if (clean) existingMap.set(clean, { ...c });
+    });
+
+    const updatedCandidates = [];
+    const newCandidates = [];
+    const matchedNips = new Set();
+
+    incomingCandidates.forEach((cand) => {
+        const nip = String(cand.nip || '').trim();
+        if (existingMap.has(nip)) {
+            const ex = existingMap.get(nip);
+            matchedNips.add(nip);
+            // UPDATE JADWAL TAPI PROTEKSI NAMA, JABATAN, & KEL JABATAN ASLI SISTEM
+            // UNIT KERJA DIAMBIL DARI FILE JADWAL PESERTA
+            const resolvedUnitKerja = (cand.unitKerja && cand.unitKerja !== '-' && cand.unitKerja !== 'NULL' && cand.unitKerja.trim() !== '')
+                ? cand.unitKerja
+                : (ex.unitKerja && ex.unitKerja !== 'NULL' ? ex.unitKerja : 'NULL');
+
+            const merged = {
+                ...ex,
+                nama: ex.nama, // NAMA SISTEM TETAP UTUH
+                jabatan: ex.jabatan && ex.jabatan !== '-' ? ex.jabatan : (cand.jabatan || '-'), // JABATAN SISTEM UTUH
+                kelJabatan: ex.kelJabatan && ex.kelJabatan !== '-' ? ex.kelJabatan : (cand.kelJabatan || '-'),
+                unitKerja: resolvedUnitKerja, // DIISI DARI EXCEL JADWAL PESERTA
+                pelaksanaan: cand.pelaksanaan,
+                sesi: cand.sesi,
+                waktu: cand.waktu,
+                isFriday: cand.isFriday,
+                status: 'Terjadwal'
+            };
+            updatedCandidates.push(merged);
+        } else {
+            newCandidates.push({
+                ...cand,
+                status: 'Terjadwal'
+            });
+        }
+    });
+
+    const untouchedExisting = existingCandidates.filter(c => !matchedNips.has(String(c.nip || '').trim()));
+    const allMerged = [...updatedCandidates, ...newCandidates, ...untouchedExisting];
+    allMerged.forEach((c, idx) => { c.no = idx + 1; });
+
+    return {
+        updatedCandidates,
+        newCandidates,
+        untouchedExisting,
+        allMerged,
+        matchedCount: updatedCandidates.length,
+        newCount: newCandidates.length
+    };
+}
+
+/**
+ * Unduh template Excel Opsi 1: Data Master Peserta dari Sistem
+ * Struktur kolom: NIP, Nama, Sesi, Jabatan, Kel Jabatan, Nama Instansi, Jenis Tes
+ */
+export function downloadSystemTemplate() {
+    if (typeof XLSX === 'undefined') {
+        alert("Library Excel belum selesai dimuat.");
+        return;
+    }
+
+    const headers = ["NIP", "Nama", "Sesi", "Jabatan", "Kel Jabatan", "Nama Instansi", "Jenis Tes"];
+    
+    const sampleData = [
+        ["197504202009041002", "DANIAL", "", "PENGADMINISTRASI PERKANTORAN", "Pelaksana", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"],
+        ["197608022005021003", "ROBBY LAHUMETEN", "", "Kepala BIDANG MUTASI", "Administrator", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"],
+        ["197702272009092001", "IVONE", "", "Kepala BIDANG INFORMASI DAN FORMASI", "Administrator", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"]
+    ];
+
+    const wsData = [headers, ...sampleData];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    ws['!cols'] = [
+        { wch: 24 }, // NIP
+        { wch: 35 }, // Nama
+        { wch: 8 },  // Sesi
+        { wch: 35 }, // Jabatan
+        { wch: 20 }, // Kel Jabatan
+        { wch: 35 }, // Nama Instansi
+        { wch: 30 }  // Jenis Tes
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data Peserta Sistem");
+    XLSX.writeFile(wb, "Template_Data_Sistem_Profiling_ASN.xlsx");
+}
+
+/**
+ * Unduh template Excel Opsi 2: Data Jadwal Ujian Peserta
+ * Struktur kolom: No, NIP, NAMA, UNIT KERJA, JABATAN, WAKTU, PELAKSANAAN, SESI
+ */
+export function downloadScheduleTemplate() {
     if (typeof XLSX === 'undefined') {
         alert("Library Excel belum selesai dimuat.");
         return;
@@ -340,7 +483,6 @@ export function downloadExcelTemplate() {
 
     const headers = ["No", "NIP", "NAMA", "UNIT KERJA", "JABATAN", "WAKTU", "PELAKSANAAN", "SESI"];
     
-    // Contoh data riil sesuai permintaan user (11-Sep-26 jatuh pada hari Jumat)
     const sampleData = [
         [1, "197809092014091001", "GARDEN SEMUEL KARUBUY", "", "ANALIS PENAGIHAN DAN PENGEMBALIAN", "08.00 - 11.00 WIT", "11-Sep-26", 1],
         [2, "197812052014091002", "DARIUS AKWAN", "SUB BAGIAN UMUM DAN KEPEGAWAIAN - DINAS LINGKUNGAN HIDUP", "PENGADMINISTRASI UMUM", "13.00 - 16.00 WIT", "11-Sep-26", 2],
@@ -365,12 +507,18 @@ export function downloadExcelTemplate() {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Jadwal Ujian");
-
     XLSX.writeFile(wb, "Template_Jadwal_Profiling_ASN.xlsx");
 }
 
 /**
- * Export data peserta ujian ke file Excel
+ * Alias untuk backwards-compatibility
+ */
+export function downloadExcelTemplate() {
+    downloadScheduleTemplate();
+}
+
+/**
+ * Export data peserta ujian ke file Excel dengan menyertakan Kel Jabatan
  */
 export function exportCandidatesToExcel(examInstansi, candidateList) {
     if (typeof XLSX === 'undefined') {
@@ -378,18 +526,19 @@ export function exportCandidatesToExcel(examInstansi, candidateList) {
         return;
     }
 
-    const headers = ["No", "NIP", "NAMA", "UNIT KERJA", "JABATAN", "WAKTU", "PELAKSANAAN", "SESI", "KETERANGAN"];
+    const headers = ["No", "NIP", "NAMA", "KEL JABATAN", "UNIT KERJA", "JABATAN", "WAKTU", "PELAKSANAAN", "SESI", "KETERANGAN"];
     
     const rows = candidateList.map((c, index) => [
         index + 1,
         `'${c.nip}`,
         c.nama,
+        c.kelJabatan || '-',
         c.unitKerja || '-',
         c.jabatan || '-',
         c.waktu,
         c.pelaksanaan,
         c.sesi,
-        c.isFriday && c.sesi === 2 ? 'Khusus Jumat (13.00-16.00)' : 'Reguler'
+        c.isFriday && c.sesi === 2 ? 'Khusus Jumat (13.00-16.00)' : (c.sesi === 'NULL' ? 'Belum Terjadwal' : 'Reguler')
     ]);
 
     const wsData = [headers, ...rows];
@@ -399,6 +548,7 @@ export function exportCandidatesToExcel(examInstansi, candidateList) {
         { wch: 6 },
         { wch: 24 },
         { wch: 35 },
+        { wch: 20 },
         { wch: 45 },
         { wch: 35 },
         { wch: 22 },

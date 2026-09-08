@@ -187,6 +187,9 @@
                         <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition">
                             Semua Sesi (<span id="countFilterAll">0</span>)
                         </button>
+                        <button onclick="setCandidateFilterSession('00')" id="btnFilterSesi00" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition" title="Filter peserta dengan sesi 00 / belum terjadwal (NULL)">
+                            Sesi 00 (NULL) [<span id="countFilter0">0</span>]
+                        </button>
                         <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
                             Sesi 1 (08.00-11.00) [<span id="countFilter1">0</span>]
                         </button>
@@ -215,22 +218,28 @@
                     </div>
                 </div>
 
-                <!-- Search & Filters (Pencarian, Filter Tanggal, & Filter Sesi Ketik + Dropdown Kumulatif) -->
+                <!-- Search & Filters (Pencarian, Filter Kelompok Jabatan, Filter Tanggal, & Filter Sesi) -->
                 <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t border-slate-100">
-                    <div class="sm:col-span-5 relative">
+                    <div class="sm:col-span-12 lg:col-span-4 relative">
                         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
-                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari berdasarkan NIP, Nama Peserta, atau Unit Kerja..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP, Nama, Kel Jabatan, atau Unit Kerja..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none">
                     </div>
 
-                    <div class="sm:col-span-4">
+                    <div class="sm:col-span-4 lg:col-span-3">
+                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs font-semibold text-slate-800 truncate">
+                            <option value="ALL">-- Semua Kel. Jabatan (0) --</option>
+                        </select>
+                    </div>
+
+                    <div class="sm:col-span-4 lg:col-span-3">
                         <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs">
                             <option value="ALL">-- Semua Tanggal Pelaksanaan --</option>
                         </select>
                     </div>
 
-                    <div class="sm:col-span-3 flex items-center gap-1.5">
+                    <div class="sm:col-span-4 lg:col-span-2 flex items-center gap-1.5">
                         <!-- Input ketik untuk panggil angka sesi -->
-                        <div class="w-20 sm:w-24 flex-shrink-0" title="Ketik angka sesi (misal: 7 atau 07) untuk langsung memanggil sesi">
+                        <div class="w-16 sm:w-20 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
                             <input type="text" 
                                    id="inputFilterSesiTyping" 
                                    oninput="onFilterSesiTypeInput(this.value)" 
@@ -292,6 +301,12 @@
                                         <span id="sort-icon-nama" class="text-slate-400 text-[10px]">↕</span>
                                     </div>
                                 </th>
+                                <th onclick="sortTable('kelJabatan')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Kelompok Jabatan (A-Z)">
+                                    <div class="flex items-center space-x-1">
+                                        <span>Kel. Jabatan</span>
+                                        <span id="sort-icon-kelJabatan" class="text-slate-400 text-[10px]">↕</span>
+                                    </div>
+                                </th>
                                 <th onclick="sortTable('unitKerja')" class="p-3 cursor-pointer hover:bg-slate-200/70 transition select-none" title="Klik untuk mengurutkan Unit Kerja (A-Z)">
                                     <div class="flex items-center space-x-1">
                                         <span>Unit Kerja</span>
@@ -327,7 +342,7 @@
                         </thead>
                         <tbody id="tbodyCandidateList" class="divide-y divide-slate-100">
                             <tr>
-                                <td colspan="10" class="p-8 text-center text-slate-400">
+                                <td colspan="11" class="p-8 text-center text-slate-400">
                                     <i data-lucide="lock" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                                     <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian & Masukkan PIN</p>
                                     <p class="text-xs text-slate-500 mt-1">Data peserta hanya akan dimuat setelah instansi dipilih dan PIN berhasil diverifikasi.</p>
@@ -487,13 +502,41 @@
                 </div>
             </div>
 
-            <!-- Aturan Waktu Pelaksanaan Ujian (Info Box) -->
-            <div class="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl p-6 shadow-md">
-                <div class="flex items-center space-x-3 mb-4">
-                    <i data-lucide="clock" class="w-6 h-6 text-amber-400"></i>
-                    <h2 class="text-lg font-bold">Ketentuan 3 Sesi Ujian & Jam Pelaksanaan WIT</h2>
+            <!-- Statistik Kehadiran Berdasarkan Kelompok Jabatan -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="briefcase" class="w-5 h-5 text-bkn-700"></i>
+                            <span>Statistik Kehadiran Berdasarkan Kelompok Jabatan</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">Breakdown jumlah peserta hadir, tidak hadir, belum presensi, dan persentase kehadiran per kelompok jabatan (mengikuti filter tanggal aktif).</p>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div id="dashKelJabatanContainer" class="overflow-x-auto">
+                    <p class="text-sm text-slate-500 py-4 text-center">Belum ada data kehadiran per kelompok jabatan.</p>
+                </div>
+            </div>
+
+            <!-- Aturan Waktu Pelaksanaan Ujian (Info Box - Default Hide) -->
+            <details class="group bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl shadow-md overflow-hidden transition-all duration-200">
+                <summary class="p-4 sm:p-5 flex items-center justify-between cursor-pointer list-none select-none hover:bg-white/5 transition">
+                    <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-white/10 rounded-lg text-amber-400">
+                            <i data-lucide="clock" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-sm sm:text-base font-bold text-white">Ketentuan 3 Sesi Ujian & Jam Pelaksanaan WIT</h2>
+                            <p class="text-xs text-blue-200">Klik untuk melihat rincian jam pelaksanaan Sesi 1, Sesi 2 (Jumat), dan Sesi 3</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 text-xs text-amber-300 font-semibold bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 group-open:bg-amber-400 group-open:text-slate-900 transition">
+                        <span class="group-open:hidden">Buka Panduan</span>
+                        <span class="hidden group-open:inline">Tutup Panduan</span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 transform transition-transform duration-200 group-open:rotate-180"></i>
+                    </div>
+                </summary>
+                <div class="p-6 pt-3 border-t border-white/10 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div class="bg-white/10 p-4 rounded-lg border border-white/10">
                         <div class="font-bold text-amber-300 text-base mb-1">Sesi 1</div>
                         <div class="text-xl font-bold text-white mb-2">08.00 s.d. 11.00 WIT</div>
@@ -512,7 +555,7 @@
                         <p class="text-xs text-blue-200">Berlaku untuk seluruh hari pelaksanaan ujian.</p>
                     </div>
                 </div>
-            </div>
+            </details>
 
             <!-- Ringkasan Unit Kerja & Distribusi Peserta -->
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
@@ -618,59 +661,146 @@
                     <div>
                         <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
                             <i data-lucide="file-spreadsheet" class="w-6 h-6 text-emerald-600"></i>
-                            <span>Upload File Excel Peserta Ujian</span>
+                            <span>Upload File Excel Peserta & Jadwal Ujian</span>
                         </h2>
-                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Membaca setiap baris file Excel secara cerdas. Baris kosong akan dilewati otomatis, dan baris dengan NIP & NAMA lengkap akan dimasukkan ke database.</p>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Dukung 2 alur: Upload data master peserta dari sistem (jadwal NULL) dan Upload jadwal peserta (melengkapi sesi & tanggal tanpa menimpa nama/jabatan asli sistem).</p>
                     </div>
-                    <button onclick="triggerDownloadTemplate()" class="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition">
-                        <i data-lucide="download" class="w-4 h-4"></i>
-                        <span>Download Template Excel (.xlsx)</span>
-                    </button>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button onclick="triggerDownloadSystemTemplate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                            <span>Template Master Sistem (.xlsx)</span>
+                        </button>
+                        <button onclick="triggerDownloadScheduleTemplate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                            <span>Template Jadwal Ujian (.xlsx)</span>
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Petunjuk Format Kolom Sesuai Permintaan User -->
-                <div class="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Format Kolom Referensi Excel:</span>
-                        <span class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">8 Kolom Standar</span>
+                <!-- Pilihan Mode Upload File -->
+                <div class="mt-6">
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Pilih Jenis File Excel Yang Diunggah *</label>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition border-bkn-600 bg-blue-50/50 has-[:checked]:border-bkn-600 has-[:checked]:bg-blue-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                                    <i data-lucide="sparkles" class="w-4 h-4 text-bkn-600"></i>
+                                    <span>Deteksi Otomatis (Auto)</span>
+                                </span>
+                                <input type="radio" name="uploadModeChoice" value="AUTO" checked class="w-4 h-4 text-bkn-600 focus:ring-bkn-500">
+                            </div>
+                            <p class="text-[11px] text-slate-500">Sistem otomatis mengenali apakah file berisi data sistem master atau file jadwal ujian.</p>
+                        </label>
+
+                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                                    <i data-lucide="users" class="w-4 h-4 text-blue-600"></i>
+                                    <span>1. Data Master Sistem</span>
+                                </span>
+                                <input type="radio" name="uploadModeChoice" value="SYSTEM" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                            </div>
+                            <p class="text-[11px] text-slate-500">Kolom: NIP, Nama, Sesi, Jabatan, Kel Jabatan, Nama Instansi, Jenis Tes. Kolom jadwal diset NULL.</p>
+                        </label>
+
+                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                                    <i data-lucide="calendar-check" class="w-4 h-4 text-emerald-600"></i>
+                                    <span>2. Jadwal & Sesi Ujian</span>
+                                </span>
+                                <input type="radio" name="uploadModeChoice" value="SCHEDULE" class="w-4 h-4 text-emerald-600 focus:ring-emerald-500">
+                            </div>
+                            <p class="text-[11px] text-slate-500">Lengkapi jadwal, sesi, & waktu via NIP. Nama dan Jabatan asli sistem terlindungi (tidak tertimpa).</p>
+                        </label>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
-                            <thead class="bg-slate-100 text-slate-700 font-bold uppercase">
-                                <tr>
-                                    <th class="p-2 border">No</th>
-                                    <th class="p-2 border">NIP</th>
-                                    <th class="p-2 border">NAMA</th>
-                                    <th class="p-2 border">UNIT KERJA</th>
-                                    <th class="p-2 border">JABATAN</th>
-                                    <th class="p-2 border">WAKTU</th>
-                                    <th class="p-2 border">PELAKSANAAN</th>
-                                    <th class="p-2 border">SESI</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="text-slate-500">
-                                    <td class="p-2 border">1</td>
-                                    <td class="p-2 border font-mono">197809092014091001</td>
-                                    <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
-                                    <td class="p-2 border">-</td>
-                                    <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
-                                    <td class="p-2 border text-blue-700 font-semibold">08.00 - 11.00 WIT</td>
-                                    <td class="p-2 border">11-Sep-26</td>
-                                    <td class="p-2 border text-center font-bold">1</td>
-                                </tr>
-                                <tr class="text-slate-500 bg-amber-50/50">
-                                    <td class="p-2 border">2</td>
-                                    <td class="p-2 border font-mono">197812052014091002</td>
-                                    <td class="p-2 border font-semibold text-slate-800">DARIUS AKWAN</td>
-                                    <td class="p-2 border">SUB BAGIAN UMUM DAN KEPEGAWAIAN</td>
-                                    <td class="p-2 border">PENGADMINISTRASI UMUM</td>
-                                    <td class="p-2 border text-amber-700 font-bold">13.00 - 16.00 WIT (Jumat)</td>
-                                    <td class="p-2 border">11-Sep-26</td>
-                                    <td class="p-2 border text-center font-bold">2</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                </div>
+
+                <!-- Petunjuk Format Kolom Sesuai Permintaan User (2 Format) -->
+                <div class="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-4">
+                    <!-- Format 1: Data Sistem -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1">
+                                <i data-lucide="database" class="w-3.5 h-3.5 text-blue-600"></i>
+                                <span>Format 1: File Master Peserta Sistem (Status Jadwal Otomatis NULL):</span>
+                            </span>
+                            <span class="text-[11px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded">7 Kolom Standar</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
+                                <thead class="bg-blue-50 text-blue-900 font-bold uppercase">
+                                    <tr>
+                                        <th class="p-2 border">NIP</th>
+                                        <th class="p-2 border">Nama</th>
+                                        <th class="p-2 border">Sesi</th>
+                                        <th class="p-2 border">Jabatan</th>
+                                        <th class="p-2 border">Kel Jabatan</th>
+                                        <th class="p-2 border">Nama Instansi</th>
+                                        <th class="p-2 border">Jenis Tes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="text-slate-600">
+                                        <td class="p-2 border font-mono">197504202009041002</td>
+                                        <td class="p-2 border font-semibold text-slate-800">DANIAL</td>
+                                        <td class="p-2 border text-slate-400 italic">(kosong)</td>
+                                        <td class="p-2 border">PENGADMINISTRASI PERKANTORAN</td>
+                                        <td class="p-2 border font-medium text-blue-700">Pelaksana</td>
+                                        <td class="p-2 border">Pemerintah Kab. Teluk Wondama</td>
+                                        <td class="p-2 border">Profiling Talenta ASN 2026</td>
+                                    </tr>
+                                    <tr class="text-slate-600">
+                                        <td class="p-2 border font-mono">197608022005021003</td>
+                                        <td class="p-2 border font-semibold text-slate-800">ROBBY LAHUMETEN</td>
+                                        <td class="p-2 border text-slate-400 italic">(kosong)</td>
+                                        <td class="p-2 border">Kepala BIDANG MUTASI</td>
+                                        <td class="p-2 border font-medium text-blue-700">Administrator</td>
+                                        <td class="p-2 border">Pemerintah Kab. Teluk Wondama</td>
+                                        <td class="p-2 border">Profiling Talenta ASN 2026</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Format 2: Jadwal Ujian -->
+                    <div class="pt-3 border-t border-slate-200">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1">
+                                <i data-lucide="calendar" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                <span>Format 2: File Jadwal & Sesi Ujian (Melengkapi Tanggal & Jam):</span>
+                            </span>
+                            <span class="text-[11px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">8 Kolom Standar</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
+                                <thead class="bg-emerald-50 text-emerald-900 font-bold uppercase">
+                                    <tr>
+                                        <th class="p-2 border">No</th>
+                                        <th class="p-2 border">NIP</th>
+                                        <th class="p-2 border">NAMA</th>
+                                        <th class="p-2 border">UNIT KERJA</th>
+                                        <th class="p-2 border">JABATAN</th>
+                                        <th class="p-2 border">WAKTU</th>
+                                        <th class="p-2 border">PELAKSANAAN</th>
+                                        <th class="p-2 border">SESI</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="text-slate-600">
+                                        <td class="p-2 border">1</td>
+                                        <td class="p-2 border font-mono">197809092014091001</td>
+                                        <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
+                                        <td class="p-2 border">-</td>
+                                        <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
+                                        <td class="p-2 border text-blue-700 font-semibold">08.00 - 11.00 WIT</td>
+                                        <td class="p-2 border">11-Sep-26</td>
+                                        <td class="p-2 border text-center font-bold">1</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -746,6 +876,7 @@
                                 <th class="p-2.5 border-b">No</th>
                                 <th class="p-2.5 border-b">NIP</th>
                                 <th class="p-2.5 border-b">Nama Peserta</th>
+                                <th class="p-2.5 border-b">Kel. Jabatan</th>
                                 <th class="p-2.5 border-b">Unit Kerja</th>
                                 <th class="p-2.5 border-b">Jabatan</th>
                                 <th class="p-2.5 border-b">Pelaksanaan</th>
@@ -1171,8 +1302,8 @@
             </div>
 
             <div>
-                <h3 class="text-lg font-bold text-slate-900">Akses Terkunci</h3>
-                <p class="text-xs text-slate-500 mt-1">Masukkan PIN Otorisasi Administrator untuk mengakses menu ini.</p>
+                <h3 id="modalPinTitle" class="text-lg font-bold text-slate-900">Akses Terkunci</h3>
+                <p id="modalPinDesc" class="text-xs text-slate-500 mt-1">Masukkan PIN Otorisasi Administrator untuk mengakses menu ini.</p>
             </div>
 
             <form id="formPinAccess" onsubmit="verifyPinAndProceed(event)" class="space-y-4">

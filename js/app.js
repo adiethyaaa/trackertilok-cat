@@ -7,7 +7,15 @@
 import { masterInstansiData, toTitleCase, getInstansiPin } from '../masterInstansi.js';
 import * as db from './db.js';
 import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber } from './sessionRules.js';
-import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel, analyzeDuplicates } from './excelHandler.js';
+import { 
+    parseExcelFile, 
+    downloadExcelTemplate, 
+    downloadSystemTemplate, 
+    downloadScheduleTemplate, 
+    exportCandidatesToExcel, 
+    analyzeDuplicates, 
+    mergeScheduleWithExisting 
+} from './excelHandler.js';
 import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
 import {
     initFirebaseService,
@@ -34,6 +42,7 @@ let currentSessionFilter = 'ALL';
 let currentCumulativeSessionFilter = 'ALL';
 let currentSearchTerm = '';
 let currentDateFilter = 'ALL';
+let currentKelJabatanFilter = 'ALL';
 let currentDashboardDateFilter = 'ALL';
 let currentSortColumn = 'sesi';
 let currentSortDirection = 'asc';
@@ -289,6 +298,7 @@ async function setActiveExam(examId) {
                     renderDashboardStats();
                     populatePelaksanaanFilterDropdown();
                     populateSesiFilterDropdown(currentDateFilter || 'ALL');
+                    populateKelJabatanFilterDropdown();
                     applyCandidateFilters();
                 }
             });
@@ -304,6 +314,7 @@ async function setActiveExam(examId) {
     renderDashboardStats();
     populatePelaksanaanFilterDropdown();
     populateSesiFilterDropdown('ALL');
+    populateKelJabatanFilterDropdown();
     applyCandidateFilters();
 }
 
@@ -504,39 +515,116 @@ function renderDashboardStats() {
 
     // Filter badge counts di Tab Jadwal (selalu mencerminkan total keseluruhan ujian aktif)
     const grandTotal = currentCandidates.length;
-    const grandS1 = currentCandidates.filter(c => c.sesi === 1).length;
-    const grandS2 = currentCandidates.filter(c => c.sesi === 2).length;
-    const grandS3 = currentCandidates.filter(c => c.sesi === 3).length;
+    const grandS0 = currentCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0).length;
+    const grandS1 = currentCandidates.filter(c => Number(c.sesi) === 1).length;
+    const grandS2 = currentCandidates.filter(c => Number(c.sesi) === 2).length;
+    const grandS3 = currentCandidates.filter(c => Number(c.sesi) === 3).length;
 
     const cfAll = document.getElementById('countFilterAll');
+    const cf0 = document.getElementById('countFilter0');
     const cf1 = document.getElementById('countFilter1');
     const cf2 = document.getElementById('countFilter2');
     const cf3 = document.getElementById('countFilter3');
     if (cfAll) cfAll.textContent = grandTotal;
+    if (cf0) cf0.textContent = grandS0;
     if (cf1) cf1.textContent = grandS1;
     if (cf2) cf2.textContent = grandS2;
     if (cf3) cf3.textContent = grandS3;
+
+    // Render statistik kehadiran per kelompok jabatan (mengikuti filter dashboard yang aktif)
+    const kelJabatanContainer = document.getElementById('dashKelJabatanContainer');
+    if (kelJabatanContainer) {
+        if (total === 0) {
+            kelJabatanContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini.</p>`;
+        } else {
+            const byKel = {};
+            dashboardCandidates.forEach(c => {
+                const rawK = String(c.kelJabatan || '').trim();
+                const isNullKel = !rawK || rawK === '-' || rawK === 'NULL';
+                const k = isNullKel ? 'Belum Terdata / Kosong' : rawK;
+                if (!byKel[k]) byKel[k] = { isNull: isNullKel, hadir: 0, tidakHadir: 0, belum: 0, total: 0 };
+                if (c.kehadiran === 'HADIR') byKel[k].hadir++;
+                else if (c.kehadiran === 'TIDAK_HADIR') byKel[k].tidakHadir++;
+                else byKel[k].belum++;
+                byKel[k].total++;
+            });
+
+            const sortedKels = Object.keys(byKel).sort((a, b) => byKel[b].total - byKel[a].total);
+
+            kelJabatanContainer.innerHTML = `
+                <table class="w-full text-xs text-left text-slate-700">
+                    <thead class="bg-slate-100 text-slate-700 font-bold uppercase">
+                        <tr>
+                            <th class="p-2.5">Kelompok Jabatan</th>
+                            <th class="p-2.5 text-center text-emerald-700 font-bold">Hadir</th>
+                            <th class="p-2.5 text-center text-rose-700 font-bold">Tidak Hadir</th>
+                            <th class="p-2.5 text-center text-amber-700 font-bold">Belum Presensi</th>
+                            <th class="p-2.5 text-center font-bold">Total Peserta</th>
+                            <th class="p-2.5 text-center font-bold">% Kehadiran</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${sortedKels.map(k => {
+                            const item = byKel[k];
+                            const pct = item.total > 0 ? Math.round((item.hadir / item.total) * 100) : 0;
+                            const isWarning = item.isNull;
+                            return `
+                                <tr class="${isWarning ? 'bg-amber-50/70 text-amber-950 font-medium' : 'hover:bg-slate-50'} transition">
+                                    <td class="p-2.5 font-bold ${isWarning ? 'text-amber-800 flex items-center gap-1.5' : 'text-slate-800'}">
+                                        ${isWarning ? '<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-600 inline-block"></i>' : ''}
+                                        <span>${k}</span>
+                                        ${isWarning ? '<span class="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold uppercase">Perlu Dilengkapi</span>' : ''}
+                                    </td>
+                                    <td class="p-2.5 text-center text-emerald-700 font-bold text-sm">${item.hadir}</td>
+                                    <td class="p-2.5 text-center text-rose-700 font-bold text-sm">${item.tidakHadir}</td>
+                                    <td class="p-2.5 text-center text-amber-700 font-semibold">${item.belum}</td>
+                                    <td class="p-2.5 text-center font-bold text-slate-900">${item.total}</td>
+                                    <td class="p-2.5 text-center">
+                                        <div class="flex items-center justify-center gap-2">
+                                            <div class="w-16 bg-slate-200 rounded-full h-2 overflow-hidden">
+                                                <div class="bg-emerald-600 h-2 rounded-full" style="width: ${pct}%"></div>
+                                            </div>
+                                            <span class="font-bold text-[11px] ${pct >= 80 ? 'text-emerald-700' : (pct >= 50 ? 'text-amber-700' : 'text-slate-600')}">${pct}%</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+    }
 
     // Render tabel distribusi berdasarkan unit kerja (mengikuti filter dashboard yang aktif)
     if (distContainer) {
         if (total === 0) {
             distContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini. Silakan upload file Excel atau pilih tanggal lain.</p>`;
+            if (window.lucide) window.lucide.createIcons();
             return;
         }
 
         const byUnit = {};
         dashboardCandidates.forEach(c => {
-            const u = c.unitKerja || '(Unit Kerja Tidak Terisi)';
-            if (!byUnit[u]) byUnit[u] = { s1: 0, s2: 0, s3: 0, hadir: 0, tidakHadir: 0, total: 0 };
-            if (c.sesi === 1) byUnit[u].s1++;
-            else if (c.sesi === 2) byUnit[u].s2++;
-            else if (c.sesi === 3) byUnit[u].s3++;
+            const rawU = String(c.unitKerja || '').trim();
+            const isNullUnit = !rawU || rawU === 'NULL' || rawU === '-' || rawU === '(Unit Kerja Tidak Terisi)';
+            const u = isNullUnit ? 'Tidak terdata' : rawU;
+            if (!byUnit[u]) byUnit[u] = { isNull: isNullUnit, s1: 0, s2: 0, s3: 0, hadir: 0, tidakHadir: 0, total: 0 };
+            const s = Number(c.sesi);
+            if (s === 1) byUnit[u].s1++;
+            else if (s === 2) byUnit[u].s2++;
+            else if (s === 3) byUnit[u].s3++;
             if (c.kehadiran === 'HADIR') byUnit[u].hadir++;
             else if (c.kehadiran === 'TIDAK_HADIR') byUnit[u].tidakHadir++;
             byUnit[u].total++;
         });
 
-        const sortedUnits = Object.keys(byUnit).sort((a, b) => byUnit[b].total - byUnit[a].total);
+        // Urutkan unit kerja: "Tidak terdata" diprioritaskan di atas jika ada, selebihnya berdasarkan total terbanyak
+        const sortedUnits = Object.keys(byUnit).sort((a, b) => {
+            if (a === 'Tidak terdata') return -1;
+            if (b === 'Tidak terdata') return 1;
+            return byUnit[b].total - byUnit[a].total;
+        });
 
         distContainer.innerHTML = `
             <table class="w-full text-xs text-left text-slate-700">
@@ -552,21 +640,30 @@ function renderDashboardStats() {
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    ${sortedUnits.slice(0, 12).map(u => `
-                        <tr class="hover:bg-slate-50">
-                            <td class="p-2.5 font-medium text-slate-800">${u}</td>
-                            <td class="p-2.5 text-center text-blue-700 font-semibold">${byUnit[u].s1}</td>
-                            <td class="p-2.5 text-center text-amber-700 font-semibold">${byUnit[u].s2}</td>
-                            <td class="p-2.5 text-center text-emerald-700 font-semibold">${byUnit[u].s3}</td>
-                            <td class="p-2.5 text-center text-emerald-600 font-bold">${byUnit[u].hadir}</td>
-                            <td class="p-2.5 text-center text-rose-600 font-bold">${byUnit[u].tidakHadir}</td>
-                            <td class="p-2.5 text-center font-bold text-slate-900">${byUnit[u].total}</td>
-                        </tr>
-                    `).join('')}
+                    ${sortedUnits.slice(0, 15).map(u => {
+                        const item = byUnit[u];
+                        const isRed = item.isNull || u === 'Tidak terdata';
+                        return `
+                            <tr class="${isRed ? 'bg-rose-50/90 text-rose-950 font-bold border-l-4 border-l-rose-600 hover:bg-rose-100' : 'hover:bg-slate-50'} transition">
+                                <td class="p-2.5 font-medium ${isRed ? 'text-rose-700 font-extrabold flex items-center gap-1.5' : 'text-slate-800'}">
+                                    ${isRed ? '<i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-600 inline-block"></i>' : ''}
+                                    <span>${u}</span>
+                                    ${isRed ? '<span class="text-[10px] bg-rose-200 text-rose-800 px-1.5 py-0.2 rounded font-bold ml-1 uppercase">Perlu Update</span>' : ''}
+                                </td>
+                                <td class="p-2.5 text-center text-blue-700 font-semibold">${item.s1}</td>
+                                <td class="p-2.5 text-center text-amber-700 font-semibold">${item.s2}</td>
+                                <td class="p-2.5 text-center text-emerald-700 font-semibold">${item.s3}</td>
+                                <td class="p-2.5 text-center text-emerald-600 font-bold">${item.hadir}</td>
+                                <td class="p-2.5 text-center text-rose-600 font-bold">${item.tidakHadir}</td>
+                                <td class="p-2.5 text-center font-bold ${isRed ? 'text-rose-700 font-black' : 'text-slate-900'}">${item.total}</td>
+                            </tr>
+                        `;
+                    }).join('')}
                 </tbody>
             </table>
         `;
     }
+    if (window.lucide) window.lucide.createIcons();
 }
 
 /**
@@ -862,12 +959,15 @@ async function handleSelectedExcelFile(file) {
     }
 
     const autoTime = document.getElementById('checkAutoStandardize')?.checked ?? true;
+    const selectedMode = document.querySelector('input[name="uploadModeChoice"]:checked')?.value || 'AUTO';
 
     try {
         showToast("Sedang memproses & membaca file Excel...", "info");
         const parseResult = await parseExcelFile(file, { 
             autoStandardizeTime: autoTime,
-            defaultPelaksanaan: currentExam?.startDate || ''
+            defaultPelaksanaan: currentExam?.startDate || '',
+            uploadMode: selectedMode,
+            defaultInstansi: currentExam?.instansi || ''
         });
 
         if (!parseResult.candidates || parseResult.candidates.length === 0) {
@@ -878,7 +978,36 @@ async function handleSelectedExcelFile(file) {
         // Ambil data database yang sudah ada untuk instansi ini
         const existingCandidates = await db.getCandidatesByExam(targetExamId);
 
-        // Analisis duplikasi (internal di file Excel maupun terhadap database eksisting)
+        // JIKA INI ADALAH FILE JADWAL (SCHEDULE) DAN DATABASE SUDAH MEMILIKI DATA PESERTA (MISAL DARI FILE SISTEM):
+        // Lakukan penggabungan jadwal berdasarkan kecocokan NIP tanpa menimpa nama dan jabatan asli sistem
+        if (parseResult.mode === 'SCHEDULE' && existingCandidates && existingCandidates.length > 0) {
+            const mergeResult = mergeScheduleWithExisting(parseResult.candidates, existingCandidates);
+
+            previewParsedData = {
+                examId: targetExamId,
+                candidates: mergeResult.allMerged,
+                summary: {
+                    totalRows: mergeResult.allMerged.length,
+                    skippedRows: parseResult.summary.skippedRows,
+                    sesi1: mergeResult.allMerged.filter(c => Number(c.sesi) === 1).length,
+                    sesi2: mergeResult.allMerged.filter(c => Number(c.sesi) === 2).length,
+                    sesi3: mergeResult.allMerged.filter(c => Number(c.sesi) === 3).length,
+                    nullScheduleRows: mergeResult.allMerged.filter(c => !c.sesi || c.sesi === 'NULL').length,
+                    fridayRows: mergeResult.allMerged.filter(c => c.isFriday).length
+                },
+                isMergedUpdate: true,
+                mergeInfo: {
+                    matchedCount: mergeResult.matchedCount,
+                    newCount: mergeResult.newCount
+                }
+            };
+
+            renderExcelPreview(previewParsedData);
+            showToast(`Berhasil mencocokkan jadwal ${mergeResult.matchedCount} peserta. Nama & jabatan asli sistem diproteksi!`, "success");
+            return;
+        }
+
+        // Untuk mode SYSTEM atau upload normal pertama kali: lakukan analisis duplikasi
         const dupAnalysis = analyzeDuplicates(parseResult.candidates, existingCandidates);
 
         if (dupAnalysis.hasDuplicates) {
@@ -893,7 +1022,8 @@ async function handleSelectedExcelFile(file) {
             examId: targetExamId,
             candidates: parseResult.candidates,
             summary: parseResult.summary,
-            nipsToReplace: []
+            nipsToReplace: [],
+            isMergedUpdate: false
         };
 
         renderExcelPreview(parseResult);
@@ -919,7 +1049,6 @@ function openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult) {
     const countTotal = document.getElementById('countModalTotalDupNip');
     const countInternal = document.getElementById('countModalInternalDup');
     const countExisting = document.getElementById('countModalExistingDup');
-    const container = document.getElementById('containerDuplicateGroups');
 
     if (countTotal) countTotal.textContent = `${dupAnalysis.totalDuplicateNips} NIP`;
     if (countInternal) countInternal.textContent = `${dupAnalysis.internalDuplicates.length} NIP`;
@@ -937,212 +1066,9 @@ function openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult) {
 }
 
 /**
- * Render Group Duplikasi ke dalam Modal
+ * Otomatis pilih baris pertama untuk setiap NIP
  */
-function renderDuplicateGroupsInModal(dupAnalysis) {
-    const container = document.getElementById('containerDuplicateGroups');
-    if (!container) return;
-
-    let html = '';
-
-    // 1. Render Duplikasi di dalam File Excel
-    if (dupAnalysis.internalDuplicates.length > 0) {
-        html += `
-            <div class="mb-2">
-                <span class="text-xs font-bold text-blue-900 bg-blue-100 px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1.5 w-fit">
-                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                    <span>Kategori 1: NIP Duplikat di Dalam File Excel (${dupAnalysis.internalDuplicates.length} NIP)</span>
-                </span>
-            </div>
-        `;
-
-        dupAnalysis.internalDuplicates.forEach((group, gIdx) => {
-            html += `
-                <div class="bg-white border border-blue-200 rounded-xl p-3.5 shadow-xs space-y-2 mb-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                        <div class="flex items-center space-x-2">
-                            <span class="font-mono font-bold text-slate-900 text-xs sm:text-sm bg-slate-100 px-2 py-0.5 rounded">${group.nip}</span>
-                            <span class="font-semibold text-slate-800 text-xs sm:text-sm">${group.nama}</span>
-                        </div>
-                        <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                            Muncul ${group.count} Kali di Excel
-                        </span>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs text-slate-700">
-                            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                                <tr>
-                                    <th class="p-2 w-10 text-center">Pilih</th>
-                                    <th class="p-2">Sumber Data</th>
-                                    <th class="p-2">Unit Kerja & Jabatan</th>
-                                    <th class="p-2">Pelaksanaan</th>
-                                    <th class="p-2 text-center">Sesi</th>
-                                    <th class="p-2">Waktu</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                ${group.items.map((item, idx) => `
-                                    <tr class="hover:bg-blue-50/40 transition">
-                                        <td class="p-2 text-center">
-                                            <input type="checkbox" class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
-                                                data-key="${item.uniqueKey}" 
-                                                data-nip="${group.nip}" 
-                                                data-type="internal" 
-                                                ${idx === 0 ? 'checked' : ''} 
-                                                onchange="updateDuplicateSelectedCount()">
-                                        </td>
-                                        <td class="p-2">
-                                            <span class="font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded text-[11px]">${item.duplicateSource}</span>
-                                        </td>
-                                        <td class="p-2 text-slate-600">
-                                            <div class="font-medium text-slate-800">${item.unitKerja || '-'}</div>
-                                            <div class="text-[11px] text-slate-500">${item.jabatan || '-'}</div>
-                                        </td>
-                                        <td class="p-2 font-medium">${item.pelaksanaan || '-'}</td>
-                                        <td class="p-2 text-center">
-                                            <span class="font-bold text-[11px] px-1.5 py-0.5 rounded ${item.sesi === 1 ? 'bg-blue-100 text-blue-800' : (item.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
-                                                Sesi ${item.sesi}
-                                            </span>
-                                        </td>
-                                        <td class="p-2 font-medium text-slate-700">${item.waktu}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        });
-    }
-
-    // 2. Render Duplikasi Terhadap Database Eksisting
-    if (dupAnalysis.existingDuplicates.length > 0) {
-        html += `
-            <div class="mt-4 mb-2">
-                <span class="text-xs font-bold text-rose-900 bg-rose-100 px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1.5 w-fit">
-                    <i data-lucide="database" class="w-3.5 h-3.5"></i>
-                    <span>Kategori 2: NIP Sama dengan Data di Database (${dupAnalysis.existingDuplicates.length} NIP)</span>
-                </span>
-            </div>
-        `;
-
-        dupAnalysis.existingDuplicates.forEach((group, gIdx) => {
-            const dbItem = group.existingItem;
-            html += `
-                <div class="bg-white border border-rose-200 rounded-xl p-3.5 shadow-xs space-y-2 mb-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                        <div class="flex items-center space-x-2">
-                            <span class="font-mono font-bold text-slate-900 text-xs sm:text-sm bg-slate-100 px-2 py-0.5 rounded">${group.nip}</span>
-                            <span class="font-semibold text-slate-800 text-xs sm:text-sm">${group.nama}</span>
-                        </div>
-                        <span class="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
-                            Sudah Terdaftar di Database
-                        </span>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs text-slate-700">
-                            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                                <tr>
-                                    <th class="p-2 w-10 text-center">Pilih</th>
-                                    <th class="p-2">Status / Asal</th>
-                                    <th class="p-2">Unit Kerja & Jabatan</th>
-                                    <th class="p-2">Pelaksanaan</th>
-                                    <th class="p-2 text-center">Sesi</th>
-                                    <th class="p-2">Waktu</th>
-                                    <th class="p-2">Tindakan</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                <!-- Data di Database -->
-                                <tr class="bg-slate-50/60 text-slate-600">
-                                    <td class="p-2 text-center text-slate-400">
-                                        <i data-lucide="database" class="w-3.5 h-3.5 mx-auto"></i>
-                                    </td>
-                                    <td class="p-2">
-                                        <span class="font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded text-[11px]">Database Eksisting</span>
-                                    </td>
-                                    <td class="p-2">
-                                        <div class="font-medium text-slate-800">${dbItem.unitKerja || '-'}</div>
-                                        <div class="text-[11px] text-slate-500">${dbItem.jabatan || '-'}</div>
-                                    </td>
-                                    <td class="p-2 font-medium">${dbItem.pelaksanaan || '-'}</td>
-                                    <td class="p-2 text-center">
-                                        <span class="font-bold text-[11px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">
-                                            Sesi ${dbItem.sesi}
-                                        </span>
-                                    </td>
-                                    <td class="p-2">${dbItem.waktu}</td>
-                                    <td class="p-2 text-[11px] text-slate-500 italic">Data yang sudah tersimpan</td>
-                                </tr>
-
-                                <!-- Data Baru dari Excel -->
-                                ${group.incomingItems.map((item, idx) => `
-                                    <tr class="hover:bg-rose-50/30 transition">
-                                        <td class="p-2 text-center">
-                                            <input type="checkbox" class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
-                                                data-key="${item.uniqueKey}" 
-                                                data-nip="${group.nip}" 
-                                                data-type="existing" 
-                                                checked 
-                                                onchange="updateDuplicateSelectedCount()">
-                                        </td>
-                                        <td class="p-2">
-                                            <span class="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">${item.duplicateSource}</span>
-                                        </td>
-                                        <td class="p-2">
-                                            <div class="font-medium text-slate-900">${item.unitKerja || '-'}</div>
-                                            <div class="text-[11px] text-slate-500">${item.jabatan || '-'}</div>
-                                        </td>
-                                        <td class="p-2 font-medium">${item.pelaksanaan || '-'}</td>
-                                        <td class="p-2 text-center">
-                                            <span class="font-bold text-[11px] px-1.5 py-0.5 rounded ${item.sesi === 1 ? 'bg-blue-100 text-blue-800' : (item.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
-                                                Sesi ${item.sesi}
-                                            </span>
-                                        </td>
-                                        <td class="p-2 font-medium text-slate-700">${item.waktu}</td>
-                                        <td class="p-2 text-[11px] font-semibold text-emerald-700">
-                                            Centang untuk timpa data lama
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        });
-    }
-
-    container.innerHTML = html;
-}
-
-/**
- * Update Counter Jumlah Peserta Duplikat Terpilih
- */
-window.updateDuplicateSelectedCount = () => {
-    const checkboxes = document.querySelectorAll('.dup-checkbox:checked');
-    const label = document.getElementById('labelSelectedDuplicateCount');
-    if (label) {
-        label.textContent = checkboxes.length;
-    }
-};
-
-/**
- * Pilih / Batal Semua Centang Duplikat
- */
-window.toggleSelectAllDuplicates = (checked) => {
-    document.querySelectorAll('.dup-checkbox').forEach(cb => {
-        cb.checked = checked;
-    });
-    updateDuplicateSelectedCount();
-};
-
-/**
- * Pilih Baris Pertama Saja Tiap NIP (Abaikan Duplikat Lain)
- */
-window.autoSelectFirstDuplicates = () => {
+window.autoSelectFirstExcelDuplicates = () => {
     const seenNips = new Set();
     document.querySelectorAll('.dup-checkbox').forEach(cb => {
         const nip = cb.getAttribute('data-nip');
@@ -1155,8 +1081,11 @@ window.autoSelectFirstDuplicates = () => {
             } else {
                 cb.checked = false;
             }
+        } else if (type === 'keep-db') {
+            // Default keep data DB
+            cb.checked = true;
         } else if (type === 'existing') {
-            // Uncheck incoming to keep database existing
+            // Incoming default false
             cb.checked = false;
         }
     });
@@ -1171,11 +1100,17 @@ window.autoSelectLatestExcelDuplicates = () => {
     const seenNips = new Set();
     document.querySelectorAll('.dup-checkbox').forEach(cb => {
         const nip = cb.getAttribute('data-nip');
-        if (!seenNips.has(nip)) {
-            cb.checked = true;
-            seenNips.add(nip);
-        } else {
+        const type = cb.getAttribute('data-type');
+        
+        if (type === 'keep-db') {
             cb.checked = false;
+        } else if (type === 'existing' || type === 'internal') {
+            if (!seenNips.has(nip)) {
+                cb.checked = true;
+                seenNips.add(nip);
+            } else {
+                cb.checked = false;
+            }
         }
     });
     updateDuplicateSelectedCount();
@@ -1228,7 +1163,7 @@ window.applyDuplicateResolutionAndProceed = () => {
         });
     });
 
-    // Kumpulkan kandidat terpilih dari existing duplicates
+    // Kumpulkan kandidat terpilih dari existing duplicates (incoming items)
     dupAnalysis.existingDuplicates.forEach(group => {
         group.incomingItems.forEach(item => {
             if (checkedKeys.has(item.uniqueKey)) {
@@ -1254,12 +1189,14 @@ window.applyDuplicateResolutionAndProceed = () => {
         examId: targetExamId,
         candidates: finalCandidates,
         nipsToReplace: checkedExistingNipsToReplace,
+        isMergedUpdate: false,
         summary: {
             totalRows: finalCandidates.length,
             skippedRows: parseResult.summary.skippedRows,
-            sesi1: finalCandidates.filter(c => c.sesi === 1).length,
-            sesi2: finalCandidates.filter(c => c.sesi === 2).length,
-            sesi3: finalCandidates.filter(c => c.sesi === 3).length,
+            sesi1: finalCandidates.filter(c => Number(c.sesi) === 1).length,
+            sesi2: finalCandidates.filter(c => Number(c.sesi) === 2).length,
+            sesi3: finalCandidates.filter(c => Number(c.sesi) === 3).length,
+            nullScheduleRows: finalCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
             fridayRows: finalCandidates.filter(c => c.isFriday).length
         }
     };
@@ -1288,10 +1225,17 @@ function renderExcelPreview(result) {
                 <div class="text-[10px] uppercase font-bold text-blue-700">Total Terbaca</div>
                 <div class="text-xl font-bold text-blue-900 mt-0.5">${s.totalRows} Peserta</div>
             </div>
-            <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
-                <div class="text-[10px] uppercase font-bold text-indigo-700">Sesi 1 (08.00-11.00)</div>
-                <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.sesi1} Orang</div>
-            </div>
+            ${s.nullScheduleRows && s.nullScheduleRows > 0 ? `
+                <div class="bg-slate-100 p-3 rounded-lg border border-slate-200">
+                    <div class="text-[10px] uppercase font-bold text-slate-600">Belum Terjadwal (NULL)</div>
+                    <div class="text-xl font-bold text-slate-800 mt-0.5">${s.nullScheduleRows} Peserta</div>
+                </div>
+            ` : `
+                <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                    <div class="text-[10px] uppercase font-bold text-indigo-700">Sesi 1 (08.00-11.00)</div>
+                    <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.sesi1} Orang</div>
+                </div>
+            `}
             <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 relative">
                 ${s.fridayRows > 0 ? '<span class="absolute top-2 right-2 text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.2 rounded">JUMAT DETECTED</span>' : ''}
                 <div class="text-[10px] uppercase font-bold text-amber-700">Sesi 2 (11.00 / Jumat 13.00)</div>
@@ -1306,25 +1250,40 @@ function renderExcelPreview(result) {
 
     const previewList = result.candidates.slice(0, 25);
     tbody.innerHTML = previewList.map((c, idx) => {
-        const isFri = c.isFriday && c.sesi === 2;
+        const isNullSchedule = !c.pelaksanaan || c.pelaksanaan === 'NULL' || !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0;
+        const isFri = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
+        const isNullUnit = !c.unitKerja || c.unitKerja === 'NULL' || c.unitKerja === '-';
         return `
             <tr class="${isFri ? 'bg-amber-50/60 font-medium' : 'hover:bg-slate-50'}">
                 <td class="p-2.5 text-center text-slate-500">${c.no || (idx + 1)}</td>
                 <td class="p-2.5 font-mono text-slate-900">${c.nip}</td>
                 <td class="p-2.5 font-semibold text-slate-900">${c.nama}</td>
-                <td class="p-2.5 text-slate-600">${c.unitKerja || '-'}</td>
+                <td class="p-2.5 font-medium text-blue-700">${c.kelJabatan || '-'}</td>
+                <td class="p-2.5 text-slate-600">
+                    ${isNullUnit ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.unitKerja}
+                </td>
                 <td class="p-2.5 text-slate-600">${c.jabatan || '-'}</td>
                 <td class="p-2.5 whitespace-nowrap">
-                    <span class="font-medium ${c.isFriday ? 'text-amber-800' : 'text-slate-800'}">${c.pelaksanaan || '-'}</span>
-                    ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-1">Jumat</span>' : ''}
+                    ${isNullSchedule ? `
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
+                    ` : `
+                        <span class="font-medium ${c.isFriday ? 'text-amber-800' : 'text-slate-800'}">${c.pelaksanaan}</span>
+                        ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-1">Jumat</span>' : ''}
+                    `}
                 </td>
                 <td class="p-2.5 text-center whitespace-nowrap min-w-[95px]">
-                    <span class="inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[11px] font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
-                        Sesi ${c.sesi}
-                    </span>
+                    ${isNullSchedule ? `
+                        <span class="inline-block whitespace-nowrap px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                            Sesi 00
+                        </span>
+                    ` : `
+                        <span class="inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[11px] font-bold ${Number(c.sesi) === 1 ? 'bg-blue-100 text-blue-800' : (Number(c.sesi) === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                            Sesi ${c.sesi}
+                        </span>
+                    `}
                 </td>
                 <td class="p-2.5 whitespace-nowrap font-medium ${isFri ? 'text-amber-800 font-bold' : 'text-slate-700'}">
-                    ${c.waktu}
+                    ${isNullSchedule ? '<span class="text-slate-400 font-bold">NULL</span>' : c.waktu}
                 </td>
             </tr>
         `;
@@ -1333,7 +1292,7 @@ function renderExcelPreview(result) {
     if (result.candidates.length > 25) {
         tbody.innerHTML += `
             <tr>
-                <td colspan="8" class="p-3 text-center text-xs text-slate-500 bg-slate-50 font-medium italic">
+                <td colspan="9" class="p-3 text-center text-xs text-slate-500 bg-slate-50 font-medium italic">
                     ... dan ${result.candidates.length - 25} peserta lainnya akan dimasukkan ke database saat disimpan.
                 </td>
             </tr>
@@ -1357,7 +1316,7 @@ window.cancelUploadPreview = () => {
 };
 
 /**
- * Simpan Data Hasil Parsing Excel ke IndexedDB
+ * Simpan Data Hasil Parsing Excel ke Database (IndexedDB & Firebase Cloud)
  */
 window.savePreviewDataToDatabase = async () => {
     if (!previewParsedData || !previewParsedData.candidates || previewParsedData.candidates.length === 0) {
@@ -1372,16 +1331,26 @@ window.savePreviewDataToDatabase = async () => {
     }
 
     try {
-        // Hapus data lama yang digantikan jika ada
-        if (previewParsedData.nipsToReplace && previewParsedData.nipsToReplace.length > 0) {
-            await db.deleteCandidatesByNips(previewParsedData.examId, previewParsedData.nipsToReplace);
-        }
+        if (previewParsedData.isMergedUpdate) {
+            // Update gabungan jadwal: ganti seluruh dataset instansi dengan dataset yang sudah di-merge
+            await db.deleteCandidatesByExam(previewParsedData.examId);
+            const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
+            if (isCloudActive()) {
+                await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
+            }
+            showToast(`Sukses! Jadwal ${count} peserta berhasil diperbarui (Nama & Jabatan sistem tetap terlindungi).`, "success");
+        } else {
+            // Hapus data lama yang digantikan jika ada dari resolusi duplikasi
+            if (previewParsedData.nipsToReplace && previewParsedData.nipsToReplace.length > 0) {
+                await db.deleteCandidatesByNips(previewParsedData.examId, previewParsedData.nipsToReplace);
+            }
 
-        const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
-        if (isCloudActive()) {
-            await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
+            const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
+            if (isCloudActive()) {
+                await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
+            }
+            showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
         }
-        showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
 
         await setActiveExam(previewParsedData.examId);
         window.cancelUploadPreview();
@@ -1402,10 +1371,26 @@ window.savePreviewDataToDatabase = async () => {
 };
 
 /**
- * Download Template Excel
+ * Download Template Excel Master Sistem
+ */
+window.triggerDownloadSystemTemplate = () => {
+    downloadSystemTemplate();
+    showToast("Template Data Master Sistem berhasil diunduh!", "info");
+};
+
+/**
+ * Download Template Excel Jadwal Ujian
+ */
+window.triggerDownloadScheduleTemplate = () => {
+    downloadScheduleTemplate();
+    showToast("Template Jadwal Ujian berhasil diunduh!", "info");
+};
+
+/**
+ * Download Template Excel (Backwards compatibility)
  */
 window.triggerDownloadTemplate = () => {
-    downloadExcelTemplate();
+    downloadScheduleTemplate();
     showToast("Template Excel berhasil diunduh!", "info");
 };
 
@@ -1428,10 +1413,28 @@ window.setCandidateFilterSession = (session) => {
         activeBtn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
     }
 
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    const selectDropdown = document.getElementById('selectFilterSesiDropdown');
+
     if (session === 'ALL') {
         currentCumulativeSessionFilter = 'ALL';
-        const inputTyping = document.getElementById('inputFilterSesiTyping');
-        const selectDropdown = document.getElementById('selectFilterSesiDropdown');
+        if (inputTyping) inputTyping.value = '';
+        if (selectDropdown) selectDropdown.value = 'ALL';
+    } else if (session === '00' || session === 0 || session === '0') {
+        currentCumulativeSessionFilter = '00';
+        if (inputTyping) inputTyping.value = '00';
+        if (selectDropdown) {
+            const opt00 = selectDropdown.querySelector('option[value="00"]');
+            if (opt00) selectDropdown.value = '00';
+        }
+        // Pastikan filter tanggal di-reset ke ALL agar semua peserta sesi 00 langsung terlihat
+        const selectDate = document.getElementById('selectFilterPelaksanaan');
+        if (selectDate && currentDateFilter !== 'ALL') {
+            currentDateFilter = 'ALL';
+            selectDate.value = 'ALL';
+        }
+    } else {
+        currentCumulativeSessionFilter = 'ALL';
         if (inputTyping) inputTyping.value = '';
         if (selectDropdown) selectDropdown.value = 'ALL';
     }
@@ -1450,7 +1453,7 @@ window.onFilterPelaksanaanChange = (dateVal) => {
 };
 
 /**
- * Event handler saat user mengetik angka sesi pada input (misal ketik 7 atau 07)
+ * Event handler saat user mengetik angka sesi pada input (misal ketik 7, 07, atau 00)
  */
 let sessionTypeDebounce = null;
 window.onFilterSesiTypeInput = (inputVal) => {
@@ -1461,14 +1464,29 @@ window.onFilterSesiTypeInput = (inputVal) => {
 
         if (!clean) {
             currentCumulativeSessionFilter = 'ALL';
+            currentSessionFilter = 'ALL';
             if (select) select.value = 'ALL';
+            document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+                btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            });
+            const btnAll = document.getElementById('btnFilterSesiAll');
+            if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
             applyCandidateFilters();
+            return;
+        }
+
+        if (clean === '0' || clean === '00') {
+            setCandidateFilterSession('00');
             return;
         }
 
         const num = parseInt(clean, 10);
         if (!isNaN(num) && num > 0) {
             currentCumulativeSessionFilter = num;
+            currentSessionFilter = 'ALL';
+            document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+                btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            });
             if (select) {
                 const opt = select.querySelector(`option[value="${num}"]`);
                 if (opt) {
@@ -1489,10 +1507,23 @@ window.onFilterSesiDropdownChange = (sessionValue) => {
     const inputTyping = document.getElementById('inputFilterSesiTyping');
     if (sessionValue === 'ALL') {
         currentCumulativeSessionFilter = 'ALL';
+        currentSessionFilter = 'ALL';
         if (inputTyping) inputTyping.value = '';
+        document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+            btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        });
+        const btnAll = document.getElementById('btnFilterSesiAll');
+        if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+    } else if (sessionValue === '00' || sessionValue === 0 || sessionValue === '0') {
+        setCandidateFilterSession('00');
+        return;
     } else {
         currentCumulativeSessionFilter = Number(sessionValue);
+        currentSessionFilter = 'ALL';
         if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(sessionValue);
+        document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+            btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        });
     }
     applyCandidateFilters();
 };
@@ -1543,20 +1574,25 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
         ? currentCandidates.filter(c => c.pelaksanaan === selectedDate)
         : currentCandidates;
 
+    // Kumpulkan peserta yang belum terjadwal (Sesi 00 / NULL)
+    const countSesi00 = poolCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length;
+
     // Kumpulkan seluruh sesi kumulatif unik pada pool ini
     const sessionMap = new Map();
     poolCandidates.forEach(c => {
         const cum = getCumulativeSessionNumber(c, sortedDates);
-        if (!sessionMap.has(cum)) {
-            sessionMap.set(cum, {
-                cumNum: cum,
-                formattedCum: formatCumulativeSessionNumber(cum),
-                dateStr: c.pelaksanaan,
-                dailySession: c.sesi,
-                count: 0
-            });
+        if (cum !== null) {
+            if (!sessionMap.has(cum)) {
+                sessionMap.set(cum, {
+                    cumNum: cum,
+                    formattedCum: formatCumulativeSessionNumber(cum),
+                    dateStr: c.pelaksanaan,
+                    dailySession: c.sesi,
+                    count: 0
+                });
+            }
+            sessionMap.get(cum).count++;
         }
-        sessionMap.get(cum).count++;
     });
 
     const sortedSessions = Array.from(sessionMap.values()).sort((a, b) => a.cumNum - b.cumNum);
@@ -1566,6 +1602,10 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
         : `-- Semua Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
 
     let html = `<option value="ALL">${defaultText}</option>`;
+
+    if (countSesi00 > 0) {
+        html += `<option value="00">Sesi 00 (Belum Terjadwal / NULL) [${countSesi00} Peserta]</option>`;
+    }
 
     sortedSessions.forEach(s => {
         const dateLabel = selectedDate === 'ALL' ? `${s.dateStr} - ` : '';
@@ -1580,14 +1620,17 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
             const minCum = sortedSessions[0].formattedCum;
             const maxCum = sortedSessions[sortedSessions.length - 1].formattedCum;
             inputTyping.placeholder = `${minCum}-${maxCum}`;
-            inputTyping.title = `Ketik angka sesi kumulatif (${minCum} s.d. ${maxCum})`;
+            inputTyping.title = `Ketik angka sesi (misal: 00 untuk NULL, atau ${minCum} s.d. ${maxCum})`;
         } else {
             inputTyping.placeholder = 'Sesi #';
         }
     }
 
     // Validasi apakah filter sesi terpilih masih ada di dalam daftar sesi yang aktif
-    if (currentCumulativeSessionFilter !== 'ALL') {
+    if (currentCumulativeSessionFilter === '00' || currentSessionFilter === '00') {
+        select.value = '00';
+        if (inputTyping) inputTyping.value = '00';
+    } else if (currentCumulativeSessionFilter !== 'ALL') {
         const exists = sortedSessions.some(s => s.cumNum === Number(currentCumulativeSessionFilter));
         if (exists) {
             select.value = String(currentCumulativeSessionFilter);
@@ -1604,10 +1647,63 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
 }
 
 /**
+ * Mengisi dropdown filter kelompok jabatan beserta counter jumlah peserta
+ */
+function populateKelJabatanFilterDropdown() {
+    const select = document.getElementById('selectFilterKelJabatan');
+    if (!select) return;
+
+    const kelMap = new Map();
+    let countEmpty = 0;
+
+    currentCandidates.forEach(c => {
+        const raw = String(c.kelJabatan || '').trim();
+        if (!raw || raw === '-' || raw === 'NULL') {
+            countEmpty++;
+        } else {
+            kelMap.set(raw, (kelMap.get(raw) || 0) + 1);
+        }
+    });
+
+    const sortedKels = Array.from(kelMap.keys()).sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base' }));
+
+    let html = `<option value="ALL">-- Semua Kel. Jabatan (${currentCandidates.length}) --</option>`;
+
+    if (countEmpty > 0) {
+        html += `<option value="EMPTY">⚠️ [Kosong / Perlu Dilengkapi] (${countEmpty} Peserta)</option>`;
+    }
+
+    sortedKels.forEach(k => {
+        html += `<option value="${k}">${k} (${kelMap.get(k)} Peserta)</option>`;
+    });
+
+    select.innerHTML = html;
+
+    if (currentKelJabatanFilter === 'EMPTY') {
+        select.value = countEmpty > 0 ? 'EMPTY' : 'ALL';
+        if (select.value === 'ALL') currentKelJabatanFilter = 'ALL';
+    } else if (currentKelJabatanFilter !== 'ALL') {
+        if (kelMap.has(currentKelJabatanFilter)) {
+            select.value = currentKelJabatanFilter;
+        } else {
+            currentKelJabatanFilter = 'ALL';
+            select.value = 'ALL';
+        }
+    } else {
+        select.value = 'ALL';
+    }
+}
+
+window.onFilterKelJabatanChange = (val) => {
+    currentKelJabatanFilter = val || 'ALL';
+    applyCandidateFilters();
+};
+
+/**
  * Mendapatkan daftar tanggal pelaksanaan unik yang terurut secara kronologis
  */
 function getSortedExamDates() {
-    const dateStrings = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(Boolean)));
+    const dateStrings = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(p => p && p !== 'NULL' && p !== '-')));
     return dateStrings.sort((a, b) => {
         const da = parseFlexibleDate(a);
         const db = parseFlexibleDate(b);
@@ -1623,10 +1719,12 @@ function getSortedExamDates() {
  * Hari 2: Sesi 1 -> 4, Sesi 2 -> 5, Sesi 3 -> 6, dst.
  */
 function getCumulativeSessionNumber(c, sortedDates) {
-    if (!c || !c.pelaksanaan) return Number(c.sesi) || 1;
+    if (!c || !c.pelaksanaan || c.pelaksanaan === 'NULL' || !c.sesi || c.sesi === 'NULL') return null;
     const dayIndex = sortedDates.indexOf(c.pelaksanaan);
-    if (dayIndex === -1) return Number(c.sesi) || 1;
-    return (dayIndex * 3) + (Number(c.sesi) || 1);
+    if (dayIndex === -1) return null;
+    const s = Number(c.sesi);
+    if (isNaN(s) || s < 1) return null;
+    return (dayIndex * 3) + s;
 }
 
 /**
@@ -1677,7 +1775,7 @@ window.sortTable = (colKey) => {
  * Memperbarui ikon panah sorting pada header tabel
  */
 function updateSortIcons() {
-    const columns = ['no', 'kehadiran', 'nip', 'nama', 'unitKerja', 'jabatan', 'pelaksanaan', 'sesi', 'waktu'];
+    const columns = ['no', 'kehadiran', 'nip', 'nama', 'kelJabatan', 'unitKerja', 'jabatan', 'pelaksanaan', 'sesi', 'waktu'];
     columns.forEach(col => {
         const iconEl = document.getElementById(`sort-icon-${col}`);
         if (!iconEl) return;
@@ -1695,31 +1793,52 @@ function applyCandidateFilters() {
     const sortedDates = getSortedExamDates();
 
     filteredCandidates = currentCandidates.filter(c => {
-        // Filter Tanggal
-        if (currentDateFilter !== 'ALL' && c.pelaksanaan !== currentDateFilter) {
-            return false;
-        }
+        const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
 
-        // Filter Sesi Kumulatif (1..36)
-        if (currentCumulativeSessionFilter !== 'ALL') {
-            const cum = getCumulativeSessionNumber(c, sortedDates);
-            if (cum !== Number(currentCumulativeSessionFilter)) {
+        // Filter Sesi Kumulatif & Harian (Prioritas Tinggi)
+        if (currentCumulativeSessionFilter === '00' || currentSessionFilter === '00') {
+            if (!isSesi00) return false;
+        } else {
+            // Filter Tanggal (jika bukan filter sesi 00)
+            if (currentDateFilter !== 'ALL' && c.pelaksanaan !== currentDateFilter) {
                 return false;
             }
-        } else if (currentSessionFilter !== 'ALL') {
-            // Filter Sesi Harian (1, 2, 3) jika sesi kumulatif ALL
-            if (c.sesi !== Number(currentSessionFilter)) {
+
+            // Filter Sesi Kumulatif (1..36)
+            if (currentCumulativeSessionFilter !== 'ALL') {
+                if (isSesi00) return false;
+                const cum = getCumulativeSessionNumber(c, sortedDates);
+                if (cum !== Number(currentCumulativeSessionFilter)) {
+                    return false;
+                }
+            } else if (currentSessionFilter !== 'ALL') {
+                // Filter Sesi Harian (1, 2, 3) jika sesi kumulatif ALL
+                if (isSesi00) return false;
+                if (Number(c.sesi) !== Number(currentSessionFilter)) {
+                    return false;
+                }
+            }
+        }
+
+        // Filter Kelompok Jabatan
+        if (currentKelJabatanFilter === 'EMPTY') {
+            const rawK = String(c.kelJabatan || '').trim();
+            const isKelEmpty = !rawK || rawK === '-' || rawK === 'NULL';
+            if (!isKelEmpty) return false;
+        } else if (currentKelJabatanFilter !== 'ALL') {
+            if (String(c.kelJabatan || '').trim() !== currentKelJabatanFilter) {
                 return false;
             }
         }
 
-        // Filter Search (NIP, Nama, Unit Kerja, Jabatan)
+        // Filter Search (NIP, Nama, Kel Jabatan, Unit Kerja, Jabatan)
         if (currentSearchTerm) {
             const matchNip = String(c.nip || '').toLowerCase().includes(currentSearchTerm);
             const matchNama = String(c.nama || '').toLowerCase().includes(currentSearchTerm);
+            const matchKel = String(c.kelJabatan || '').toLowerCase().includes(currentSearchTerm);
             const matchUnit = String(c.unitKerja || '').toLowerCase().includes(currentSearchTerm);
             const matchJabatan = String(c.jabatan || '').toLowerCase().includes(currentSearchTerm);
-            if (!matchNip && !matchNama && !matchUnit && !matchJabatan) return false;
+            if (!matchNip && !matchNama && !matchKel && !matchUnit && !matchJabatan) return false;
         }
 
         return true;
@@ -1728,6 +1847,9 @@ function applyCandidateFilters() {
     // Pengurutan data (Sorting) - Default Sesi ASC lalu Nama ASC
     filteredCandidates.sort((a, b) => {
         let valA, valB;
+
+        const isSesi00A = !a.sesi || a.sesi === 'NULL' || a.sesi === '00' || a.sesi === 0 || a.sesi === '0';
+        const isSesi00B = !b.sesi || b.sesi === 'NULL' || b.sesi === '00' || b.sesi === 0 || b.sesi === '0';
 
         switch (currentSortColumn) {
             case 'no':
@@ -1748,6 +1870,10 @@ function applyCandidateFilters() {
                 valA = String(a.nama || '');
                 valB = String(b.nama || '');
                 break;
+            case 'kelJabatan':
+                valA = String(a.kelJabatan || '');
+                valB = String(b.kelJabatan || '');
+                break;
             case 'unitKerja':
                 valA = String(a.unitKerja || '');
                 valB = String(b.unitKerja || '');
@@ -1764,8 +1890,8 @@ function applyCandidateFilters() {
                 break;
             }
             case 'sesi': {
-                valA = getCumulativeSessionNumber(a, sortedDates);
-                valB = getCumulativeSessionNumber(b, sortedDates);
+                valA = isSesi00A ? 0 : (getCumulativeSessionNumber(a, sortedDates) || 9999);
+                valB = isSesi00B ? 0 : (getCumulativeSessionNumber(b, sortedDates) || 9999);
                 break;
             }
             case 'waktu':
@@ -1773,8 +1899,8 @@ function applyCandidateFilters() {
                 valB = String(b.waktu || '');
                 break;
             default:
-                valA = getCumulativeSessionNumber(a, sortedDates);
-                valB = getCumulativeSessionNumber(b, sortedDates);
+                valA = isSesi00A ? 0 : (getCumulativeSessionNumber(a, sortedDates) || 9999);
+                valB = isSesi00B ? 0 : (getCumulativeSessionNumber(b, sortedDates) || 9999);
         }
 
         let cmp = 0;
@@ -1814,7 +1940,7 @@ function renderCandidateListTable() {
     if (!currentExam) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="10" class="p-8 text-center text-slate-400">
+                <td colspan="11" class="p-8 text-center text-slate-400">
                     <i data-lucide="lock" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian & Masukkan PIN</p>
                     <p class="text-xs text-slate-500 mt-1">Data peserta hanya akan dimuat setelah instansi dipilih dan PIN berhasil diverifikasi.</p>
@@ -1828,7 +1954,7 @@ function renderCandidateListTable() {
     if (currentCandidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="10" class="p-8 text-center text-slate-400">
+                <td colspan="11" class="p-8 text-center text-slate-400">
                     <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Belum Ada Data Peserta</p>
                     <p class="text-xs text-slate-500 mt-1">Belum ada peserta yang diunggah untuk instansi <strong>${currentExam.instansi}</strong>.</p>
@@ -1842,7 +1968,7 @@ function renderCandidateListTable() {
     if (filteredCandidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="10" class="p-8 text-center text-slate-400">
+                <td colspan="11" class="p-8 text-center text-slate-400">
                     <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="font-bold text-slate-700 text-sm">Tidak Ada Data Peserta</p>
                     <p class="text-xs text-slate-500 mt-1">Tidak ada peserta yang cocok dengan kriteria filter pencarian saat ini.</p>
@@ -1856,18 +1982,29 @@ function renderCandidateListTable() {
     const sortedDates = getSortedExamDates();
 
     tbody.innerHTML = filteredCandidates.map((c, idx) => {
-        const isFriSession2 = c.isFriday && c.sesi === 2;
-        const cumSesi = getCumulativeSessionNumber(c, sortedDates);
-        const cumSesiFormatted = formatCumulativeSessionNumber(cumSesi);
+        const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
+        const isNullDate = !c.pelaksanaan || c.pelaksanaan === 'NULL' || c.pelaksanaan === '-';
+        const isNullSchedule = isNullDate || isSesi00;
+        const isFriSession2 = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
+        const cumSesi = isNullSchedule ? null : getCumulativeSessionNumber(c, sortedDates);
+        const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
+        const isNullUnit = !c.unitKerja || c.unitKerja === 'NULL' || c.unitKerja === '-';
 
-        const sesiColorBadge = c.sesi === 1 
+        const rawKel = String(c.kelJabatan || '').trim();
+        const isKelEmpty = !rawKel || rawKel === '-' || rawKel === 'NULL';
+
+        const sesiColorBadge = Number(c.sesi) === 1 
             ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-            : (c.sesi === 2 
+            : (Number(c.sesi) === 2 
                 ? 'bg-amber-100 text-amber-800 border border-amber-200' 
                 : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
 
+        const rowBgClass = isKelEmpty 
+            ? 'bg-amber-50/90 border-l-4 border-l-amber-500 hover:bg-amber-100/80' 
+            : (isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50');
+
         return `
-            <tr class="${isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50'} transition">
+            <tr class="${rowBgClass} transition">
                 <td class="p-3 text-center text-slate-500 font-medium">${idx + 1}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">
                     ${c.kehadiran === 'HADIR' ? `
@@ -1893,24 +2030,53 @@ function renderCandidateListTable() {
                 </td>
                 <td class="p-3 font-mono font-medium text-slate-900">${c.nip}</td>
                 <td class="p-3 font-bold text-slate-900">${c.nama}</td>
-                <td class="p-3 text-slate-600 max-w-[220px] truncate" title="${c.unitKerja || '-'}">${c.unitKerja || '-'}</td>
+                <td class="p-3">
+                    ${isKelEmpty ? `
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-200 text-amber-900 border border-amber-300 shadow-2xs" title="Kelompok Jabatan belum diisi / kosong! Segera lengkapi">
+                            <i data-lucide="alert-triangle" class="w-3 h-3 text-amber-700"></i>
+                            <span>Perlu Dilengkapi</span>
+                        </span>
+                    ` : `
+                        <span class="font-semibold text-blue-800 bg-blue-50/60 px-2 py-0.5 rounded border border-blue-200/50">${c.kelJabatan}</span>
+                    `}
+                </td>
+                <td class="p-3 text-slate-600 max-w-[220px] truncate" title="${c.unitKerja || '-'}">
+                    ${isNullUnit ? `
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
+                    ` : c.unitKerja}
+                </td>
                 <td class="p-3 text-slate-600 max-w-[200px] truncate" title="${c.jabatan || '-'}">${c.jabatan || '-'}</td>
                 <td class="p-3 whitespace-nowrap">
-                    <span class="font-semibold text-slate-800">${c.pelaksanaan}</span>
-                    ${c.isFriday ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded ml-1">Jumat</span>' : ''}
+                    ${isNullDate ? `
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
+                    ` : `
+                        <span class="font-semibold text-slate-800">${c.pelaksanaan}</span>
+                        ${c.isFriday ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded ml-1">Jumat</span>' : ''}
+                    `}
                 </td>
                 <td class="p-3 text-center whitespace-nowrap min-w-[130px]">
-                    <div class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
-                        <span class="inline-block whitespace-nowrap px-2.5 py-1 rounded-md text-xs font-bold ${sesiColorBadge}">
-                            Sesi ${c.sesi}
-                        </span>
-                        <span class="inline-block whitespace-nowrap px-2 py-1 rounded-md text-xs font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
-                            ${cumSesiFormatted}
-                        </span>
-                    </div>
+                    ${isSesi00 ? `
+                        <div class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                            <span class="inline-block whitespace-nowrap px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300">
+                                Sesi 00
+                            </span>
+                            <span class="inline-block whitespace-nowrap px-2 py-1 rounded-md text-xs font-extrabold bg-slate-400 text-white shadow-xs border border-slate-400" title="Sesi Kumulatif: 00 (NULL)">
+                                00
+                            </span>
+                        </div>
+                    ` : `
+                        <div class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                            <span class="inline-block whitespace-nowrap px-2.5 py-1 rounded-md text-xs font-bold ${sesiColorBadge}">
+                                Sesi ${c.sesi}
+                            </span>
+                            <span class="inline-block whitespace-nowrap px-2 py-1 rounded-md text-xs font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
+                                ${cumSesiFormatted}
+                            </span>
+                        </div>
+                    `}
                 </td>
                 <td class="p-3 whitespace-nowrap ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
-                    ${c.waktu}
+                    ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
                 </td>
                 <td class="p-3 text-center whitespace-nowrap">
                     <button onclick="editCandidate(${c.id})" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-1" title="Edit Data">
@@ -1944,23 +2110,62 @@ window.deleteSingleCandidate = async (candidateId, name) => {
     }
 };
 
-window.confirmClearCandidates = async () => {
-    if (!currentExam) return;
-    if (confirm(`APAKAH ANDA YAKIN?\nSeluruh (${currentCandidates.length}) data peserta untuk instansi "${currentExam.instansi}" akan dihapus dari database.`)) {
-        try {
-            await db.deleteCandidatesByExam(currentExam.id);
-            currentCandidates = [];
-            renderDashboardStats();
-            populatePelaksanaanFilterDropdown();
-            populateSesiFilterDropdown('ALL');
-            applyCandidateFilters();
-            showToast("Semua data peserta berhasil dikosongkan.", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("Gagal mengosongkan peserta: " + err.message, "error");
-        }
+window.confirmClearCandidates = () => {
+    if (!currentExam) {
+        showToast("Pilih instansi ujian aktif terlebih dahulu!", "warning");
+        return;
     }
+    if (currentCandidates.length === 0) {
+        showToast(`Data peserta untuk ${currentExam.instansi} sudah kosong.`, "info");
+        return;
+    }
+
+    // SELALU munculkan modal PIN 1414 untuk konfirmasi otorisasi tindakan permanen ini
+    pendingActionAfterPin = 'CLEAR_CANDIDATES';
+    const modal = document.getElementById('modalPinAccess');
+    const inputPin = document.getElementById('inputAccessPin');
+    const errorMsg = document.getElementById('pinErrorMessage');
+    const titleEl = document.getElementById('modalPinTitle');
+    const descEl = document.getElementById('modalPinDesc');
+
+    if (titleEl) titleEl.textContent = "Konfirmasi Kosongkan Peserta";
+    if (descEl) descEl.textContent = `PERINGATAN: Seluruh (${currentCandidates.length}) peserta untuk "${currentExam.instansi}" akan dihapus permanen dari database. Masukkan PIN User (1414) untuk mengonfirmasi.`;
+
+    if (errorMsg) errorMsg.classList.add('hidden');
+    if (inputPin) {
+        inputPin.value = '';
+        inputPin.classList.remove('border-rose-500');
+    }
+
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => {
+            if (inputPin) inputPin.focus();
+        }, 100);
+    }
+
+    if (window.lucide) window.lucide.createIcons();
 };
+
+async function executeClearCandidates() {
+    if (!currentExam) return;
+    try {
+        showToast("Sedang mengosongkan seluruh data peserta...", "info");
+        await db.deleteCandidatesByExam(currentExam.id);
+        currentCandidates = [];
+        filteredCandidates = [];
+        renderDashboardStats();
+        populatePelaksanaanFilterDropdown();
+        populateSesiFilterDropdown('ALL');
+        populateKelJabatanFilterDropdown();
+        applyCandidateFilters();
+        showToast(`Semua data peserta "${currentExam.instansi}" berhasil dikosongkan.`, "success");
+    } catch (err) {
+        console.error("Gagal mengosongkan peserta:", err);
+        showToast("Gagal mengosongkan peserta: " + err.message, "error");
+    }
+}
 
 /**
  * Setup Modal & Form Tambah/Edit Peserta Manual
@@ -2257,6 +2462,11 @@ function setupTabNavigation() {
         const modal = document.getElementById('modalPinAccess');
         const inputPin = document.getElementById('inputAccessPin');
         const errorMsg = document.getElementById('pinErrorMessage');
+        const titleEl = document.getElementById('modalPinTitle');
+        const descEl = document.getElementById('modalPinDesc');
+
+        if (titleEl) titleEl.textContent = "Akses Menu Terkunci";
+        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator (1414) untuk mengakses menu ini.";
 
         if (errorMsg) errorMsg.classList.add('hidden');
         if (inputPin) {
@@ -2275,27 +2485,38 @@ function setupTabNavigation() {
         if (window.lucide) window.lucide.createIcons();
     };
 
-    window.verifyPinAndProceed = (event) => {
+    window.verifyPinAndProceed = async (event) => {
         if (event) event.preventDefault();
         const inputPin = document.getElementById('inputAccessPin');
         const errorMsg = document.getElementById('pinErrorMessage');
         const pinVal = inputPin ? inputPin.value.trim() : '';
 
-        if (pinVal === '1414') {
+        if (pinVal === '1414' || pinVal === '141414') {
             isPinAuthorized = true;
+
+            // Simpan aksi dan target tab tertunda sebelum menutup modal
+            const actionToExecute = pendingActionAfterPin;
+            const targetTabToSwitch = pendingTargetTab;
+
             window.closeModalPinAccess();
+
+            // 1. Eksekusi Kosongkan Peserta jika aksi tertunda adalah CLEAR_CANDIDATES
+            if (actionToExecute === 'CLEAR_CANDIDATES') {
+                await executeClearCandidates();
+                return;
+            }
+
             showToast("Akses administrator berhasil dibuka!", "success");
 
-            if (pendingActionAfterPin === 'OPEN_FIREBASE_CONFIG') {
-                pendingActionAfterPin = null;
+            // 2. Buka Pengaturan Cloud jika aksi tertunda adalah OPEN_FIREBASE_CONFIG
+            if (actionToExecute === 'OPEN_FIREBASE_CONFIG') {
                 window.openModalFirebaseConfig();
                 return;
             }
 
-            if (pendingTargetTab) {
-                const target = pendingTargetTab;
-                pendingTargetTab = null;
-                window.switchTab(target);
+            // 3. Pindah tab jika ada tab target tertunda
+            if (targetTabToSwitch) {
+                window.switchTab(targetTabToSwitch);
             }
         } else {
             if (errorMsg) errorMsg.classList.remove('hidden');
@@ -2313,6 +2534,13 @@ function setupTabNavigation() {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         }
+
+        // Kembalikan teks modal PIN ke default
+        const titleEl = document.getElementById('modalPinTitle');
+        const descEl = document.getElementById('modalPinDesc');
+        if (titleEl) titleEl.textContent = "Akses Terkunci";
+        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator untuk mengakses menu ini.";
+
         pendingTargetTab = null;
         pendingActionAfterPin = null;
     };
@@ -2831,6 +3059,12 @@ window.requestOpenFirebaseConfig = () => {
         const modal = document.getElementById('modalPinAccess');
         const inputPin = document.getElementById('inputAccessPin');
         const errorMsg = document.getElementById('pinErrorMessage');
+        const titleEl = document.getElementById('modalPinTitle');
+        const descEl = document.getElementById('modalPinDesc');
+
+        if (titleEl) titleEl.textContent = "Pengaturan Database Cloud";
+        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator (1414) untuk membuka pengaturan Database Cloud.";
+
         if (errorMsg) errorMsg.classList.add('hidden');
         if (inputPin) {
             inputPin.value = '';

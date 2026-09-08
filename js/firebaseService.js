@@ -341,19 +341,22 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
     const updates = {};
     candidateList.forEach((c, idx) => {
         const key = String(c.nip || c.id || ('cand_' + idx)).trim().replace(/[.#$[\]/]/g, '_');
+        const hasValidSesi = c.sesi !== undefined && c.sesi !== null && c.sesi !== '' && c.sesi !== 'NULL' && !isNaN(Number(c.sesi));
         updates['candidates/' + examId + '/' + key] = {
             examId: examId,
             no: c.no || (idx + 1),
             nip: String(c.nip || '').trim(),
             nama: String(c.nama || '').trim(),
-            unitKerja: String(c.unitKerja || '').trim(),
-            jabatan: String(c.jabatan || '').trim(),
-            waktu: String(c.waktu || '').trim(),
-            pelaksanaan: String(c.pelaksanaan || '').trim(),
-            sesi: Number(c.sesi) || 1,
+            kelJabatan: String(c.kelJabatan || '-').trim(),
+            unitKerja: String(c.unitKerja || '-').trim(),
+            jabatan: String(c.jabatan || '-').trim(),
+            waktu: String(c.waktu || 'NULL').trim(),
+            pelaksanaan: String(c.pelaksanaan || 'NULL').trim(),
+            sesi: hasValidSesi ? Number(c.sesi) : 'NULL',
             isFriday: Boolean(c.isFriday),
-            status: c.status || 'Terjadwal',
+            status: c.status || (hasValidSesi ? 'Terjadwal' : 'Belum Terjadwal'),
             kehadiran: c.kehadiran || 'BELUM',
+            jenisTes: String(c.jenisTes || '').trim(),
             updatedAt: new Date().toISOString()
         };
     });
@@ -373,19 +376,23 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
     const key = String(candidate.nip || candidate.id || ('cand_' + Date.now())).trim().replace(/[.#$[\]/]/g, '_');
     const targetRef = ref(db, 'candidates/' + cExamId + '/' + key);
 
+    const hasValidSesi = candidate.sesi !== undefined && candidate.sesi !== null && candidate.sesi !== '' && candidate.sesi !== 'NULL' && !isNaN(Number(candidate.sesi));
+
     const data = {
         examId: cExamId,
         no: candidate.no || 1,
         nip: String(candidate.nip || '').trim(),
         nama: String(candidate.nama || '').trim(),
-        unitKerja: String(candidate.unitKerja || '').trim(),
-        jabatan: String(candidate.jabatan || '').trim(),
-        waktu: String(candidate.waktu || '').trim(),
-        pelaksanaan: String(candidate.pelaksanaan || '').trim(),
-        sesi: Number(candidate.sesi) || 1,
+        kelJabatan: String(candidate.kelJabatan || '-').trim(),
+        unitKerja: String(candidate.unitKerja || '-').trim(),
+        jabatan: String(candidate.jabatan || '-').trim(),
+        waktu: String(candidate.waktu || 'NULL').trim(),
+        pelaksanaan: String(candidate.pelaksanaan || 'NULL').trim(),
+        sesi: hasValidSesi ? Number(candidate.sesi) : 'NULL',
         isFriday: Boolean(candidate.isFriday),
-        status: candidate.status || 'Terjadwal',
+        status: candidate.status || (hasValidSesi ? 'Terjadwal' : 'Belum Terjadwal'),
         kehadiran: candidate.kehadiran || 'BELUM',
+        jenisTes: String(candidate.jenisTes || '').trim(),
         updatedAt: new Date().toISOString()
     };
 
