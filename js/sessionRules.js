@@ -72,8 +72,8 @@ export function parseFlexibleDate(dateInput) {
         'mei': 4, 'may': 4,
         'jun': 5, 'juni': 5, 'june': 5,
         'jul': 6, 'juli': 6, 'july': 6,
-        'agu': 7, 'agustus': 7, 'aug': 7, 'august': 7,
-        'sep': 8, 'september': 8,
+        'agu': 7, 'agus': 7, 'agust': 7, 'agustus': 7, 'aug': 7, 'august': 7,
+        'sep': 8, 'sept': 8, 'september': 8,
         'okt': 9, 'oktober': 9, 'oct': 9, 'october': 9,
         'nov': 10, 'november': 10,
         'des': 11, 'desember': 11, 'dec': 11, 'december': 11
@@ -142,15 +142,14 @@ export function formatDateDisplay(dateInput, format = 'short') {
     const d = parseFlexibleDate(dateInput);
     if (!d) return String(dateInput || '');
 
-    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agust', 'Sept', 'Okt', 'Nov', 'Des'];
     const monthsLong = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
     const day = String(d.getDate()).padStart(2, '0');
     const yearFull = d.getFullYear();
-    const yearShort = String(yearFull).slice(-2);
 
     if (format === 'short') {
-        return `${day}-${monthsShort[d.getMonth()]}-${yearShort}`;
+        return `${day} ${monthsShort[d.getMonth()]} ${yearFull}`;
     }
     if (format === 'long') {
         return `${day} ${monthsLong[d.getMonth()]} ${yearFull}`;
@@ -160,7 +159,7 @@ export function formatDateDisplay(dateInput, format = 'short') {
         const m = String(d.getMonth() + 1).padStart(2, '0');
         return `${yearFull}-${m}-${day}`;
     }
-    return `${day}-${monthsShort[d.getMonth()]}-${yearShort}`;
+    return `${day} ${monthsShort[d.getMonth()]} ${yearFull}`;
 }
 
 /**

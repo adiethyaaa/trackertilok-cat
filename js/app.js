@@ -7,7 +7,7 @@
 import { masterInstansiData, toTitleCase } from '../masterInstansi.js';
 import * as db from './db.js';
 import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID } from './sessionRules.js';
-import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel } from './excelHandler.js';
+import { parseExcelFile, downloadExcelTemplate, exportCandidatesToExcel, analyzeDuplicates } from './excelHandler.js';
 import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
 
 // State Aplikasi
@@ -467,6 +467,12 @@ function setupExcelUpload() {
 /**
  * Memproses file Excel yang dipilih (Mendukung ribuan baris data)
  */
+// State untuk modal penyelesaian duplikasi
+let activeDuplicateState = null;
+
+/**
+ * Memproses file Excel yang dipilih (Mendukung ribuan baris data & deteksi duplikasi)
+ */
 async function handleSelectedExcelFile(file) {
     const targetExamSelect = document.getElementById('selectUploadTargetExam');
     const targetExamId = targetExamSelect ? targetExamSelect.value : getSelectedExamId();
@@ -487,17 +493,35 @@ async function handleSelectedExcelFile(file) {
 
     try {
         showToast("Sedang memproses & membaca file Excel...", "info");
-        const parseResult = await parseExcelFile(file, { autoStandardizeTime: autoTime });
+        const parseResult = await parseExcelFile(file, { 
+            autoStandardizeTime: autoTime,
+            defaultPelaksanaan: currentExam?.startDate || ''
+        });
 
         if (!parseResult.candidates || parseResult.candidates.length === 0) {
             showToast("Tidak ditemukan baris peserta dengan Nama dan NIP yang valid!", "warning");
             return;
         }
 
+        // Ambil data database yang sudah ada untuk instansi ini
+        const existingCandidates = await db.getCandidatesByExam(targetExamId);
+
+        // Analisis duplikasi (internal di file Excel maupun terhadap database eksisting)
+        const dupAnalysis = analyzeDuplicates(parseResult.candidates, existingCandidates);
+
+        if (dupAnalysis.hasDuplicates) {
+            // Tampilkan pop-up modal konfirmasi duplikasi
+            openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult);
+            showToast(`Ditemukan ${dupAnalysis.totalDuplicateNips} NIP duplikat. Silakan tentukan data pada pop-up konfirmasi.`, "warning");
+            return;
+        }
+
+        // Jika tidak ada duplikasi sama sekali, langsung ke preview
         previewParsedData = {
             examId: targetExamId,
             candidates: parseResult.candidates,
-            summary: parseResult.summary
+            summary: parseResult.summary,
+            nipsToReplace: []
         };
 
         renderExcelPreview(parseResult);
@@ -508,6 +532,370 @@ async function handleSelectedExcelFile(file) {
         showToast("Error membaca Excel: " + err.message, "error");
     }
 }
+
+/**
+ * Buka Modal Konfirmasi Duplikasi Data Peserta
+ */
+function openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult) {
+    activeDuplicateState = {
+        dupAnalysis,
+        targetExamId,
+        parseResult
+    };
+
+    const modal = document.getElementById('modalDuplicateResolution');
+    const countTotal = document.getElementById('countModalTotalDupNip');
+    const countInternal = document.getElementById('countModalInternalDup');
+    const countExisting = document.getElementById('countModalExistingDup');
+    const container = document.getElementById('containerDuplicateGroups');
+
+    if (countTotal) countTotal.textContent = `${dupAnalysis.totalDuplicateNips} NIP`;
+    if (countInternal) countInternal.textContent = `${dupAnalysis.internalDuplicates.length} NIP`;
+    if (countExisting) countExisting.textContent = `${dupAnalysis.existingDuplicates.length} NIP`;
+
+    renderDuplicateGroupsInModal(dupAnalysis);
+    updateDuplicateSelectedCount();
+
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * Render Group Duplikasi ke dalam Modal
+ */
+function renderDuplicateGroupsInModal(dupAnalysis) {
+    const container = document.getElementById('containerDuplicateGroups');
+    if (!container) return;
+
+    let html = '';
+
+    // 1. Render Duplikasi di dalam File Excel
+    if (dupAnalysis.internalDuplicates.length > 0) {
+        html += `
+            <div class="mb-2">
+                <span class="text-xs font-bold text-blue-900 bg-blue-100 px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1.5 w-fit">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                    <span>Kategori 1: NIP Duplikat di Dalam File Excel (${dupAnalysis.internalDuplicates.length} NIP)</span>
+                </span>
+            </div>
+        `;
+
+        dupAnalysis.internalDuplicates.forEach((group, gIdx) => {
+            html += `
+                <div class="bg-white border border-blue-200 rounded-xl p-3.5 shadow-xs space-y-2 mb-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div class="flex items-center space-x-2">
+                            <span class="font-mono font-bold text-slate-900 text-xs sm:text-sm bg-slate-100 px-2 py-0.5 rounded">${group.nip}</span>
+                            <span class="font-semibold text-slate-800 text-xs sm:text-sm">${group.nama}</span>
+                        </div>
+                        <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                            Muncul ${group.count} Kali di Excel
+                        </span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-700">
+                            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="p-2 w-10 text-center">Pilih</th>
+                                    <th class="p-2">Sumber Data</th>
+                                    <th class="p-2">Unit Kerja & Jabatan</th>
+                                    <th class="p-2">Pelaksanaan</th>
+                                    <th class="p-2 text-center">Sesi</th>
+                                    <th class="p-2">Waktu</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${group.items.map((item, idx) => `
+                                    <tr class="hover:bg-blue-50/40 transition">
+                                        <td class="p-2 text-center">
+                                            <input type="checkbox" class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
+                                                data-key="${item.uniqueKey}" 
+                                                data-nip="${group.nip}" 
+                                                data-type="internal" 
+                                                ${idx === 0 ? 'checked' : ''} 
+                                                onchange="updateDuplicateSelectedCount()">
+                                        </td>
+                                        <td class="p-2">
+                                            <span class="font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded text-[11px]">${item.duplicateSource}</span>
+                                        </td>
+                                        <td class="p-2 text-slate-600">
+                                            <div class="font-medium text-slate-800">${item.unitKerja || '-'}</div>
+                                            <div class="text-[11px] text-slate-500">${item.jabatan || '-'}</div>
+                                        </td>
+                                        <td class="p-2 font-medium">${item.pelaksanaan || '-'}</td>
+                                        <td class="p-2 text-center">
+                                            <span class="font-bold text-[11px] px-1.5 py-0.5 rounded ${item.sesi === 1 ? 'bg-blue-100 text-blue-800' : (item.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                                                Sesi ${item.sesi}
+                                            </span>
+                                        </td>
+                                        <td class="p-2 font-medium text-slate-700">${item.waktu}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    // 2. Render Duplikasi Terhadap Database Eksisting
+    if (dupAnalysis.existingDuplicates.length > 0) {
+        html += `
+            <div class="mt-4 mb-2">
+                <span class="text-xs font-bold text-rose-900 bg-rose-100 px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1.5 w-fit">
+                    <i data-lucide="database" class="w-3.5 h-3.5"></i>
+                    <span>Kategori 2: NIP Sama dengan Data di Database (${dupAnalysis.existingDuplicates.length} NIP)</span>
+                </span>
+            </div>
+        `;
+
+        dupAnalysis.existingDuplicates.forEach((group, gIdx) => {
+            const dbItem = group.existingItem;
+            html += `
+                <div class="bg-white border border-rose-200 rounded-xl p-3.5 shadow-xs space-y-2 mb-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div class="flex items-center space-x-2">
+                            <span class="font-mono font-bold text-slate-900 text-xs sm:text-sm bg-slate-100 px-2 py-0.5 rounded">${group.nip}</span>
+                            <span class="font-semibold text-slate-800 text-xs sm:text-sm">${group.nama}</span>
+                        </div>
+                        <span class="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                            Sudah Terdaftar di Database
+                        </span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-700">
+                            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="p-2 w-10 text-center">Pilih</th>
+                                    <th class="p-2">Status / Asal</th>
+                                    <th class="p-2">Unit Kerja & Jabatan</th>
+                                    <th class="p-2">Pelaksanaan</th>
+                                    <th class="p-2 text-center">Sesi</th>
+                                    <th class="p-2">Waktu</th>
+                                    <th class="p-2">Tindakan</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <!-- Data di Database -->
+                                <tr class="bg-slate-50/60 text-slate-600">
+                                    <td class="p-2 text-center text-slate-400">
+                                        <i data-lucide="database" class="w-3.5 h-3.5 mx-auto"></i>
+                                    </td>
+                                    <td class="p-2">
+                                        <span class="font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded text-[11px]">Database Eksisting</span>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="font-medium text-slate-800">${dbItem.unitKerja || '-'}</div>
+                                        <div class="text-[11px] text-slate-500">${dbItem.jabatan || '-'}</div>
+                                    </td>
+                                    <td class="p-2 font-medium">${dbItem.pelaksanaan || '-'}</td>
+                                    <td class="p-2 text-center">
+                                        <span class="font-bold text-[11px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">
+                                            Sesi ${dbItem.sesi}
+                                        </span>
+                                    </td>
+                                    <td class="p-2">${dbItem.waktu}</td>
+                                    <td class="p-2 text-[11px] text-slate-500 italic">Data yang sudah tersimpan</td>
+                                </tr>
+
+                                <!-- Data Baru dari Excel -->
+                                ${group.incomingItems.map((item, idx) => `
+                                    <tr class="hover:bg-rose-50/30 transition">
+                                        <td class="p-2 text-center">
+                                            <input type="checkbox" class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
+                                                data-key="${item.uniqueKey}" 
+                                                data-nip="${group.nip}" 
+                                                data-type="existing" 
+                                                checked 
+                                                onchange="updateDuplicateSelectedCount()">
+                                        </td>
+                                        <td class="p-2">
+                                            <span class="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">${item.duplicateSource}</span>
+                                        </td>
+                                        <td class="p-2">
+                                            <div class="font-medium text-slate-900">${item.unitKerja || '-'}</div>
+                                            <div class="text-[11px] text-slate-500">${item.jabatan || '-'}</div>
+                                        </td>
+                                        <td class="p-2 font-medium">${item.pelaksanaan || '-'}</td>
+                                        <td class="p-2 text-center">
+                                            <span class="font-bold text-[11px] px-1.5 py-0.5 rounded ${item.sesi === 1 ? 'bg-blue-100 text-blue-800' : (item.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                                                Sesi ${item.sesi}
+                                            </span>
+                                        </td>
+                                        <td class="p-2 font-medium text-slate-700">${item.waktu}</td>
+                                        <td class="p-2 text-[11px] font-semibold text-emerald-700">
+                                            Centang untuk timpa data lama
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    container.innerHTML = html;
+}
+
+/**
+ * Update Counter Jumlah Peserta Duplikat Terpilih
+ */
+window.updateDuplicateSelectedCount = () => {
+    const checkboxes = document.querySelectorAll('.dup-checkbox:checked');
+    const label = document.getElementById('labelSelectedDuplicateCount');
+    if (label) {
+        label.textContent = checkboxes.length;
+    }
+};
+
+/**
+ * Pilih / Batal Semua Centang Duplikat
+ */
+window.toggleSelectAllDuplicates = (checked) => {
+    document.querySelectorAll('.dup-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+    updateDuplicateSelectedCount();
+};
+
+/**
+ * Pilih Baris Pertama Saja Tiap NIP (Abaikan Duplikat Lain)
+ */
+window.autoSelectFirstDuplicates = () => {
+    const seenNips = new Set();
+    document.querySelectorAll('.dup-checkbox').forEach(cb => {
+        const nip = cb.getAttribute('data-nip');
+        const type = cb.getAttribute('data-type');
+
+        if (type === 'internal') {
+            if (!seenNips.has(nip)) {
+                cb.checked = true;
+                seenNips.add(nip);
+            } else {
+                cb.checked = false;
+            }
+        } else if (type === 'existing') {
+            // Uncheck incoming to keep database existing
+            cb.checked = false;
+        }
+    });
+    updateDuplicateSelectedCount();
+    showToast("Dipilih: Hanya baris pertama tiap NIP.", "info");
+};
+
+/**
+ * Ganti Data Database dengan File Excel Baru
+ */
+window.autoSelectLatestExcelDuplicates = () => {
+    const seenNips = new Set();
+    document.querySelectorAll('.dup-checkbox').forEach(cb => {
+        const nip = cb.getAttribute('data-nip');
+        if (!seenNips.has(nip)) {
+            cb.checked = true;
+            seenNips.add(nip);
+        } else {
+            cb.checked = false;
+        }
+    });
+    updateDuplicateSelectedCount();
+    showToast("Dipilih: Versi terbaru dari file Excel untuk menggantikan data lama.", "info");
+};
+
+/**
+ * Tutup Modal Duplikasi
+ */
+window.closeModalDuplicateResolution = () => {
+    const modal = document.getElementById('modalDuplicateResolution');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    activeDuplicateState = null;
+};
+
+/**
+ * Terapkan Hasil Pilihan Duplikasi & Lanjutkan ke Preview
+ */
+window.applyDuplicateResolutionAndProceed = () => {
+    if (!activeDuplicateState) return;
+
+    const { dupAnalysis, targetExamId, parseResult } = activeDuplicateState;
+
+    // Kumpulkan key yang dicentang
+    const checkedKeys = new Set();
+    const checkedExistingNipsToReplace = [];
+
+    document.querySelectorAll('.dup-checkbox:checked').forEach(cb => {
+        const key = cb.getAttribute('data-key');
+        const nip = cb.getAttribute('data-nip');
+        const type = cb.getAttribute('data-type');
+
+        checkedKeys.add(key);
+
+        if (type === 'existing') {
+            checkedExistingNipsToReplace.push(nip);
+        }
+    });
+
+    // Kumpulkan kandidat terpilih dari internal duplicates
+    const selectedDuplicates = [];
+    dupAnalysis.internalDuplicates.forEach(group => {
+        group.items.forEach(item => {
+            if (checkedKeys.has(item.uniqueKey)) {
+                selectedDuplicates.push(item);
+            }
+        });
+    });
+
+    // Kumpulkan kandidat terpilih dari existing duplicates
+    dupAnalysis.existingDuplicates.forEach(group => {
+        group.incomingItems.forEach(item => {
+            if (checkedKeys.has(item.uniqueKey)) {
+                selectedDuplicates.push(item);
+            }
+        });
+    });
+
+    // Gabungkan data bersih (tanpa duplikat) dengan data duplikat yang telah dipilih
+    const finalCandidates = [...dupAnalysis.cleanCandidates, ...selectedDuplicates];
+
+    if (finalCandidates.length === 0) {
+        showToast("Tidak ada peserta yang dipilih untuk di-upload!", "warning");
+        return;
+    }
+
+    // Urutkan kembali nomor urut
+    finalCandidates.forEach((c, idx) => {
+        c.no = idx + 1;
+    });
+
+    previewParsedData = {
+        examId: targetExamId,
+        candidates: finalCandidates,
+        nipsToReplace: checkedExistingNipsToReplace,
+        summary: {
+            totalRows: finalCandidates.length,
+            skippedRows: parseResult.summary.skippedRows,
+            sesi1: finalCandidates.filter(c => c.sesi === 1).length,
+            sesi2: finalCandidates.filter(c => c.sesi === 2).length,
+            sesi3: finalCandidates.filter(c => c.sesi === 3).length,
+            fridayRows: finalCandidates.filter(c => c.isFriday).length
+        }
+    };
+
+    closeModalDuplicateResolution();
+    renderExcelPreview(previewParsedData);
+    showToast(`Pilihan duplikasi diterapkan! Total ${finalCandidates.length} peserta siap disimpan ke database.`, "success");
+};
 
 /**
  * Render Tabel Preview dan Ringkasan Sesi sebelum Simpan
@@ -555,11 +943,11 @@ function renderExcelPreview(result) {
                 <td class="p-2.5 text-slate-600">${c.unitKerja || '-'}</td>
                 <td class="p-2.5 text-slate-600">${c.jabatan || '-'}</td>
                 <td class="p-2.5 whitespace-nowrap">
-                    <span class="font-medium ${c.isFriday ? 'text-amber-800' : 'text-slate-800'}">${c.pelaksanaan}</span>
+                    <span class="font-medium ${c.isFriday ? 'text-amber-800' : 'text-slate-800'}">${c.pelaksanaan || '-'}</span>
                     ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-1">Jumat</span>' : ''}
                 </td>
-                <td class="p-2.5 text-center">
-                    <span class="px-2 py-0.5 rounded text-[11px] font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                <td class="p-2.5 text-center whitespace-nowrap min-w-[95px]">
+                    <span class="inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[11px] font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
                         Sesi ${c.sesi}
                     </span>
                 </td>
@@ -586,6 +974,7 @@ function renderExcelPreview(result) {
  */
 window.cancelUploadPreview = () => {
     previewParsedData = null;
+    activeDuplicateState = null;
     const previewCard = document.getElementById('previewCard');
     const fileInput = document.getElementById('fileInputExcel');
     const nameBadge = document.getElementById('uploadFileNameBadge');
@@ -611,6 +1000,11 @@ window.savePreviewDataToDatabase = async () => {
     }
 
     try {
+        // Hapus data lama yang digantikan jika ada
+        if (previewParsedData.nipsToReplace && previewParsedData.nipsToReplace.length > 0) {
+            await db.deleteCandidatesByNips(previewParsedData.examId, previewParsedData.nipsToReplace);
+        }
+
         const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
         showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
 
@@ -768,8 +1162,8 @@ function renderCandidateListTable() {
                     <span class="font-semibold text-slate-800">${c.pelaksanaan}</span>
                     ${c.isFriday ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded ml-1">Jumat</span>' : ''}
                 </td>
-                <td class="p-3 text-center">
-                    <span class="px-2 py-0.5 rounded text-xs font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
+                <td class="p-3 text-center whitespace-nowrap min-w-[95px]">
+                    <span class="inline-block whitespace-nowrap px-3 py-1 rounded text-xs font-bold ${c.sesi === 1 ? 'bg-blue-100 text-blue-800' : (c.sesi === 2 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}">
                         Sesi ${c.sesi}
                     </span>
                 </td>
