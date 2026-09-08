@@ -57,7 +57,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Isi dropdown instansi
     populateInstansiDropdown('selectExamInstansi');
 
-    // Muat data dari IndexedDB
+    // Jika belum ada sesi PIN yang terotorisasi, langsung munculkan pop-up PIN tanpa menunggu network
+    if (!checkSuperAdminSession() && !getActiveExamSession()) {
+        window.openSelectExamWithPinModal(null, false);
+    }
+
+    // Muat data ujian (hanya metadata ujian, TANPA data peserta)
     await loadInitialData();
 
     // Set default tab ke Jadwal & Peserta (Tab paling awal/kiri)
@@ -152,7 +157,8 @@ export function clearActiveExamSession() {
 }
 
 /**
- * Memuat data awal dari Firebase Realtime Database
+ * Memuat data awal daftar ujian dari Firebase Realtime Database
+ * HANYA memuat metadata instansi ujian, TIDAK memuat data peserta sebelum PIN diinput
  */
 async function loadInitialData() {
     try {
@@ -160,6 +166,7 @@ async function loadInitialData() {
 
         renderExamSelectDropdowns();
         renderExamListInCreateTab();
+        refreshModalSelectExamPicker();
 
         // 1. Cek apakah Super Admin sudah login di sesi ini
         if (checkSuperAdminSession()) {
@@ -174,11 +181,11 @@ async function loadInitialData() {
 
         const session = getActiveExamSession();
 
-        // Validasi apakah sesi yang tersimpan masih valid di database ujian
+        // 2. Validasi apakah sesi yang tersimpan masih valid di database ujian
         if (session && session.examId && allExams.some(e => e.id === session.examId)) {
             await setActiveExam(session.examId);
         } else {
-            // Belum ada sesi PIN di browser ini (pertama kali buka atau browser baru dibuka kembali)
+            // Belum ada sesi PIN di browser ini (pertama kali buka / browser baru dibuka)
             clearActiveExamSession();
             currentExam = null;
             currentCandidates = [];
@@ -189,22 +196,61 @@ async function loadInitialData() {
 
             // Munculkan pop up pilih ujian aktif & isi PIN instansi
             if (allExams.length > 0) {
-                setTimeout(() => {
-                    window.openSelectExamWithPinModal(null, false);
-                }, 300);
+                window.openSelectExamWithPinModal(null, false);
             }
         }
 
     } catch (err) {
-        console.error("Gagal memuat data awal:", err);
-        showToast("Terjadi kendala memuat database: " + err.message, "error");
+        console.error("Gagal memuat data awal ujian:", err);
+        showToast("Terjadi kendala memuat daftar ujian: " + err.message, "error");
     }
 }
 
 /**
  * Mengubah Ujian Aktif dan memperbarui seluruh tampilan
+ * HANYA mengambil data kandidat jika instansi telah dipilih & diotorisasi PIN
  */
 async function setActiveExam(examId) {
+    if (!examId) {
+        setSelectedExamId(null);
+        currentExam = null;
+        currentCandidates = [];
+        if (activeCandidatesUnsubscribe) {
+            activeCandidatesUnsubscribe();
+            activeCandidatesUnsubscribe = null;
+        }
+
+        const selectNav = document.getElementById('selectActiveExamNavbar');
+        if (selectNav) selectNav.value = '';
+        const selectUpload = document.getElementById('selectUploadTargetExam');
+        if (selectUpload) selectUpload.value = '';
+
+        renderDashboardExamInfo();
+        renderExamListInCreateTab();
+        renderDashboardStats();
+        populatePelaksanaanFilterDropdown();
+        populateSesiFilterDropdown('ALL');
+        applyCandidateFilters();
+        return;
+    }
+
+    // Pastikan user berhak mengakses ujian ini (Super Admin atau Sesi PIN Instansi Cocok)
+    const session = getActiveExamSession();
+    const isAuthorized = isSuperAdmin || (session && session.examId === examId);
+
+    if (!isAuthorized) {
+        console.warn("Akses ke ujian belum diverifikasi PIN:", examId);
+        currentExam = null;
+        currentCandidates = [];
+        if (activeCandidatesUnsubscribe) {
+            activeCandidatesUnsubscribe();
+            activeCandidatesUnsubscribe = null;
+        }
+        applyCandidateFilters();
+        window.openSelectExamWithPinModal(examId, Boolean(currentExam));
+        return;
+    }
+
     setSelectedExamId(examId);
     currentExam = allExams.find(e => e.id === examId) || null;
 
@@ -215,21 +261,30 @@ async function setActiveExam(examId) {
     const selectUpload = document.getElementById('selectUploadTargetExam');
     if (selectUpload) selectUpload.value = examId || '';
 
-    // Render ulang tampilan
+    // Render ulang info banner & list di tab create
     renderDashboardExamInfo();
     renderExamListInCreateTab();
 
-    // Muat data kandidat ujian ini
+    // HANYA ambil data kandidat jika instansi sudah terpilih dan diotorisasi PIN
     if (currentExam) {
-        currentCandidates = await db.getCandidatesByExam(currentExam.id);
+        showTableLoading(currentExam.instansi);
 
-        // Pasang Realtime Listener jika Firebase Cloud aktif
+        try {
+            currentCandidates = await db.getCandidatesByExam(currentExam.id);
+        } catch (err) {
+            console.error("Gagal memuat kandidat:", err);
+            currentCandidates = [];
+            showToast("Gagal memuat data peserta: " + err.message, "error");
+        }
+
+        // Pasang Realtime Listener jika Firebase Cloud aktif (HANYA untuk instansi ini)
         if (isCloudActive()) {
             if (activeCandidatesUnsubscribe) {
                 activeCandidatesUnsubscribe();
+                activeCandidatesUnsubscribe = null;
             }
             activeCandidatesUnsubscribe = listenCandidatesCloud(currentExam.id, (cloudCandidates) => {
-                if (cloudCandidates && cloudCandidates.length > 0) {
+                if (cloudCandidates) {
                     currentCandidates = cloudCandidates;
                     renderDashboardStats();
                     populatePelaksanaanFilterDropdown();
@@ -250,6 +305,25 @@ async function setActiveExam(examId) {
     populatePelaksanaanFilterDropdown();
     populateSesiFilterDropdown('ALL');
     applyCandidateFilters();
+}
+
+/**
+ * Tampilkan indikator loading tabel saat sedang mengambil data peserta instansi terpilih
+ */
+function showTableLoading(instansiName) {
+    const tbody = document.getElementById('tbodyCandidateList');
+    if (tbody) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="10" class="p-8 text-center text-slate-500">
+                    <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-bkn-700 mb-2"></div>
+                    <p class="font-bold text-slate-700 text-sm">Memuat data peserta ${instansiName}...</p>
+                    <p class="text-xs text-slate-400 mt-1">Mengambil data dari database online...</p>
+                </td>
+            </tr>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+    }
 }
 
 /**
@@ -1741,9 +1815,23 @@ function renderCandidateListTable() {
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" class="p-8 text-center text-slate-400">
-                    <i data-lucide="building" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
-                    <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian Aktif</p>
-                    <p class="text-xs text-slate-500 mt-1">Silakan pilih instansi pada menu <strong>Ujian Aktif</strong> di bagian atas untuk melihat jadwal & presensi peserta.</p>
+                    <i data-lucide="lock" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="font-bold text-slate-700 text-sm">Pilih Instansi Ujian & Masukkan PIN</p>
+                    <p class="text-xs text-slate-500 mt-1">Data peserta hanya akan dimuat setelah instansi dipilih dan PIN berhasil diverifikasi.</p>
+                </td>
+            </tr>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+
+    if (currentCandidates.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="10" class="p-8 text-center text-slate-400">
+                    <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="font-bold text-slate-700 text-sm">Belum Ada Data Peserta</p>
+                    <p class="text-xs text-slate-500 mt-1">Belum ada peserta yang diunggah untuk instansi <strong>${currentExam.instansi}</strong>.</p>
                 </td>
             </tr>
         `;
@@ -1755,8 +1843,9 @@ function renderCandidateListTable() {
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" class="p-8 text-center text-slate-400">
-                    <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
-                    <p>Tidak ada data peserta yang cocok dengan filter pencarian.</p>
+                    <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="font-bold text-slate-700 text-sm">Tidak Ada Data Peserta</p>
+                    <p class="text-xs text-slate-500 mt-1">Tidak ada peserta yang cocok dengan kriteria filter pencarian saat ini.</p>
                 </td>
             </tr>
         `;
@@ -2265,6 +2354,29 @@ function setupTabNavigation() {
 
 // ---------------------- MODAL PILIH UJIAN & PIN INSTANSI ----------------------
 
+/**
+ * Memperbarui opsi pilihan instansi di modal PIN jika modal sedang terbuka
+ */
+function refreshModalSelectExamPicker() {
+    const selectPicker = document.getElementById('modalSelectExamPicker');
+    const modal = document.getElementById('modalSelectExamWithPin');
+    if (selectPicker && modal && !modal.classList.contains('hidden') && allExams.length > 0) {
+        const prevVal = selectPicker.value;
+        selectPicker.innerHTML = allExams.map(e => {
+            const datePart = e.startDate ? ` (${formatDateDisplay(parseFlexibleDate(e.startDate) || e.startDate, 'short')})` : '';
+            return `<option value="${e.id}">${e.instansi}${datePart}</option>`;
+        }).join('');
+
+        if (prevVal && allExams.some(e => e.id === prevVal)) {
+            selectPicker.value = prevVal;
+        } else if (currentExam) {
+            selectPicker.value = currentExam.id;
+        } else {
+            selectPicker.value = allExams[0].id;
+        }
+    }
+}
+
 window.openSelectExamWithPinModal = (preselectedExamId = null, canCancel = false) => {
     const modal = document.getElementById('modalSelectExamWithPin');
     const selectPicker = document.getElementById('modalSelectExamPicker');
@@ -2290,7 +2402,7 @@ window.openSelectExamWithPinModal = (preselectedExamId = null, canCancel = false
 
     if (selectPicker) {
         if (allExams.length === 0) {
-            selectPicker.innerHTML = `<option value="">Belum ada ujian aktif yang dibuat</option>`;
+            selectPicker.innerHTML = `<option value="">-- Memuat daftar ujian... --</option>`;
         } else {
             selectPicker.innerHTML = allExams.map(e => {
                 const datePart = e.startDate ? ` (${formatDateDisplay(parseFlexibleDate(e.startDate) || e.startDate, 'short')})` : '';
@@ -2310,7 +2422,7 @@ window.openSelectExamWithPinModal = (preselectedExamId = null, canCancel = false
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     if (window.lucide) window.lucide.createIcons();
-    setTimeout(() => { if (inputPin) inputPin.focus(); }, 150);
+    setTimeout(() => { if (inputPin) inputPin.focus(); }, 100);
 };
 
 window.closeSelectExamWithPinModal = () => {
@@ -2330,7 +2442,7 @@ window.cancelSelectExamWithPinModal = () => {
     }
 };
 
-window.verifyExamPinAndUnlock = (e) => {
+window.verifyExamPinAndUnlock = async (e) => {
     if (e) e.preventDefault();
     const selectPicker = document.getElementById('modalSelectExamPicker');
     const inputPin = document.getElementById('modalInputExamPin');
@@ -2362,9 +2474,10 @@ window.verifyExamPinAndUnlock = (e) => {
     if (enteredPin.toLowerCase() === correctPin.toLowerCase()) {
         // PIN BENAR!
         saveActiveExamSession(targetExam.id, targetExam.instansi);
-        setActiveExam(targetExam.id);
         window.closeSelectExamWithPinModal();
-        showToast(`Akses berhasil! Ujian ${targetExam.instansi} aktif.`, 'success');
+        showToast(`PIN benar! Mengambil data peserta ${targetExam.instansi}...`, 'info');
+        await setActiveExam(targetExam.id);
+        showToast(`Ujian ${targetExam.instansi} aktif!`, 'success');
     } else {
         // PIN SALAH!
         if (errorBox && errorText) {
@@ -2577,8 +2690,20 @@ function setupFirebaseIntegration() {
                     allExams = cloudExams;
                     renderExamSelectDropdowns();
                     renderExamListInCreateTab();
+                    refreshModalSelectExamPicker();
 
-                    // Sinkronkan ujian aktif sesuai sesi browser operator
+                    // Cek jika Super Admin sudah aktif di sesi ini
+                    if (checkSuperAdminSession()) {
+                        isSuperAdmin = true;
+                        isPinAuthorized = true;
+                        const activeId = getSelectedExamId() || (allExams.length > 0 ? allExams[0].id : null);
+                        if (activeId && (!currentExam || currentExam.id !== activeId)) {
+                            setActiveExam(activeId);
+                        }
+                        return;
+                    }
+
+                    // Sinkronkan ujian aktif HANYA jika sesi PIN terotorisasi valid
                     const session = getActiveExamSession();
                     if (session && session.examId && allExams.some(e => e.id === session.examId)) {
                         if (!currentExam || currentExam.id !== session.examId) {
@@ -2591,7 +2716,14 @@ function setupFirebaseIntegration() {
                         clearActiveExamSession();
                         setActiveExam(null);
                         window.openSelectExamWithPinModal(null, false);
-                    } else if (!session && !currentExam && allExams.length > 0) {
+                    } else if (!session && !isSuperAdmin) {
+                        // Belum ada PIN terverifikasi: jangan load kandidat apapun!
+                        currentExam = null;
+                        currentCandidates = [];
+                        renderDashboardExamInfo();
+                        renderDashboardStats();
+                        applyCandidateFilters();
+
                         const modal = document.getElementById('modalSelectExamWithPin');
                         if (modal && modal.classList.contains('hidden')) {
                             window.openSelectExamWithPinModal(null, false);
