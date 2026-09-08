@@ -20,14 +20,18 @@ let currentSessionFilter = 'ALL';
 let currentCumulativeSessionFilter = 'ALL';
 let currentSearchTerm = '';
 let currentDateFilter = 'ALL';
+let currentDashboardDateFilter = 'ALL';
 let currentSortColumn = 'sesi';
 let currentSortDirection = 'asc';
+let isPinAuthorized = false;
+let pendingTargetTab = null;
 
 // Inisialisasi Aplikasi Saat Halaman Dimuat
 document.addEventListener('DOMContentLoaded', async () => {
     initLiveClockWIT();
     setupTabNavigation();
     setupCreateExamForm();
+    setupEditExamForm();
     setupExcelUpload();
     setupManualCandidateForm();
     setupMasterInstansiUI();
@@ -224,49 +228,123 @@ function renderDashboardExamInfo() {
 }
 
 /**
- * Render statistik di Dashboard
+ * Event handler saat filter tanggal di Dashboard berubah
+ */
+window.onDashboardFilterDateChange = (dateVal) => {
+    currentDashboardDateFilter = dateVal || 'ALL';
+    renderDashboardStats();
+};
+
+/**
+ * Mengisi opsi dropdown filter tanggal di Dashboard
+ */
+function populateDashboardFilterTanggalDropdown() {
+    const select = document.getElementById('selectDashboardFilterTanggal');
+    if (!select) return;
+
+    const uniqueDates = getSortedExamDates();
+    const prevVal = currentDashboardDateFilter;
+
+    let html = `<option value="ALL">-- Semua Tanggal Pelaksanaan (${uniqueDates.length} Hari) --</option>`;
+    uniqueDates.forEach(d => {
+        const fri = isFriday(d);
+        html += `<option value="${d}">${d} ${fri ? '(Jumat - Sesi 2: 13.00)' : ''}</option>`;
+    });
+
+    select.innerHTML = html;
+
+    if (uniqueDates.includes(prevVal) || prevVal === 'ALL') {
+        select.value = prevVal;
+    } else {
+        select.value = 'ALL';
+        currentDashboardDateFilter = 'ALL';
+    }
+}
+
+/**
+ * Render statistik di Dashboard (termasuk Statistik Kehadiran & Filter Tanggal)
  */
 function renderDashboardStats() {
+    // 1. Populate opsi filter tanggal di dashboard
+    populateDashboardFilterTanggalDropdown();
+
     const statTotal = document.getElementById('statTotalPeserta');
     const statS1 = document.getElementById('statSesi1');
     const statS2 = document.getElementById('statSesi2');
     const statS3 = document.getElementById('statSesi3');
     const distContainer = document.getElementById('dashboardDistributionContainer');
 
-    const total = currentCandidates.length;
-    const s1 = currentCandidates.filter(c => c.sesi === 1).length;
-    const s2 = currentCandidates.filter(c => c.sesi === 2).length;
-    const s3 = currentCandidates.filter(c => c.sesi === 3).length;
+    // Filter kandidat berdasarkan tanggal dashboard yang dipilih
+    const dashboardCandidates = currentDashboardDateFilter === 'ALL'
+        ? currentCandidates
+        : currentCandidates.filter(c => c.pelaksanaan === currentDashboardDateFilter);
 
+    const total = dashboardCandidates.length;
+    const s1 = dashboardCandidates.filter(c => c.sesi === 1).length;
+    const s2 = dashboardCandidates.filter(c => c.sesi === 2).length;
+    const s3 = dashboardCandidates.filter(c => c.sesi === 3).length;
+
+    // Hitung Kehadiran
+    const hadir = dashboardCandidates.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadir = dashboardCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const belumPresensi = Math.max(0, total - hadir - tidakHadir);
+
+    const hadirPct = total > 0 ? Math.round((hadir / total) * 100) : 0;
+    const tidakHadirPct = total > 0 ? Math.round((tidakHadir / total) * 100) : 0;
+    const belumPct = total > 0 ? Math.round((belumPresensi / total) * 100) : 0;
+
+    // Update Kartu Kehadiran di Dashboard
+    const elHadir = document.getElementById('dashStatHadir');
+    const elHadirPct = document.getElementById('dashStatHadirPct');
+    const elTidakHadir = document.getElementById('dashStatTidakHadir');
+    const elTidakHadirPct = document.getElementById('dashStatTidakHadirPct');
+    const elBelum = document.getElementById('dashStatBelumPresensi');
+    const elBelumPct = document.getElementById('dashStatBelumPct');
+
+    if (elHadir) elHadir.textContent = hadir;
+    if (elHadirPct) elHadirPct.textContent = `${hadirPct}% dari total ${total} peserta`;
+    if (elTidakHadir) elTidakHadir.textContent = tidakHadir;
+    if (elTidakHadirPct) elTidakHadirPct.textContent = `${tidakHadirPct}% dari total ${total} peserta`;
+    if (elBelum) elBelum.textContent = belumPresensi;
+    if (elBelumPct) elBelumPct.textContent = `${belumPct}% belum presensi`;
+
+    // Update Kartu Statistik Sesi
     if (statTotal) statTotal.textContent = total;
     if (statS1) statS1.textContent = s1;
     if (statS2) statS2.textContent = s2;
     if (statS3) statS3.textContent = s3;
 
-    // Filter badge counts di Tab Jadwal
+    // Filter badge counts di Tab Jadwal (selalu mencerminkan total keseluruhan ujian aktif)
+    const grandTotal = currentCandidates.length;
+    const grandS1 = currentCandidates.filter(c => c.sesi === 1).length;
+    const grandS2 = currentCandidates.filter(c => c.sesi === 2).length;
+    const grandS3 = currentCandidates.filter(c => c.sesi === 3).length;
+
     const cfAll = document.getElementById('countFilterAll');
     const cf1 = document.getElementById('countFilter1');
     const cf2 = document.getElementById('countFilter2');
     const cf3 = document.getElementById('countFilter3');
-    if (cfAll) cfAll.textContent = total;
-    if (cf1) cf1.textContent = s1;
-    if (cf2) cf2.textContent = s2;
-    if (cf3) cf3.textContent = s3;
+    if (cfAll) cfAll.textContent = grandTotal;
+    if (cf1) cf1.textContent = grandS1;
+    if (cf2) cf2.textContent = grandS2;
+    if (cf3) cf3.textContent = grandS3;
 
-    // Render tabel distribusi berdasarkan unit kerja
+    // Render tabel distribusi berdasarkan unit kerja (mengikuti filter dashboard yang aktif)
     if (distContainer) {
         if (total === 0) {
-            distContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian ini. Silakan upload file Excel terlebih dahulu.</p>`;
+            distContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini. Silakan upload file Excel atau pilih tanggal lain.</p>`;
             return;
         }
 
         const byUnit = {};
-        currentCandidates.forEach(c => {
+        dashboardCandidates.forEach(c => {
             const u = c.unitKerja || '(Unit Kerja Tidak Terisi)';
-            if (!byUnit[u]) byUnit[u] = { s1: 0, s2: 0, s3: 0, total: 0 };
+            if (!byUnit[u]) byUnit[u] = { s1: 0, s2: 0, s3: 0, hadir: 0, tidakHadir: 0, total: 0 };
             if (c.sesi === 1) byUnit[u].s1++;
             else if (c.sesi === 2) byUnit[u].s2++;
             else if (c.sesi === 3) byUnit[u].s3++;
+            if (c.kehadiran === 'HADIR') byUnit[u].hadir++;
+            else if (c.kehadiran === 'TIDAK_HADIR') byUnit[u].tidakHadir++;
             byUnit[u].total++;
         });
 
@@ -277,19 +355,23 @@ function renderDashboardStats() {
                 <thead class="bg-slate-100 text-slate-700 font-bold uppercase">
                     <tr>
                         <th class="p-2.5">Unit Kerja / OPD</th>
-                        <th class="p-2.5 text-center">Sesi 1 (Pagi)</th>
-                        <th class="p-2.5 text-center">Sesi 2 (Siang)</th>
-                        <th class="p-2.5 text-center">Sesi 3 (Sore)</th>
+                        <th class="p-2.5 text-center">Sesi 1</th>
+                        <th class="p-2.5 text-center">Sesi 2</th>
+                        <th class="p-2.5 text-center">Sesi 3</th>
+                        <th class="p-2.5 text-center text-emerald-700 font-bold">Hadir</th>
+                        <th class="p-2.5 text-center text-rose-700 font-bold">Tidak Hadir</th>
                         <th class="p-2.5 text-center font-bold">Total Peserta</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    ${sortedUnits.slice(0, 10).map(u => `
+                    ${sortedUnits.slice(0, 12).map(u => `
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-medium text-slate-800">${u}</td>
                             <td class="p-2.5 text-center text-blue-700 font-semibold">${byUnit[u].s1}</td>
                             <td class="p-2.5 text-center text-amber-700 font-semibold">${byUnit[u].s2}</td>
                             <td class="p-2.5 text-center text-emerald-700 font-semibold">${byUnit[u].s3}</td>
+                            <td class="p-2.5 text-center text-emerald-600 font-bold">${byUnit[u].hadir}</td>
+                            <td class="p-2.5 text-center text-rose-600 font-bold">${byUnit[u].tidakHadir}</td>
                             <td class="p-2.5 text-center font-bold text-slate-900">${byUnit[u].total}</td>
                         </tr>
                     `).join('')}
@@ -395,6 +477,9 @@ function renderExamListInCreateTab() {
                                 Pilih
                             </button>
                         ` : ''}
+                        <button onclick="openModalEditExam('${exam.id}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition" title="Edit Data Ujian">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                        </button>
                         <button onclick="confirmDeleteExam('${exam.id}', '${exam.instansi}')" class="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition" title="Hapus Ujian">
                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
@@ -411,6 +496,86 @@ window.selectAndActivateExam = async (examId) => {
     await setActiveExam(examId);
     showToast("Instansi aktif berhasil dipilih.", "info");
 };
+
+window.openModalEditExam = (examId) => {
+    const exam = allExams.find(e => e.id === examId);
+    if (!exam) return;
+
+    const elId = document.getElementById('editExamId');
+    const elInstansi = document.getElementById('editExamInstansi');
+    const elStart = document.getElementById('editExamStartDate');
+    const elEnd = document.getElementById('editExamEndDate');
+    const elLocation = document.getElementById('editExamLocation');
+    const elQuota = document.getElementById('editExamQuota');
+    const elNotes = document.getElementById('editExamNotes');
+
+    if (elId) elId.value = exam.id;
+    if (elInstansi) elInstansi.value = exam.instansi || '';
+    if (elStart) elStart.value = exam.startDate || '';
+    if (elEnd) elEnd.value = exam.endDate || exam.startDate || '';
+    if (elLocation) elLocation.value = exam.location || '';
+    if (elQuota) elQuota.value = exam.quotaPerSession || 50;
+    if (elNotes) elNotes.value = exam.notes || '';
+
+    const modal = document.getElementById('modalEditExam');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    if (window.lucide) window.lucide.createIcons();
+};
+
+window.closeModalEditExam = () => {
+    const modal = document.getElementById('modalEditExam');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+function setupEditExamForm() {
+    const form = document.getElementById('formEditExam');
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const examId = document.getElementById('editExamId').value;
+            const examIndex = allExams.findIndex(e => e.id === examId);
+            if (examIndex === -1) return;
+
+            const startDate = document.getElementById('editExamStartDate').value;
+            const endDate = document.getElementById('editExamEndDate').value || startDate;
+            const location = document.getElementById('editExamLocation').value.trim();
+            const quota = Number(document.getElementById('editExamQuota').value) || 50;
+            const notes = document.getElementById('editExamNotes').value.trim();
+
+            const updatedExam = {
+                ...allExams[examIndex],
+                startDate,
+                endDate,
+                location,
+                quotaPerSession: quota,
+                notes
+            };
+
+            try {
+                await db.updateExam(updatedExam);
+                allExams[examIndex] = updatedExam;
+
+                if (currentExam && currentExam.id === examId) {
+                    currentExam = updatedExam;
+                    renderDashboardExamInfo();
+                }
+
+                renderExamListInCreateTab();
+                window.closeModalEditExam();
+                showToast(`Data ujian "${updatedExam.instansi}" berhasil diperbarui!`, "success");
+            } catch (err) {
+                console.error("Gagal update ujian:", err);
+                showToast("Gagal memperbarui ujian: " + err.message, "error");
+            }
+        });
+    }
+}
 
 window.confirmDeleteExam = async (examId, instansiName) => {
     if (confirm(`Yakin ingin menghapus ujian untuk "${instansiName}"?\nSeluruh data peserta di dalam ujian ini juga akan terhapus permanen.`)) {
@@ -1844,9 +2009,80 @@ window.printOfficialSchedule = () => {
 };
 
 /**
- * Setup Navigasi Tab
+ * Setup Navigasi Tab & Proteksi PIN Akses ("1414")
  */
 function setupTabNavigation() {
+    window.requestSwitchTab = (tabName) => {
+        // Tab Jadwal & Peserta serta Dashboard bebas diakses langsung tanpa PIN
+        if (tabName === 'daftar-peserta' || tabName === 'dashboard') {
+            window.switchTab(tabName);
+            return;
+        }
+
+        // Jika PIN sudah berhasil di-unlock di sesi ini, langsung izinkan
+        if (isPinAuthorized) {
+            window.switchTab(tabName);
+            return;
+        }
+
+        // Tampilkan modal PIN pop up di tengah layar
+        pendingTargetTab = tabName;
+        const modal = document.getElementById('modalPinAccess');
+        const inputPin = document.getElementById('inputAccessPin');
+        const errorMsg = document.getElementById('pinErrorMessage');
+
+        if (errorMsg) errorMsg.classList.add('hidden');
+        if (inputPin) {
+            inputPin.value = '';
+            inputPin.classList.remove('border-rose-500');
+        }
+
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                if (inputPin) inputPin.focus();
+            }, 100);
+        }
+
+        if (window.lucide) window.lucide.createIcons();
+    };
+
+    window.verifyPinAndProceed = (event) => {
+        if (event) event.preventDefault();
+        const inputPin = document.getElementById('inputAccessPin');
+        const errorMsg = document.getElementById('pinErrorMessage');
+        const pinVal = inputPin ? inputPin.value.trim() : '';
+
+        if (pinVal === '1414') {
+            isPinAuthorized = true;
+            window.closeModalPinAccess();
+            showToast("Akses administrator berhasil dibuka!", "success");
+
+            if (pendingTargetTab) {
+                const target = pendingTargetTab;
+                pendingTargetTab = null;
+                window.switchTab(target);
+            }
+        } else {
+            if (errorMsg) errorMsg.classList.remove('hidden');
+            if (inputPin) {
+                inputPin.classList.add('border-rose-500');
+                inputPin.value = '';
+                inputPin.focus();
+            }
+        }
+    };
+
+    window.closeModalPinAccess = () => {
+        const modal = document.getElementById('modalPinAccess');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+        pendingTargetTab = null;
+    };
+
     window.switchTab = (tabName) => {
         document.querySelectorAll('.nav-tab').forEach(btn => {
             btn.classList.remove('border-amber-400', 'text-white');
