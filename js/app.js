@@ -3215,7 +3215,7 @@ window.printOfficialSchedule = () => {
                         <div style="font-weight: bold; margin-bottom: 2px;">Rekapitulasi Sesi Ini:</div>
                         <div>Peserta Hadir: <strong>${countHadir} Orang</strong></div>
                         <div>Peserta Tidak Hadir: <strong>${countTidakHadir} Orang</strong></div>
-                        <div>Total Sesi: <strong>${totalPesertaSesi} Orang</strong></div>
+                        <div>Total Peserta: <strong>${totalPesertaSesi} Orang</strong></div>
                     </div>
 
                     <div style="width: 240px; text-align: center; font-size: 8.5pt;">
