@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profiling ASN - Kantor Regional XIV BKN</title>
+    <!-- Favicon Browser Icon -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -263,6 +266,13 @@
                     <span>Wilayah</span>
                     <i data-lucide="lock" class="w-3 h-3 text-amber-300/70 ml-0.5"></i>
                 </button>
+
+                <!-- 6. Audit (Perlu PIN) -->
+                <button onclick="requestSwitchTab('audit')" id="nav-audit" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
+                    <i data-lucide="clipboard-check" class="w-4 h-4"></i>
+                    <span>Audit</span>
+                    <i data-lucide="lock" class="w-3 h-3 text-amber-300/70 ml-0.5"></i>
+                </button>
             </nav>
         </div>
     </header>
@@ -273,40 +283,40 @@
         <!-- ==================== TAB 1 (DEFAULT ACTIVE): DAFTAR PESERTA & JADWAL ==================== -->
         <section id="pane-daftar-peserta" class="tab-pane space-y-6 fade-in relative">
 
-            <!-- Filter Bar & Actions -->
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                    <!-- Session Filters -->
-                    <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <span class="text-xs font-bold text-slate-500 uppercase mr-1">Filter Sesi:</span>
-                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition">
+            <!-- Filter Bar & Actions (Sticky di Atas Layar Saat Scroll ke Bawah) -->
+            <div class="sticky top-[108px] z-30 bg-white/95 backdrop-blur-md shadow-md border border-slate-200/90 rounded-xl p-4 sm:p-5 space-y-4 transition-all" style="top: 108px;">
+                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5 sm:gap-3">
+                    <!-- Session Filters (Ukuran font dan tombol lebih kecil & hemat tempat) -->
+                    <div class="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px]">
+                        <span class="text-[11px] font-bold text-slate-500 uppercase mr-0.5 tracking-wide flex-shrink-0">Filter Sesi:</span>
+                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition">
                             Sesi (<span id="countFilterAll">0</span>)
                         </button>
-                        <button onclick="setCandidateFilterSession('00')" id="btnFilterSesi00" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition" title="Filter peserta dengan sesi 00 / belum terjadwal (NULL)">
+                        <button onclick="setCandidateFilterSession('00')" id="btnFilterSesi00" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition" title="Filter peserta dengan sesi 00 / belum terjadwal (NULL)">
                             Sesi 00 (NULL) [<span id="countFilter0">0</span>]
                         </button>
-                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
                             Sesi 1 (08.00-11.00) [<span id="countFilter1">0</span>]
                         </button>
-                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
                             Sesi 2 (11.00 / Jumat 13.00) [<span id="countFilter2">0</span>]
                         </button>
-                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
                             Sesi 3 (14.00-17.00) [<span id="countFilter3">0</span>]
                         </button>
                     </div>
 
-                    <!-- Action Buttons -->
-                    <div class="flex items-center space-x-2 w-full lg:w-auto">
-                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-xs rounded-lg transition border border-blue-200">
+                    <!-- Action Buttons (Tetap Ramping & Tidak Melebar) -->
+                    <div class="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-xs rounded-lg transition border border-blue-200 flex-shrink-0 whitespace-nowrap shadow-2xs">
                             <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
                             <span>Tambah Manual</span>
                         </button>
-                        <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow transition">
+                        <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow-2xs transition flex-shrink-0 whitespace-nowrap">
                             <i data-lucide="printer" class="w-3.5 h-3.5"></i>
                             <span>Cetak Presensi</span>
                         </button>
-                        <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow transition">
+                        <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition flex-shrink-0 whitespace-nowrap">
                             <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
                             <span>Export Excel</span>
                         </button>
@@ -1138,6 +1148,147 @@
             </div>
         </section>
 
+        <!-- ==================== TAB 6: AUDIT PASCA UJIAN ==================== -->
+        <section id="pane-audit" class="tab-pane hidden space-y-6 fade-in">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
+                <!-- Header Audit -->
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="clipboard-check" class="w-6 h-6 text-bkn-700"></i>
+                            <span>Audit & Sinkronisasi Pasca Ujian</span>
+                        </h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+                            Cocokkan data tabel peserta saat ini dengan hasil sistem CAT BKN pasca ujian untuk memvalidasi presensi (via jam login) dan sesi akumulatif.
+                        </p>
+                    </div>
+                    <div id="auditActiveExamBadge" class="px-3.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 flex items-center gap-1.5 shadow-2xs">
+                        <i data-lucide="building-2" class="w-4 h-4 text-amber-500"></i>
+                        <span id="auditActiveExamName">Instansi Ujian Aktif: -</span>
+                    </div>
+                </div>
+
+                <!-- Petunjuk Alur Audit -->
+                <div class="bg-amber-50/70 border border-amber-200/80 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center gap-3.5 text-xs text-amber-950">
+                    <div class="p-2 bg-amber-200/60 rounded-lg flex-shrink-0 text-amber-800">
+                        <i data-lucide="info" class="w-5 h-5"></i>
+                    </div>
+                    <div class="space-y-1 flex-1">
+                        <div class="font-bold text-amber-900 text-sm">Alur Pencocokan Otomatis Sistem:</div>
+                        <ul class="list-disc list-inside space-y-0.5 text-slate-700">
+                            <li><strong>Pencocokan NIP:</strong> Sistem mencocokkan setiap baris peserta di file Excel dengan data database berdasarkan NIP.</li>
+                            <li><strong>Sesi Akumulatif:</strong> Jika cell Sesi pada file Excel terisi, sistem akan menggunakan sesi baru tersebut (misal sesi belasan/puluhan).</li>
+                            <li><strong>Status Presensi Otomatis:</strong> Jika kolom Login terisi tanggal/jam pelaksanaan, maka status peserta yang sebelumnya Belum Presensi atau Tidak Hadir otomatis disarankan menjadi <strong>HADIR</strong>.</li>
+                            <li><strong>Review Komparasi (Replace / Keep):</strong> Sistem menampilkan popup perbandingan data ala Windows di mana Anda bebas memilih data mana saja yang ingin di-replace atau dipertahankan.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Dropzone Upload File Excel Audit -->
+                <div class="border-2 border-dashed border-slate-300 hover:border-bkn-600 rounded-2xl p-8 text-center transition-all bg-slate-50/50 hover:bg-blue-50/20 group cursor-pointer"
+                     id="dropzoneAuditExcel"
+                     onclick="document.getElementById('inputAuditExcelFile').click()"
+                     ondragover="event.preventDefault(); this.classList.add('border-bkn-600', 'bg-blue-50/40');"
+                     ondragleave="this.classList.remove('border-bkn-600', 'bg-blue-50/40');"
+                     ondrop="window.handleAuditDrop(event)">
+                    
+                    <input type="file" 
+                           id="inputAuditExcelFile" 
+                           accept=".xlsx, .xls, .csv" 
+                           class="hidden" 
+                           onchange="window.handleAuditFileInput(event)">
+
+                    <div class="w-16 h-16 mx-auto rounded-2xl bg-blue-100 text-bkn-700 flex items-center justify-center group-hover:scale-110 group-hover:bg-bkn-700 group-hover:text-white transition-all shadow-md">
+                        <i data-lucide="file-spreadsheet" class="w-8 h-8"></i>
+                    </div>
+
+                    <h3 class="text-base font-bold text-slate-800 mt-4">Pilih File Excel Tarikan Pasca Ujian</h3>
+                    <p class="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                        Klik untuk memilih file atau seret & lepas file hasil sistem CAT BKN ke area ini (.xlsx, .xls, .csv).
+                    </p>
+
+                    <div class="inline-flex items-center gap-2 mt-4 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-mono text-slate-600 shadow-2xs">
+                        <span class="font-bold text-slate-800">Format Header:</span>
+                        <span>NIP | Nama | Sesi | Jabatan | Kel Jabatan | Nama Instansi | Jenis Tes | Login | Selesai</span>
+                    </div>
+                </div>
+
+                <!-- Panel Loading Analisis Audit -->
+                <div id="auditLoadingState" class="hidden p-8 text-center space-y-3">
+                    <div class="w-10 h-10 mx-auto border-4 border-bkn-700 border-t-transparent rounded-full animate-spin"></div>
+                    <p class="text-sm font-bold text-slate-700">Menganalisis dan mencocokkan data NIP dengan database...</p>
+                    <p class="text-xs text-slate-400">Harap tunggu beberapa saat.</p>
+                </div>
+
+                <!-- Panel Hasil Audit (Ringkasan Pra-Komparasi) -->
+                <div id="auditResultSummary" class="hidden space-y-6 pt-2">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Hasil Analisis & Pencocokan File Pasca Ujian</span>
+                        </h3>
+                        <button type="button" 
+                                onclick="window.resetAuditUpload()" 
+                                class="text-xs text-rose-600 hover:text-rose-800 font-semibold flex items-center gap-1 hover:underline cursor-pointer">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                            <span>Upload File Lain</span>
+                        </button>
+                    </div>
+
+                    <!-- 4 Kartu Metrik Hasil Analisis -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center">
+                            <div class="text-[11px] font-bold text-slate-500 uppercase">Total Data di Excel</div>
+                            <div id="auditStatTotalExcel" class="text-2xl font-black text-slate-900 mt-1">0</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Baris data terbaca</div>
+                        </div>
+
+                        <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
+                            <div class="text-[11px] font-bold text-emerald-700 uppercase">NIP Cocok di DB</div>
+                            <div id="auditStatMatched" class="text-2xl font-black text-emerald-700 mt-1">0</div>
+                            <div class="text-[10px] text-emerald-600 mt-0.5">Terdaftar dalam database</div>
+                        </div>
+
+                        <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center">
+                            <div class="text-[11px] font-bold text-amber-700 uppercase">Presensi (Login Valid)</div>
+                            <div id="auditStatAutoHadir" class="text-2xl font-black text-amber-700 mt-1">0</div>
+                            <div class="text-[10px] text-amber-600 mt-0.5">Siap diubah jadi HADIR</div>
+                        </div>
+
+                        <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center">
+                            <div class="text-[11px] font-bold text-indigo-700 uppercase">Perbedaan Terdeteksi</div>
+                            <div id="auditStatDiffCount" class="text-2xl font-black text-indigo-700 mt-1">0</div>
+                            <div class="text-[10px] text-indigo-600 mt-0.5">Sesi, kehadiran, atau bio</div>
+                        </div>
+                    </div>
+
+                    <!-- Kotak Peringatan NIP Tidak Ditemukan (Bila Ada) -->
+                    <div id="auditUnmatchedAlert" class="hidden bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-900 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600 flex-shrink-0"></i>
+                            <span>Terdapat <strong id="auditUnmatchedCount">0</strong> NIP di file Excel yang tidak terdaftar pada database peserta ujian aktif ini.</span>
+                        </div>
+                    </div>
+
+                    <!-- Tombol Aksi Buka Review Komparasi -->
+                    <div class="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+                        <button type="button" 
+                                onclick="window.resetAuditUpload()" 
+                                class="w-full sm:w-auto px-4 py-2.5 border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold text-xs rounded-xl transition cursor-pointer">
+                            Batal
+                        </button>
+                        <button type="button" 
+                                id="btnOpenAuditCompareModal"
+                                onclick="window.openModalAuditCompare()" 
+                                class="w-full sm:w-auto px-6 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer">
+                            <i data-lucide="git-compare" class="w-4 h-4 text-amber-400"></i>
+                            <span>Buka Review Komparasi & Pilih Data yang Di-Replace</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <!-- ==================== MODAL TAMBAH PESERTA MANUAL ==================== -->
@@ -1676,6 +1827,252 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL DETAIL PESERTA KELOMPOK JABATAN ==================== -->
+    <div id="modalDetailKelompokJabatan" class="fixed inset-0 bg-slate-950/75 backdrop-blur-md z-50 hidden items-center justify-center p-3 sm:p-5">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden fade-in">
+            <!-- Modal Header -->
+            <div class="p-4 sm:p-6 bg-gradient-to-r from-bkn-900 to-blue-950 text-white flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-amber-400 shadow-inner">
+                        <i data-lucide="users" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base sm:text-lg font-bold tracking-tight">Daftar Peserta: <span id="detailKelJabatanTitle" class="text-amber-300"></span></h3>
+                        </div>
+                        <p class="text-xs text-blue-200 mt-0.5">Rincian data peserta yang hadir, tidak hadir, dan belum presensi mengikuti filter tanggal aktif.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModalDetailKelompokJabatan()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Toolbar: Filter Status Buttons & Search Bar -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-shrink-0">
+                <!-- Filter Pills -->
+                <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                    <button type="button" 
+                            id="btnFilterDetailAll" 
+                            onclick="setDetailKelJabatanStatusFilter('ALL')" 
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border bg-bkn-700 text-white border-bkn-700 shadow-2xs transition cursor-pointer whitespace-nowrap">
+                        Semua (<span id="detailBadgeTotal">0</span>)
+                    </button>
+                    <button type="button" 
+                            id="btnFilterDetailHadir" 
+                            onclick="setDetailKelJabatanStatusFilter('HADIR')" 
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white text-emerald-800 hover:bg-emerald-50 transition cursor-pointer whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>Hadir (<span id="detailBadgeHadir">0</span>)</span>
+                    </button>
+                    <button type="button" 
+                            id="btnFilterDetailTidakHadir" 
+                            onclick="setDetailKelJabatanStatusFilter('TIDAK_HADIR')" 
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white text-rose-800 hover:bg-rose-50 transition cursor-pointer whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                        <span>Tidak Hadir (<span id="detailBadgeTidakHadir">0</span>)</span>
+                    </button>
+                    <button type="button" 
+                            id="btnFilterDetailBelum" 
+                            onclick="setDetailKelJabatanStatusFilter('BELUM')" 
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white text-amber-800 hover:bg-amber-50 transition cursor-pointer whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                        <span>Belum Presensi (<span id="detailBadgeBelum">0</span>)</span>
+                    </button>
+                </div>
+
+                <!-- Input Pencarian -->
+                <div class="relative w-full sm:w-64">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+                    <input type="text" 
+                           id="inputSearchDetailKelJabatan" 
+                           placeholder="Cari NIP atau Nama..." 
+                           oninput="renderDetailKelJabatanTable()" 
+                           class="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-bkn-500 shadow-2xs">
+                </div>
+            </div>
+
+            <!-- Body Table (Scrollable) -->
+            <div class="overflow-y-auto flex-1 p-4">
+                <div class="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs">
+                    <table class="w-full text-xs text-left text-slate-700">
+                        <thead class="bg-slate-100 text-slate-700 font-bold uppercase sticky top-0 z-10 border-b border-slate-200">
+                            <tr>
+                                <th class="p-2.5 text-center w-12">No</th>
+                                <th class="p-2.5 text-center w-28">Status</th>
+                                <th class="p-2.5">NIP</th>
+                                <th class="p-2.5">Nama Peserta</th>
+                                <th class="p-2.5">Jabatan</th>
+                                <th class="p-2.5">Unit Kerja</th>
+                                <th class="p-2.5 text-center w-24">Tanggal & Sesi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyDetailKelJabatan" class="divide-y divide-slate-100">
+                            <!-- Render via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0 text-xs">
+                <span id="detailKelJabatanFooterInfo" class="text-slate-500 font-medium">Menampilkan 0 peserta</span>
+                <div class="flex items-center space-x-2">
+                    <button type="button" 
+                            onclick="copyDetailKelJabatanToClipboard()" 
+                            class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                        <span>Copy Tabel (Excel)</span>
+                    </button>
+                    <button type="button" 
+                            onclick="closeModalDetailKelompokJabatan()" 
+                            class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-lg transition cursor-pointer">
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL REVIEW KOMPARASI AUDIT PASCA UJIAN ==================== -->
+    <div id="modalAuditCompare" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden items-center justify-center p-3 sm:p-5">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-6xl w-full max-h-[94vh] flex flex-col overflow-hidden fade-in">
+            <!-- Header Modal -->
+            <div class="p-4 sm:p-5 bg-gradient-to-r from-bkn-900 via-blue-900 to-indigo-950 text-white flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow font-black">
+                        <i data-lucide="git-compare" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base sm:text-lg font-bold tracking-tight">Review Komparasi Data Hasil Audit Pasca Ujian</h3>
+                            <span id="badgeAuditDiffTotal" class="text-[11px] bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase">0 Perbedaan</span>
+                        </div>
+                        <p class="text-xs text-blue-200 mt-0.5">
+                            Pilih data yang ingin Anda replace ke dalam database peserta. Ceklis kotak centang untuk mengganti, atau hilangkan centang untuk mempertahankan data database saat ini.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModalAuditCompare()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Toolbar Kontrol Seleksi ala Windows Compare -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 flex-shrink-0">
+                <!-- Checkbox Master & Filter Kategori -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <label class="inline-flex items-center gap-2 bg-white border border-slate-300 hover:border-bkn-600 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 cursor-pointer shadow-2xs transition select-none">
+                        <input type="checkbox" 
+                               id="checkAllAuditChanges" 
+                               checked 
+                               onchange="toggleSelectAllAuditDifferences(this.checked)" 
+                               class="rounded text-bkn-700 focus:ring-bkn-500 w-4 h-4 cursor-pointer">
+                        <span>Pilih Semua Perubahan (Replace All)</span>
+                    </label>
+
+                    <div class="flex items-center gap-1 text-xs">
+                        <button type="button" 
+                                id="btnFilterCompareAll" 
+                                onclick="setAuditCompareCategoryFilter('ALL')" 
+                                class="px-2.5 py-1 font-bold rounded-lg bg-bkn-700 text-white shadow-2xs transition cursor-pointer">
+                            Semua (<span id="countFilterCompareAll">0</span>)
+                        </button>
+                        <button type="button" 
+                                id="btnFilterCompareKehadiran" 
+                                onclick="setAuditCompareCategoryFilter('kehadiran')" 
+                                class="px-2.5 py-1 font-semibold rounded-lg bg-white border border-slate-300 text-emerald-800 hover:bg-emerald-50 transition cursor-pointer flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span>Presensi (<span id="countFilterCompareKehadiran">0</span>)</span>
+                        </button>
+                        <button type="button" 
+                                id="btnFilterCompareSesi" 
+                                onclick="setAuditCompareCategoryFilter('sesi')" 
+                                class="px-2.5 py-1 font-semibold rounded-lg bg-white border border-slate-300 text-indigo-800 hover:bg-indigo-50 transition cursor-pointer flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                            <span>Sesi (<span id="countFilterCompareSesi">0</span>)</span>
+                        </button>
+                        <button type="button" 
+                                id="btnFilterCompareBiodata" 
+                                onclick="setAuditCompareCategoryFilter('biodata')" 
+                                class="px-2.5 py-1 font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition cursor-pointer">
+                            Biodata (<span id="countFilterCompareBiodata">0</span>)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Input Pencarian NIP / Nama dalam Modal -->
+                <div class="relative w-full md:w-64">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+                    <input type="text" 
+                           id="inputSearchAuditCompare" 
+                           placeholder="Cari NIP atau Nama..." 
+                           oninput="renderAuditCompareTable()" 
+                           class="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-bkn-500 shadow-2xs">
+                </div>
+            </div>
+
+            <!-- Body Tabel Komparasi (Scrollable) -->
+            <div class="overflow-y-auto flex-1 p-4">
+                <div class="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs bg-white">
+                    <table class="w-full text-xs text-left text-slate-700">
+                        <thead class="bg-slate-100 text-slate-700 font-bold uppercase sticky top-0 z-10 border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 text-center w-12">
+                                    <span class="sr-only">Pilih</span>
+                                </th>
+                                <th class="p-3 text-center w-12">No</th>
+                                <th class="p-3 w-56">Peserta (NIP & Nama)</th>
+                                <th class="p-3 w-32">Bidang Data</th>
+                                <th class="p-3 bg-rose-50/50 text-rose-900 border-l border-r border-rose-100 w-56">
+                                    <div class="flex items-center gap-1">
+                                        <i data-lucide="database" class="w-3.5 h-3.5 text-rose-600"></i>
+                                        <span>Data Database Saat Ini</span>
+                                    </div>
+                                </th>
+                                <th class="p-3 bg-emerald-50/60 text-emerald-900 border-r border-emerald-100 w-56">
+                                    <div class="flex items-center gap-1">
+                                        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        <span>Data Baru (File Audit)</span>
+                                    </div>
+                                </th>
+                                <th class="p-3">Keterangan / Analisis Sistem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyAuditCompareList" class="divide-y divide-slate-100">
+                            <!-- Render via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0 text-xs">
+                <div class="flex items-center gap-2">
+                    <span id="auditCompareSelectedInfo" class="font-bold text-slate-800">
+                        0 dari 0 peserta dipilih untuk di-replace
+                    </span>
+                    <span class="text-slate-400">|</span>
+                    <span class="italic text-slate-500 text-[11px]">Data yang tidak dicentang tetap mempertahankan nilai database saat ini.</span>
+                </div>
+                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <button type="button" 
+                            onclick="closeModalAuditCompare()" 
+                            class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl transition cursor-pointer">
+                        Batal
+                    </button>
+                    <button type="button" 
+                            id="btnApplyAuditSelected" 
+                            onclick="applySelectedAuditDifferencesToDatabase()" 
+                            class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer">
+                        <i data-lucide="check-check" class="w-4 h-4"></i>
+                        <span>Terapkan Perubahan Terpilih (<span id="btnApplySelectedCount">0</span>)</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 

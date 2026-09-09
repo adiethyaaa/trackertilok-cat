@@ -587,3 +587,13 @@ export async function getExamStatsCloud(examId) {
     stats.totalUnitKerja = stats.unitKerjaCount.size;
     return stats;
 }
+
+/**
+ * Update multi-path fields secara atomik di Firebase Realtime Database
+ */
+export async function bulkUpdatePathsInCloud(updates) {
+    if (!updates || Object.keys(updates).length === 0) return 0;
+    const db = ensureDb();
+    await update(ref(db), updates);
+    return Object.keys(updates).length;
+}

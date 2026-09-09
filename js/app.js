@@ -29,8 +29,10 @@ import {
     saveExamToCloud,
     deleteExamFromCloud,
     bulkAddCandidatesToCloud,
-    updateAttendanceInCloud
+    updateAttendanceInCloud,
+    bulkUpdatePathsInCloud
 } from './firebaseService.js';
+import { parseAuditExcel, compareAuditDataWithDatabase } from './auditManager.js';
 
 // State Aplikasi
 let currentExam = null;
@@ -64,6 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupMasterInstansiUI();
     setupFirebaseIntegration();
     setupScrollToTopButton();
+    setupAuditUI();
 
     // Isi dropdown instansi
     populateInstansiDropdown('selectExamInstansi');
@@ -413,6 +416,7 @@ function renderDashboardExamInfo() {
     }
 
     if (instansiTitleEl) instansiTitleEl.textContent = currentExam.instansi;
+    if (window.updateAuditTabExamInfo) window.updateAuditTabExamInfo();
     if (regionBadge) {
         regionBadge.textContent = currentExam.wilker || 'Instansi Terdaftar';
         if (currentExam.wilker === 'Papua Barat Daya') {
@@ -743,8 +747,8 @@ function renderDashboardStats() {
         if (total === 0) {
             kelJabatanContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini.</p>`;
         } else {
-            // Struktur penampung statistik
-            const createStatHolder = () => ({ hadir: 0, tidakHadir: 0, belum: 0, total: 0 });
+            // Struktur penampung statistik (menyimpan juga daftar kandidat per kategori)
+            const createStatHolder = () => ({ hadir: 0, tidakHadir: 0, belum: 0, total: 0, candidates: [] });
             const categories = {
                 JPT_PRATAMA: { label: 'JPT Pratama', stat: createStatHolder() },
                 ADMINISTRATOR: { label: 'Administrator', stat: createStatHolder() },
@@ -778,6 +782,7 @@ function renderDashboardStats() {
                     else if (att === 'TIDAK_HADIR') statObj.tidakHadir++;
                     else statObj.belum++;
                     statObj.total++;
+                    statObj.candidates.push(c);
                 };
 
                 if (cls.category === 'FUNGSIONAL') {
@@ -797,32 +802,36 @@ function renderDashboardStats() {
                 }
             });
 
-            // Helper render satu baris data tabel
+            // Simpan ke window agar bisa diakses saat baris diklik untuk membuka modal
+            window._activeKelJabatanStats = categories;
+
+            // Helper render satu baris data tabel (interaktif & dapat diklik)
             const renderRow = (label, stat, options = {}) => {
-                const { isParent = false, isChild = false, isWarning = false } = options;
+                const { isParent = false, isChild = false, isWarning = false, dataKey = '' } = options;
                 const pct = stat.total > 0 ? Math.round((stat.hadir / stat.total) * 100) : 0;
                 
-                let rowBg = 'hover:bg-slate-50 transition';
+                let rowBg = 'hover:bg-amber-50/60 transition cursor-pointer group';
                 if (isWarning) {
-                    rowBg = 'bg-rose-50/75 border-l-4 border-l-red-900 font-medium transition';
+                    rowBg = 'bg-rose-50/75 hover:bg-rose-100/80 border-l-4 border-l-red-900 font-medium transition cursor-pointer group';
                 } else if (isParent) {
-                    rowBg = 'bg-indigo-50/40 hover:bg-indigo-50/70 font-bold border-t border-b border-indigo-100/70 transition';
+                    rowBg = 'bg-indigo-50/40 hover:bg-indigo-100/70 font-bold border-t border-b border-indigo-100/70 transition cursor-pointer group';
                 } else if (isChild) {
-                    rowBg = 'bg-slate-50/50 hover:bg-slate-100/60 text-slate-600 transition';
+                    rowBg = 'bg-slate-50/50 hover:bg-slate-100/80 text-slate-600 transition cursor-pointer group';
                 }
 
                 return `
-                    <tr class="${rowBg}">
+                    <tr class="${rowBg}" onclick="window.openModalDetailKelompokJabatan('${dataKey}', '${encodeURIComponent(label)}')" title="Klik untuk melihat rincian peserta (${label})">
                         <td class="p-2.5 ${isChild ? 'pl-8 text-xs font-semibold' : 'font-bold'} ${isWarning ? 'text-rose-900 flex items-center gap-1.5' : (isParent ? 'text-indigo-950 flex items-center gap-1.5' : 'text-slate-800')}">
                             ${isWarning ? '<i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-700 inline-block flex-shrink-0"></i>' : ''}
                             ${isChild ? '<span class="text-slate-400 font-bold mr-1">↳</span>' : ''}
-                            <span>${label}</span>
-                            ${isParent ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">Parent</span>' : ''}
+                            <span class="group-hover:text-indigo-900 transition-colors">${label}</span>
+                            ${isParent ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">Semua Jenjang</span>' : ''}
                             ${isWarning ? '<span class="text-[10px] bg-red-900 text-red-100 px-1.5 py-0.5 rounded font-bold uppercase shadow-xs">Peserta Belum Terdaftar</span>' : ''}
+                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400 group-hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all ml-auto inline-block"></i>
                         </td>
-                        <td class="p-2.5 text-center text-emerald-700 font-bold text-sm">${stat.hadir}</td>
-                        <td class="p-2.5 text-center text-rose-700 font-bold text-sm">${stat.tidakHadir}</td>
-                        <td class="p-2.5 text-center text-amber-700 font-semibold">${stat.belum}</td>
+                        <td class="p-2.5 text-center text-emerald-700 font-bold text-sm group-hover:bg-emerald-50/50 transition">${stat.hadir}</td>
+                        <td class="p-2.5 text-center text-rose-700 font-bold text-sm group-hover:bg-rose-50/50 transition">${stat.tidakHadir}</td>
+                        <td class="p-2.5 text-center text-amber-700 font-semibold group-hover:bg-amber-50/50 transition">${stat.belum}</td>
                         <td class="p-2.5 text-center font-bold text-slate-900">${stat.total}</td>
                         <td class="p-2.5 text-center">
                             <div class="flex items-center justify-center gap-2">
@@ -840,54 +849,54 @@ function renderDashboardStats() {
 
             // 1. JPT Pratama
             if (categories.JPT_PRATAMA.stat.total > 0) {
-                rowsHtml += renderRow(categories.JPT_PRATAMA.label, categories.JPT_PRATAMA.stat);
+                rowsHtml += renderRow(categories.JPT_PRATAMA.label, categories.JPT_PRATAMA.stat, { dataKey: 'JPT_PRATAMA' });
             }
 
             // 2. Administrator
             if (categories.ADMINISTRATOR.stat.total > 0) {
-                rowsHtml += renderRow(categories.ADMINISTRATOR.label, categories.ADMINISTRATOR.stat);
+                rowsHtml += renderRow(categories.ADMINISTRATOR.label, categories.ADMINISTRATOR.stat, { dataKey: 'ADMINISTRATOR' });
             }
 
             // 3. Pengawas
             if (categories.PENGAWAS.stat.total > 0) {
-                rowsHtml += renderRow(categories.PENGAWAS.label, categories.PENGAWAS.stat);
+                rowsHtml += renderRow(categories.PENGAWAS.label, categories.PENGAWAS.stat, { dataKey: 'PENGAWAS' });
             }
 
             // 4. Eselon V
             if (categories.ESELON_V.stat.total > 0) {
-                rowsHtml += renderRow(categories.ESELON_V.label, categories.ESELON_V.stat);
+                rowsHtml += renderRow(categories.ESELON_V.label, categories.ESELON_V.stat, { dataKey: 'ESELON_V' });
             }
 
             // 5. Jabatan Fungsional (Parent & Child Rows)
             if (categories.FUNGSIONAL.stat.total > 0) {
                 // Render Parent Row
-                rowsHtml += renderRow(categories.FUNGSIONAL.label, categories.FUNGSIONAL.stat, { isParent: true });
+                rowsHtml += renderRow(categories.FUNGSIONAL.label, categories.FUNGSIONAL.stat, { isParent: true, dataKey: 'FUNGSIONAL' });
                 
                 // Susunan baku Child: terampil, mahir, penyelia, ahli pertama, ahli muda, ahli madya
                 const standardJfOrder = ['Terampil', 'Mahir', 'Penyelia', 'Ahli Pertama', 'Ahli Muda', 'Ahli Madya', 'Fungsional Lainnya'];
                 standardJfOrder.forEach(subName => {
                     const childStat = categories.FUNGSIONAL.children[subName];
                     if (childStat && childStat.total > 0) {
-                        rowsHtml += renderRow(subName, childStat, { isChild: true });
+                        rowsHtml += renderRow(subName, childStat, { isChild: true, dataKey: `FUNGSIONAL:${subName}` });
                     }
                 });
             }
 
             // 6. Pelaksana
             if (categories.PELAKSANA.stat.total > 0) {
-                rowsHtml += renderRow(categories.PELAKSANA.label, categories.PELAKSANA.stat);
+                rowsHtml += renderRow(categories.PELAKSANA.label, categories.PELAKSANA.stat, { dataKey: 'PELAKSANA' });
             }
 
             // 7. Belum Terdata / Kosong (Peserta Belum Terdaftar) -> DI BAWAH BARIS PELAKSANA
             if (categories.KOSONG.stat.total > 0) {
-                rowsHtml += renderRow(categories.KOSONG.label, categories.KOSONG.stat, { isWarning: true });
+                rowsHtml += renderRow(categories.KOSONG.label, categories.KOSONG.stat, { isWarning: true, dataKey: 'KOSONG' });
             }
 
             // 8. Kelompok Lainnya (jika ada)
             Object.keys(categories.LAINNYA).forEach(otherLabel => {
                 const stat = categories.LAINNYA[otherLabel];
                 if (stat.total > 0) {
-                    rowsHtml += renderRow(otherLabel, stat);
+                    rowsHtml += renderRow(otherLabel, stat, { dataKey: `LAINNYA:${otherLabel}` });
                 }
             });
 
@@ -1722,7 +1731,7 @@ window.setCandidateFilterSession = (session) => {
 
     // Update status aktif tombol pills
     document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-        btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
     });
 
     const activeBtn = session === 'ALL' 
@@ -1730,7 +1739,7 @@ window.setCandidateFilterSession = (session) => {
         : document.getElementById(`btnFilterSesi${session}`);
 
     if (activeBtn) {
-        activeBtn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+        activeBtn.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
     }
 
     const inputTyping = document.getElementById('inputFilterSesiTyping');
@@ -1787,10 +1796,10 @@ window.onFilterSesiTypeInput = (inputVal) => {
             currentSessionFilter = 'ALL';
             if (select) select.value = 'ALL';
             document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-                btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+                btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
             });
             const btnAll = document.getElementById('btnFilterSesiAll');
-            if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+            if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
             applyCandidateFilters();
             return;
         }
@@ -1805,7 +1814,7 @@ window.onFilterSesiTypeInput = (inputVal) => {
             currentCumulativeSessionFilter = num;
             currentSessionFilter = 'ALL';
             document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-                btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+                btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
             });
             if (select) {
                 const opt = select.querySelector(`option[value="${num}"]`);
@@ -1830,10 +1839,10 @@ window.onFilterSesiDropdownChange = (sessionValue) => {
         currentSessionFilter = 'ALL';
         if (inputTyping) inputTyping.value = '';
         document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-            btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
         });
         const btnAll = document.getElementById('btnFilterSesiAll');
-        if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+        if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
     } else if (sessionValue === '00' || sessionValue === 0 || sessionValue === '0') {
         setCandidateFilterSession('00');
         return;
@@ -1842,7 +1851,7 @@ window.onFilterSesiDropdownChange = (sessionValue) => {
         currentSessionFilter = 'ALL';
         if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(sessionValue);
         document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-            btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
         });
     }
     applyCandidateFilters();
@@ -1893,10 +1902,10 @@ window.resetAllCandidateFilters = () => {
     if (selectSesi) selectSesi.value = 'ALL';
 
     document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-        btn.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
     });
     const btnAll = document.getElementById('btnFilterSesiAll');
-    if (btnAll) btnAll.className = 'filter-sesi-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-bkn-800 text-white shadow-sm transition';
+    if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
 
     populateSesiFilterDropdown('ALL');
     populateKelJabatanFilterDropdown();
@@ -3109,10 +3118,15 @@ window.printOfficialSchedule = () => {
     let fullHtml = '';
 
     sortedSessionGroups.forEach((group) => {
-        // Urutkan nama peserta A-Z dalam setiap sesi
-        const sortedList = [...group.candidates].sort((a, b) => 
-            String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' })
-        );
+        // Urutkan peserta: HADIR dahulu, kemudian TIDAK HADIR, masing-masing tetap diurutkan Nama A-Z (Ascending)
+        const sortedList = [...group.candidates].sort((a, b) => {
+            const pA = a.kehadiran === 'HADIR' ? 1 : 2;
+            const pB = b.kehadiran === 'HADIR' ? 1 : 2;
+            if (pA !== pB) {
+                return pA - pB;
+            }
+            return String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+        });
 
         const dayName = group.date ? getDayNameID(group.date) : '';
         const countHadir = sortedList.filter(c => c.kehadiran === 'HADIR').length;
@@ -3225,7 +3239,7 @@ function setupTabNavigation() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         // Jika tab membutuhkan PIN dan belum terotorisasi, tampilkan modal PIN
-        const needsPin = (tabName === 'create-ujian' || tabName === 'upload-excel' || tabName === 'master-wilker');
+        const needsPin = (tabName === 'create-ujian' || tabName === 'upload-excel' || tabName === 'master-wilker' || tabName === 'audit');
         if (needsPin && !isPinAuthorized && !isSuperAdmin) {
             pendingTargetTab = tabName;
             const modal = document.getElementById('modalPinAccess');
@@ -3363,6 +3377,8 @@ function setupTabNavigation() {
             renderDashboardStats();
         } else if (tabName === 'create-ujian') {
             renderExamListInCreateTab();
+        } else if (tabName === 'audit') {
+            if (window.updateAuditTabExamInfo) window.updateAuditTabExamInfo();
         }
 
         if (window.lucide) window.lucide.createIcons();
@@ -4192,29 +4208,29 @@ function renderRekapModalTables() {
 
         let tbodyHtml = tab1Rows.map((r, idx) => {
             const childSubRowsHtml = (r.sessionBreakdown || []).map((sb, sIdx) => `
-                <tr class="hover:bg-blue-50/50 transition border-b border-slate-200 text-[9px] sm:text-[10px]">
-                    <td class="p-1 sm:p-1.5 text-center font-bold text-slate-800 border-r border-slate-200 bg-slate-50/80 truncate">
+                <tr class="hover:bg-blue-100/80 transition-colors border-b border-slate-300 text-[9px] sm:text-[10px] bg-slate-50/80">
+                    <td class="p-1 sm:p-1.5 text-center font-bold text-slate-900 border-r border-slate-300 bg-slate-200/90 truncate">
                         ${sb.label}
                     </td>
-                    <!-- Hadir -->
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-medium border-r border-slate-200">${sb.hadir.jpt}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-medium border-r border-slate-200">${sb.hadir.admin}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-medium border-r border-slate-200">${sb.hadir.pengawas}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-bold border-r border-slate-200">${sb.hadir.jf}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-800 font-medium border-r border-slate-200">${sb.hadir.pelaksana}</td>
-                    <!-- Tidak Hadir -->
-                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-medium border-r border-slate-200">${sb.tidakHadir.jpt}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-medium border-r border-slate-200">${sb.tidakHadir.admin}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-medium border-r border-slate-200">${sb.tidakHadir.pengawas}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-bold border-r border-slate-200">${sb.tidakHadir.jf}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-rose-800 font-medium border-r border-slate-200">${sb.tidakHadir.pelaksana}</td>
+                    <!-- Hadir (Shade Hijau Lebih Gelap Sedikit) -->
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.jpt}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.admin}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.pengawas}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-extrabold border-r border-slate-200 bg-emerald-200/80">${sb.hadir.jf}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-300 bg-emerald-100/70">${sb.hadir.pelaksana}</td>
+                    <!-- Tidak Hadir (Shade Merah Lebih Gelap Sedikit) -->
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.jpt}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.admin}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.pengawas}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-extrabold border-r border-slate-200 bg-rose-200/80">${sb.tidakHadir.jf}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-300 bg-rose-100/70">${sb.tidakHadir.pelaksana}</td>
                     <!-- Total -->
-                    <td class="p-1 sm:p-1.5 text-center font-bold text-slate-900 border-r border-slate-200 bg-slate-50/50">${sb.total}</td>
+                    <td class="p-1 sm:p-1.5 text-center font-extrabold text-slate-900 border-r border-slate-300 bg-slate-200">${sb.total}</td>
                     <!-- Aksi -->
                     <td class="p-1 sm:p-1.5 text-center">
                         <button type="button" 
                                 onclick="event.stopPropagation(); copySessionRekapKelJabatan(${idx}, ${sIdx})" 
-                                class="w-full py-0.5 px-1 bg-white hover:bg-emerald-600 border border-slate-300 hover:border-emerald-600 text-slate-700 hover:text-white rounded text-[9px] font-semibold transition cursor-pointer flex items-center justify-center gap-0.5" 
+                                class="w-full py-0.5 px-1 bg-white hover:bg-slate-800 border border-slate-300 hover:border-slate-800 text-slate-700 hover:text-white rounded text-[9px] font-bold transition cursor-pointer flex items-center justify-center gap-0.5 shadow-2xs" 
                                 title="Copy baris ${sb.label}">
                             <i data-lucide="copy" class="w-2.5 h-2.5 flex-shrink-0"></i>
                             <span class="hidden sm:inline">Copy</span>
@@ -4261,36 +4277,36 @@ function renderRekapModalTables() {
                     </td>
                 </tr>
 
-                <!-- Child Sub-tabel Rincian Akumulasi Sesi (Tersembunyi Awalnya) -->
-                <tr id="rekap-child-row-${idx}" class="hidden bg-slate-100/60 border-b-2 border-slate-200">
-                    <td colspan="13" class="p-2 sm:p-2.5">
-                        <div class="bg-white border border-slate-200 rounded-lg p-2 shadow-xs">
-                            <div class="flex items-center justify-between mb-1.5 px-1">
-                                <span class="text-[10px] sm:text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                                    <i data-lucide="layers" class="w-3.5 h-3.5 text-blue-600"></i>
+                <!-- Sub-tabel Rincian Akumulasi Sesi (Tersembunyi Awalnya - Shade Lebih Gelap Sedikit) -->
+                <tr id="rekap-child-row-${idx}" class="hidden bg-slate-200/90 border-b-2 border-slate-300">
+                    <td colspan="13" class="p-2 sm:p-3">
+                        <div class="bg-slate-100 border-2 border-slate-300 rounded-xl p-3 shadow-xs">
+                            <div class="flex items-center justify-between mb-2 px-1">
+                                <span class="text-[10px] sm:text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                                    <i data-lucide="layers" class="w-3.5 h-3.5 text-blue-700"></i>
                                     Rincian Sesi Pelaksanaan (${r.date})
                                 </span>
-                                <span class="text-[9px] text-slate-400 italic">Format: Sesi [Akumulasi]</span>
+                                <span class="text-[9px] font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full border border-slate-300">Format: Sesi [Akumulasi]</span>
                             </div>
-                            <table class="w-full table-fixed text-left border-collapse border border-slate-200 rounded overflow-hidden">
-                                <thead class="bg-slate-800 text-white text-[9px] sm:text-[10px] uppercase font-bold select-none">
+                            <table class="w-full table-fixed text-left border-collapse border border-slate-400 rounded-lg overflow-hidden shadow-2xs">
+                                <thead class="text-white text-[9px] sm:text-[10px] uppercase font-extrabold select-none shadow-xs border-b border-slate-700">
                                     <tr>
-                                        <th class="p-1 sm:p-1.5 text-center border-r border-slate-700" style="width: 11%;">Sesi</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 border-r border-slate-700 truncate" style="width: 7.2%;" title="Hadir JPT Pratama">JPT</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 border-r border-slate-700 truncate" style="width: 7.2%;" title="Hadir Administrator">Admin</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 border-r border-slate-700 truncate" style="width: 7.2%;" title="Hadir Pengawas">Pengawas</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 border-r border-slate-700 truncate" style="width: 7.2%;" title="Hadir JF">JF</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 border-r border-slate-700 truncate" style="width: 7.2%;" title="Hadir Pelaksana">Pelaksana</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Tidak Hadir JPT Pratama">JPT</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Tidak Hadir Administrator">Admin</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Tidak Hadir Pengawas">Pengawas</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Tidak Hadir JF">JF</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 border-r border-slate-700 truncate" style="width: 7.2%;" title="Tidak Hadir Pelaksana">Pelaksana</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-slate-800 border-r border-slate-700" style="width: 8.5%;">Total</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-slate-800" style="width: 8.5%;">Aksi</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-amber-300 border-r border-slate-700" style="width: 11%;">Sesi</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir JPT Pratama">JPT</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir Administrator">Admin</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir Pengawas">Pengawas</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir JF">JF</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-slate-400 truncate" style="width: 7.2%;" title="Hadir Pelaksana">Pelaksana</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir JPT Pratama">JPT</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir Administrator">Admin</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir Pengawas">Pengawas</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir JF">JF</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-slate-400 truncate" style="width: 7.2%;" title="Tidak Hadir Pelaksana">Pelaksana</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white border-r border-slate-700" style="width: 8.5%;">Total</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white" style="width: 8.5%;">Aksi</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-slate-100 bg-white">
+                                <tbody class="divide-y divide-slate-300 bg-slate-50">
                                     ${childSubRowsHtml}
                                 </tbody>
                             </table>
@@ -4618,3 +4634,655 @@ window.copySessionRekapKelJabatan = (rowIdx, sIdx) => {
 
     copyTextToClipboard(`${headerStr}\n${dataStr}`, `Data ${sb.label} (${row.date}) berhasil disalin! Format siap di-paste ke Excel.`);
 };
+
+// =========================================================================
+// FITUR 1: MODAL RINCIAN PESERTA KELOMPOK JABATAN (HADIR, TIDAK HADIR, BELUM)
+// =========================================================================
+
+let currentDetailKelJabatanList = [];
+let currentDetailKelJabatanStatusFilter = 'ALL';
+let currentDetailKelJabatanTitle = '';
+
+window.openModalDetailKelompokJabatan = (key, encodedLabel) => {
+    const label = encodedLabel ? decodeURIComponent(encodedLabel) : key;
+    currentDetailKelJabatanTitle = label;
+    currentDetailKelJabatanStatusFilter = 'ALL';
+
+    const categories = window._activeKelJabatanStats;
+    let list = [];
+
+    if (categories) {
+        if (key && key.startsWith('FUNGSIONAL:')) {
+            const sub = key.replace('FUNGSIONAL:', '');
+            list = (categories.FUNGSIONAL && categories.FUNGSIONAL.children && categories.FUNGSIONAL.children[sub]) 
+                ? (categories.FUNGSIONAL.children[sub].candidates || []) 
+                : [];
+        } else if (key && key.startsWith('LAINNYA:')) {
+            const other = key.replace('LAINNYA:', '');
+            list = (categories.LAINNYA && categories.LAINNYA[other]) 
+                ? (categories.LAINNYA[other].candidates || []) 
+                : [];
+        } else if (categories[key]) {
+            list = categories[key].stat ? (categories[key].stat.candidates || []) : [];
+        }
+    }
+
+    currentDetailKelJabatanList = list;
+
+    // Set judul modal
+    const titleEl = document.getElementById('detailKelJabatanTitle');
+    if (titleEl) titleEl.textContent = label;
+
+    // Reset input search
+    const searchInput = document.getElementById('inputSearchDetailKelJabatan');
+    if (searchInput) searchInput.value = '';
+
+    // Hitung badge counter
+    const total = list.length;
+    const hadir = list.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadir = list.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const belum = Math.max(0, total - hadir - tidakHadir);
+
+    const bTotal = document.getElementById('detailBadgeTotal');
+    const bHadir = document.getElementById('detailBadgeHadir');
+    const bTidakHadir = document.getElementById('detailBadgeTidakHadir');
+    const bBelum = document.getElementById('detailBadgeBelum');
+
+    if (bTotal) bTotal.textContent = total;
+    if (bHadir) bHadir.textContent = hadir;
+    if (bTidakHadir) bTidakHadir.textContent = tidakHadir;
+    if (bBelum) bBelum.textContent = belum;
+
+    window.setDetailKelJabatanStatusFilter('ALL');
+
+    const modal = document.getElementById('modalDetailKelompokJabatan');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    if (window.lucide) window.lucide.createIcons();
+};
+
+window.closeModalDetailKelompokJabatan = () => {
+    const modal = document.getElementById('modalDetailKelompokJabatan');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+window.setDetailKelJabatanStatusFilter = (status) => {
+    currentDetailKelJabatanStatusFilter = status;
+
+    const btnAll = document.getElementById('btnFilterDetailAll');
+    const btnHadir = document.getElementById('btnFilterDetailHadir');
+    const btnTidakHadir = document.getElementById('btnFilterDetailTidakHadir');
+    const btnBelum = document.getElementById('btnFilterDetailBelum');
+
+    const resetBtn = (btn) => {
+        if (!btn) return;
+        btn.classList.remove('bg-bkn-700', 'text-white', 'border-bkn-700', 'bg-emerald-700', 'bg-rose-700', 'bg-amber-700');
+        btn.classList.add('bg-white', 'border-slate-300');
+    };
+
+    resetBtn(btnAll);
+    resetBtn(btnHadir);
+    resetBtn(btnTidakHadir);
+    resetBtn(btnBelum);
+
+    if (status === 'ALL' && btnAll) {
+        btnAll.classList.add('bg-bkn-700', 'text-white', 'border-bkn-700');
+        btnAll.classList.remove('bg-white', 'border-slate-300');
+    } else if (status === 'HADIR' && btnHadir) {
+        btnHadir.classList.add('bg-emerald-700', 'text-white', 'border-emerald-700');
+        btnHadir.classList.remove('bg-white', 'border-slate-300');
+    } else if (status === 'TIDAK_HADIR' && btnTidakHadir) {
+        btnTidakHadir.classList.add('bg-rose-700', 'text-white', 'border-rose-700');
+        btnTidakHadir.classList.remove('bg-white', 'border-slate-300');
+    } else if (status === 'BELUM' && btnBelum) {
+        btnBelum.classList.add('bg-amber-700', 'text-white', 'border-amber-700');
+        btnBelum.classList.remove('bg-white', 'border-slate-300');
+    }
+
+    window.renderDetailKelJabatanTable();
+};
+
+window.renderDetailKelJabatanTable = () => {
+    const tbody = document.getElementById('tbodyDetailKelJabatan');
+    if (!tbody) return;
+
+    const searchInput = document.getElementById('inputSearchDetailKelJabatan');
+    const term = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    let list = currentDetailKelJabatanList;
+
+    // Filter status presensi
+    if (currentDetailKelJabatanStatusFilter === 'HADIR') {
+        list = list.filter(c => c.kehadiran === 'HADIR');
+    } else if (currentDetailKelJabatanStatusFilter === 'TIDAK_HADIR') {
+        list = list.filter(c => c.kehadiran === 'TIDAK_HADIR');
+    } else if (currentDetailKelJabatanStatusFilter === 'BELUM') {
+        list = list.filter(c => c.kehadiran !== 'HADIR' && c.kehadiran !== 'TIDAK_HADIR');
+    }
+
+    // Filter search NIP / Nama
+    if (term) {
+        list = list.filter(c => 
+            String(c.nip || '').toLowerCase().includes(term) ||
+            String(c.nama || '').toLowerCase().includes(term) ||
+            String(c.jabatan || '').toLowerCase().includes(term) ||
+            String(c.unitKerja || '').toLowerCase().includes(term)
+        );
+    }
+
+    const footerInfo = document.getElementById('detailKelJabatanFooterInfo');
+    if (footerInfo) footerInfo.textContent = `Menampilkan ${list.length} dari ${currentDetailKelJabatanList.length} peserta`;
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400 italic">Tidak ada peserta yang cocok dengan kriteria filter.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = list.map((c, idx) => {
+        const isHadir = c.kehadiran === 'HADIR';
+        const isTidakHadir = c.kehadiran === 'TIDAK_HADIR';
+
+        let badgeStatus = '';
+        if (isHadir) {
+            badgeStatus = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>HADIR</span>`;
+        } else if (isTidakHadir) {
+            badgeStatus = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>TIDAK HADIR</span>`;
+        } else {
+            badgeStatus = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>BELUM</span>`;
+        }
+
+        const sesiText = (c.sesi !== undefined && c.sesi !== null && c.sesi !== 'NULL') ? `Sesi ${c.sesi}` : '-';
+        const tglText = c.pelaksanaan || '-';
+
+        return `
+            <tr class="hover:bg-slate-50 transition">
+                <td class="p-2.5 text-center font-bold text-slate-400">${idx + 1}</td>
+                <td class="p-2.5 text-center">${badgeStatus}</td>
+                <td class="p-2.5 font-mono font-semibold text-slate-800 select-all">${c.nip || '-'}</td>
+                <td class="p-2.5 font-bold text-slate-900">${c.nama || '-'}</td>
+                <td class="p-2.5 text-slate-700">${c.jabatan || '-'}</td>
+                <td class="p-2.5 text-slate-600">${c.unitKerja || '-'}</td>
+                <td class="p-2.5 text-center text-[11px]">
+                    <span class="font-semibold text-slate-800 block">${tglText}</span>
+                    <span class="text-bkn-700 font-bold">${sesiText}</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+};
+
+window.copyDetailKelJabatanToClipboard = () => {
+    if (!currentDetailKelJabatanList || currentDetailKelJabatanList.length === 0) {
+        showToast("Tidak ada data untuk disalin.", "info");
+        return;
+    }
+
+    const header = ["No", "Status", "NIP", "Nama", "Jabatan", "Unit Kerja", "Tanggal", "Sesi"].join('\t');
+    const rows = currentDetailKelJabatanList.map((c, i) => [
+        i + 1,
+        c.kehadiran || 'BELUM PRESENSI',
+        `'${c.nip || ''}`,
+        c.nama || '',
+        c.jabatan || '',
+        c.unitKerja || '',
+        c.pelaksanaan || '',
+        c.sesi || ''
+    ].join('\t'));
+
+    const text = [header, ...rows].join('\n');
+    copyTextToClipboard(text, `Data ${currentDetailKelJabatanTitle} (${currentDetailKelJabatanList.length} peserta) berhasil disalin ke clipboard!`);
+};
+
+// =========================================================================
+// FITUR 2: MODUL AUDIT & SINKRONISASI PASCA UJIAN (CAT BKN)
+// =========================================================================
+
+let currentAuditResult = null;
+let selectedAuditNips = new Set();
+let auditCompareCategoryFilter = 'ALL';
+
+function setupAuditUI() {
+    window.updateAuditTabExamInfo = () => {
+        const badge = document.getElementById('auditActiveExamName');
+        if (badge) {
+            if (currentExam) {
+                badge.textContent = `Instansi Ujian Aktif: ${currentExam.instansi || currentExam.title}`;
+            } else {
+                badge.textContent = `Instansi Ujian: Belum Ada Ujian Aktif`;
+            }
+        }
+    };
+
+    window.handleAuditDrop = (e) => {
+        e.preventDefault();
+        const dropzone = document.getElementById('dropzoneAuditExcel');
+        if (dropzone) dropzone.classList.remove('border-bkn-600', 'bg-blue-50/40');
+
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            window.processAuditFile(e.dataTransfer.files[0]);
+        }
+    };
+
+    window.handleAuditFileInput = (e) => {
+        if (e.target && e.target.files && e.target.files.length > 0) {
+            window.processAuditFile(e.target.files[0]);
+        }
+    };
+
+    window.processAuditFile = async (file) => {
+        if (!currentExam) {
+            showToast("Harap pilih Instansi Ujian Aktif terlebih dahulu sebelum melakukan audit!", "error");
+            return;
+        }
+
+        const validExts = ['.xlsx', '.xls', '.csv'];
+        const isExtValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext));
+        if (!isExtValid) {
+            showToast("Format file tidak didukung. Harap upload file .xlsx, .xls, atau .csv!", "error");
+            return;
+        }
+
+        const dropzone = document.getElementById('dropzoneAuditExcel');
+        const loading = document.getElementById('auditLoadingState');
+        const resultPanel = document.getElementById('auditResultSummary');
+
+        if (dropzone) dropzone.classList.add('hidden');
+        if (loading) loading.classList.remove('hidden');
+        if (resultPanel) resultPanel.classList.add('hidden');
+
+        try {
+            const auditRows = await parseAuditExcel(file);
+            const comparison = compareAuditDataWithDatabase(auditRows, currentCandidates);
+            currentAuditResult = comparison;
+
+            // Default: pilih semua NIP yang memiliki perbedaan
+            selectedAuditNips = new Set(comparison.diffCandidates.map(d => String(d.nip).trim()));
+
+            // Update UI Ringkasan Hasil
+            const elTotal = document.getElementById('auditStatTotalExcel');
+            const elMatched = document.getElementById('auditStatMatched');
+            const elAutoHadir = document.getElementById('auditStatAutoHadir');
+            const elDiff = document.getElementById('auditStatDiffCount');
+            const elUnmatchedAlert = document.getElementById('auditUnmatchedAlert');
+            const elUnmatchedCount = document.getElementById('auditUnmatchedCount');
+
+            if (elTotal) elTotal.textContent = comparison.totalExcel;
+            if (elMatched) elMatched.textContent = comparison.matchedCount;
+            if (elAutoHadir) elAutoHadir.textContent = comparison.autoHadirCount;
+            if (elDiff) elDiff.textContent = comparison.diffCount;
+
+            if (elUnmatchedAlert && elUnmatchedCount) {
+                if (comparison.unmatchedCount > 0) {
+                    elUnmatchedCount.textContent = comparison.unmatchedCount;
+                    elUnmatchedAlert.classList.remove('hidden');
+                } else {
+                    elUnmatchedAlert.classList.add('hidden');
+                }
+            }
+
+            if (loading) loading.classList.add('hidden');
+            if (resultPanel) resultPanel.classList.remove('hidden');
+
+            if (window.lucide) window.lucide.createIcons();
+
+            if (comparison.diffCount === 0) {
+                showToast("Data hasil audit sudah 100% cocok dengan database! Tidak ada perbedaan yang perlu diubah.", "success");
+            } else {
+                showToast(`Analisis selesai: Terdeteksi ${comparison.diffCount} peserta dengan perbedaan data siap ditinjau.`, "info");
+                setTimeout(() => {
+                    window.openModalAuditCompare();
+                }, 300);
+            }
+        } catch (err) {
+            console.error("Error processing audit file:", err);
+            showToast("Gagal menganalisis file audit: " + err.message, "error");
+            if (loading) loading.classList.add('hidden');
+            if (dropzone) dropzone.classList.remove('hidden');
+        }
+    };
+
+    window.resetAuditUpload = () => {
+        currentAuditResult = null;
+        selectedAuditNips.clear();
+        const dropzone = document.getElementById('dropzoneAuditExcel');
+        const loading = document.getElementById('auditLoadingState');
+        const resultPanel = document.getElementById('auditResultSummary');
+        const fileInput = document.getElementById('inputAuditExcelFile');
+
+        if (fileInput) fileInput.value = '';
+        if (dropzone) dropzone.classList.remove('hidden');
+        if (loading) loading.classList.add('hidden');
+        if (resultPanel) resultPanel.classList.add('hidden');
+    };
+
+    window.openModalAuditCompare = () => {
+        if (!currentAuditResult || currentAuditResult.diffCandidates.length === 0) {
+            showToast("Tidak ada perbedaan data untuk ditampilkan.", "info");
+            return;
+        }
+
+        auditCompareCategoryFilter = 'ALL';
+        const searchInput = document.getElementById('inputSearchAuditCompare');
+        if (searchInput) searchInput.value = '';
+
+        const badgeTotal = document.getElementById('badgeAuditDiffTotal');
+        if (badgeTotal) badgeTotal.textContent = `${currentAuditResult.diffCount} Perbedaan`;
+
+        // Update kategori counter
+        const countAll = currentAuditResult.diffCandidates.length;
+        const countHadir = currentAuditResult.diffCandidates.filter(d => d.hasKehadiranChange).length;
+        const countSesi = currentAuditResult.diffCandidates.filter(d => d.hasSesiChange).length;
+        const countBio = currentAuditResult.diffCandidates.filter(d => d.changes.some(c => c.category === 'biodata' || c.category === 'waktu')).length;
+
+        const elAll = document.getElementById('countFilterCompareAll');
+        const elHadir = document.getElementById('countFilterCompareKehadiran');
+        const elSesi = document.getElementById('countFilterCompareSesi');
+        const elBio = document.getElementById('countFilterCompareBiodata');
+
+        if (elAll) elAll.textContent = countAll;
+        if (elHadir) elHadir.textContent = countHadir;
+        if (elSesi) elSesi.textContent = countSesi;
+        if (elBio) elBio.textContent = countBio;
+
+        window.setAuditCompareCategoryFilter('ALL');
+
+        const modal = document.getElementById('modalAuditCompare');
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        if (window.lucide) window.lucide.createIcons();
+    };
+
+    window.closeModalAuditCompare = () => {
+        const modal = document.getElementById('modalAuditCompare');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    };
+
+    window.setAuditCompareCategoryFilter = (category) => {
+        auditCompareCategoryFilter = category;
+
+        const btnAll = document.getElementById('btnFilterCompareAll');
+        const btnHadir = document.getElementById('btnFilterCompareKehadiran');
+        const btnSesi = document.getElementById('btnFilterCompareSesi');
+        const btnBio = document.getElementById('btnFilterCompareBiodata');
+
+        const resetBtn = (btn) => {
+            if (!btn) return;
+            btn.classList.remove('bg-bkn-700', 'text-white', 'bg-emerald-700', 'bg-indigo-700', 'bg-slate-800');
+            btn.classList.add('bg-white');
+        };
+
+        resetBtn(btnAll);
+        resetBtn(btnHadir);
+        resetBtn(btnSesi);
+        resetBtn(btnBio);
+
+        if (category === 'ALL' && btnAll) {
+            btnAll.classList.add('bg-bkn-700', 'text-white');
+            btnAll.classList.remove('bg-white');
+        } else if (category === 'kehadiran' && btnHadir) {
+            btnHadir.classList.add('bg-emerald-700', 'text-white');
+            btnHadir.classList.remove('bg-white');
+        } else if (category === 'sesi' && btnSesi) {
+            btnSesi.classList.add('bg-indigo-700', 'text-white');
+            btnSesi.classList.remove('bg-white');
+        } else if (category === 'biodata' && btnBio) {
+            btnBio.classList.add('bg-slate-800', 'text-white');
+            btnBio.classList.remove('bg-white');
+        }
+
+        window.renderAuditCompareTable();
+    };
+
+    window.toggleSelectAllAuditDifferences = (isChecked) => {
+        if (!currentAuditResult) return;
+        if (isChecked) {
+            currentAuditResult.diffCandidates.forEach(d => {
+                selectedAuditNips.add(String(d.nip).trim());
+            });
+        } else {
+            selectedAuditNips.clear();
+        }
+        window.renderAuditCompareTable();
+    };
+
+    window.toggleAuditItemCheck = (nip, isChecked) => {
+        const safeNip = String(nip).trim();
+        if (isChecked) {
+            selectedAuditNips.add(safeNip);
+        } else {
+            selectedAuditNips.delete(safeNip);
+        }
+        window.updateAuditSelectedCount();
+    };
+
+    window.updateAuditSelectedCount = () => {
+        const total = currentAuditResult ? currentAuditResult.diffCandidates.length : 0;
+        const selected = selectedAuditNips.size;
+
+        const checkAll = document.getElementById('checkAllAuditChanges');
+        if (checkAll) {
+            checkAll.checked = (selected === total && total > 0);
+            checkAll.indeterminate = (selected > 0 && selected < total);
+        }
+
+        const infoEl = document.getElementById('auditCompareSelectedInfo');
+        const btnCount = document.getElementById('btnApplySelectedCount');
+        const btnApply = document.getElementById('btnApplyAuditSelected');
+
+        if (infoEl) infoEl.textContent = `${selected} dari ${total} peserta dipilih untuk di-replace`;
+        if (btnCount) btnCount.textContent = selected;
+
+        if (btnApply) {
+            if (selected === 0) {
+                btnApply.disabled = true;
+                btnApply.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                btnApply.disabled = false;
+                btnApply.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+    };
+
+    window.renderAuditCompareTable = () => {
+        const tbody = document.getElementById('tbodyAuditCompareList');
+        if (!tbody || !currentAuditResult) return;
+
+        const searchInput = document.getElementById('inputSearchAuditCompare');
+        const term = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+        let list = currentAuditResult.diffCandidates;
+
+        // Filter kategori
+        if (auditCompareCategoryFilter === 'kehadiran') {
+            list = list.filter(d => d.hasKehadiranChange);
+        } else if (auditCompareCategoryFilter === 'sesi') {
+            list = list.filter(d => d.hasSesiChange);
+        } else if (auditCompareCategoryFilter === 'biodata') {
+            list = list.filter(d => d.changes.some(c => c.category === 'biodata' || c.category === 'waktu'));
+        }
+
+        // Filter search
+        if (term) {
+            list = list.filter(d => 
+                String(d.nip || '').toLowerCase().includes(term) ||
+                String(d.nama || '').toLowerCase().includes(term)
+            );
+        }
+
+        // Pastikan urutan selalu pegawai dengan jumlah perubahan data terbanyak berada paling atas
+        list.sort((a, b) => {
+            const countA = a.changes ? a.changes.length : 0;
+            const countB = b.changes ? b.changes.length : 0;
+            if (countB !== countA) return countB - countA;
+            return String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+        });
+
+        if (list.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400 italic">Tidak ada perubahan data yang cocok dengan kriteria filter.</td></tr>`;
+            window.updateAuditSelectedCount();
+            return;
+        }
+
+        tbody.innerHTML = list.map((item, idx) => {
+            const isChecked = selectedAuditNips.has(String(item.nip).trim());
+
+            // Build change summary rows
+            const changeRowsHtml = item.changes.map(ch => {
+                const isHadir = ch.field === 'kehadiran';
+                const isSesi = ch.field === 'sesi';
+
+                return `
+                    <div class="py-1.5 border-b border-slate-100 last:border-0 grid grid-cols-12 gap-2 items-center text-xs">
+                        <div class="col-span-3 font-bold text-slate-700 flex items-center gap-1.5">
+                            ${isHadir ? '<span class="w-2 h-2 rounded-full bg-emerald-500"></span>' : (isSesi ? '<span class="w-2 h-2 rounded-full bg-indigo-500"></span>' : '<span class="w-2 h-2 rounded-full bg-slate-400"></span>')}
+                            <span>${ch.label}</span>
+                        </div>
+                        <div class="col-span-3 text-rose-800 bg-rose-50/70 p-1 rounded font-medium line-through">
+                            ${ch.oldValue}
+                        </div>
+                        <div class="col-span-3 text-emerald-800 bg-emerald-50/70 p-1 rounded font-bold flex items-center gap-1">
+                            <i data-lucide="arrow-right" class="w-3 h-3 text-emerald-600 flex-shrink-0"></i>
+                            <span>${ch.newValue}</span>
+                        </div>
+                        <div class="col-span-3 text-[11px] text-slate-500 italic">
+                            ${ch.reason || '-'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <tr class="hover:bg-blue-50/20 transition ${isChecked ? 'bg-white' : 'bg-slate-50/50 opacity-60'}">
+                    <td class="p-3 text-center">
+                        <input type="checkbox" 
+                               class="audit-item-check rounded text-bkn-700 focus:ring-bkn-500 w-4 h-4 cursor-pointer"
+                               ${isChecked ? 'checked' : ''}
+                               onchange="window.toggleAuditItemCheck('${item.nip}', this.checked)">
+                    </td>
+                    <td class="p-3 text-center font-bold text-slate-400">${idx + 1}</td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="font-bold text-slate-900">${item.nama || '-'}</span>
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                ${item.changes ? item.changes.length : 0} Data Berbeda
+                            </span>
+                        </div>
+                        <div class="font-mono text-[11px] text-slate-500 mt-0.5">${item.nip || '-'}</div>
+                    </td>
+                    <td colspan="4" class="p-2">
+                        <div class="space-y-1">
+                            ${changeRowsHtml}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        window.updateAuditSelectedCount();
+        if (window.lucide) window.lucide.createIcons();
+    };
+
+    window.applySelectedAuditDifferencesToDatabase = async () => {
+        if (!currentExam) return;
+        if (!currentAuditResult || selectedAuditNips.size === 0) {
+            showToast("Pilih setidaknya 1 peserta untuk diperbarui!", "warning");
+            return;
+        }
+
+        const selectedDiffs = currentAuditResult.diffCandidates.filter(d => selectedAuditNips.has(String(d.nip).trim()));
+        if (selectedDiffs.length === 0) {
+            showToast("Tidak ada peserta terpilih.", "warning");
+            return;
+        }
+
+        const btnApply = document.getElementById('btnApplyAuditSelected');
+        if (btnApply) {
+            btnApply.disabled = true;
+            btnApply.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div> Menerapkan Perubahan...`;
+        }
+
+        try {
+            const updates = {};
+            let countKehadiranUpdated = 0;
+            let countSesiUpdated = 0;
+
+            selectedDiffs.forEach(item => {
+                const safeKey = String(item.nip).trim().replace(/[.#$[\]/]/g, '_');
+                const pathPrefix = `candidates/${currentExam.id}/${safeKey}/`;
+
+                // Update candidate lokal di memori
+                const candInMem = currentCandidates.find(c => String(c.nip).trim() === String(item.nip).trim());
+
+                item.changes.forEach(ch => {
+                    const rawVal = ch.rawNewValue !== undefined ? ch.rawNewValue : ch.newValue;
+                    updates[pathPrefix + ch.field] = rawVal;
+
+                    if (candInMem) {
+                        candInMem[ch.field] = rawVal;
+                    }
+
+                    if (ch.field === 'kehadiran') countKehadiranUpdated++;
+                    if (ch.field === 'sesi') countSesiUpdated++;
+                });
+
+                // Set status Terjadwal jika sesi valid
+                if (item.changes.some(c => c.field === 'sesi')) {
+                    updates[pathPrefix + 'status'] = 'Terjadwal';
+                    if (candInMem) candInMem.status = 'Terjadwal';
+                }
+
+                updates[pathPrefix + 'updatedAt'] = new Date().toISOString();
+                if (candInMem) candInMem.updatedAt = new Date().toISOString();
+            });
+
+            // 1. Simpan ke Firebase Realtime Database
+            if (isCloudActive()) {
+                await bulkUpdatePathsInCloud(updates);
+            }
+
+            // 2. Simpan juga ke IndexedDB lokal untuk backup offline
+            for (const item of selectedDiffs) {
+                const cand = currentCandidates.find(c => String(c.nip).trim() === String(item.nip).trim());
+                if (cand) {
+                    await db.saveCandidate(cand).catch(() => {});
+                }
+            }
+
+            // 3. Re-kalkulasi dan refresh seluruh tabel & statistik
+            applyCandidateFilters();
+            renderDashboardStats();
+            updateFloatingAttendanceBubble();
+
+            // 4. Tutup modal komparasi
+            window.closeModalAuditCompare();
+
+            // 5. Tampilkan notifikasi dan update panel hasil
+            showToast(`Sukses memperbarui ${selectedDiffs.length} data peserta! (${countKehadiranUpdated} presensi Hadir, ${countSesiUpdated} sesi disesuaikan)`, "success");
+
+            // Reset upload file agar siap untuk upload baru berikutnya
+            window.resetAuditUpload();
+
+        } catch (err) {
+            console.error("Gagal menerapkan perubahan audit:", err);
+            showToast("Gagal menerapkan perubahan: " + err.message, "error");
+        } finally {
+            if (btnApply) {
+                btnApply.disabled = false;
+                btnApply.innerHTML = `<i data-lucide="check-check" class="w-4 h-4"></i><span>Terapkan Perubahan Terpilih</span>`;
+                if (window.lucide) window.lucide.createIcons();
+            }
+        }
+    };
+}
+
