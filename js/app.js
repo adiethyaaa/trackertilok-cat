@@ -2335,9 +2335,17 @@ function updateFloatingAttendanceBubble() {
     const tidakHadir = filteredCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
     const belum = Math.max(0, total - hadir - tidakHadir);
 
-    const pctHadir = total > 0 ? ((hadir / total) * 100).toFixed(1) : '0';
-    const pctTidakHadir = total > 0 ? ((tidakHadir / total) * 100).toFixed(1) : '0';
-    const pctBelum = total > 0 ? ((belum / total) * 100).toFixed(1) : '0';
+    const formatCommaPct = (num) => {
+        return (num || 0).toFixed(2).replace('.', ',');
+    };
+
+    const numPctHadir = total > 0 ? ((hadir / total) * 100) : 0;
+    const numPctTidakHadir = total > 0 ? ((tidakHadir / total) * 100) : 0;
+    const numPctBelum = total > 0 ? ((belum / total) * 100) : 0;
+
+    const pctHadir = formatCommaPct(numPctHadir);
+    const pctTidakHadir = formatCommaPct(numPctTidakHadir);
+    const pctBelum = formatCommaPct(numPctBelum);
 
     const elHadir = document.getElementById('bubbleCountHadir');
     const elPctHadir = document.getElementById('bubblePctHadir');
@@ -2356,7 +2364,7 @@ function updateFloatingAttendanceBubble() {
     if (elBelum) elBelum.textContent = belum;
     if (elPctBelum) elPctBelum.textContent = `(${pctBelum}%)`;
     if (elTotal) elTotal.textContent = total;
-    if (elPctTotal) elPctTotal.textContent = total > 0 ? '(100%)' : '(0%)';
+    if (elPctTotal) elPctTotal.textContent = total > 0 ? '(100,00%)' : '(0,00%)';
     if (elMiniCount) elMiniCount.textContent = hadir;
 
     // Multi-segmented vertical bar (proporsi memanjang vertikal & lebih lebar)
@@ -2364,36 +2372,32 @@ function updateFloatingAttendanceBubble() {
     const barTidakHadir = document.getElementById('bubbleBarTidakHadir');
     const barBelum = document.getElementById('bubbleBarBelum');
 
-    const numPctHadir = parseFloat(pctHadir) || 0;
-    const numPctTidakHadir = parseFloat(pctTidakHadir) || 0;
-    const numPctBelum = parseFloat(pctBelum) || 0;
-
     if (barHadir) {
-        barHadir.style.height = `${pctHadir}%`;
+        barHadir.style.height = `${numPctHadir.toFixed(2)}%`;
         barHadir.title = `Hadir: ${hadir} (${pctHadir}%)`;
         const txt = barHadir.querySelector('.bubbleBarText');
         if (txt) {
-            txt.textContent = numPctHadir >= 12 ? `${Math.round(numPctHadir)}%` : '';
+            txt.textContent = numPctHadir >= 16 ? `${pctHadir}%` : (numPctHadir >= 8 ? `${numPctHadir.toFixed(1).replace('.', ',')}%` : '');
         }
     }
     if (barTidakHadir) {
-        barTidakHadir.style.height = `${pctTidakHadir}%`;
+        barTidakHadir.style.height = `${numPctTidakHadir.toFixed(2)}%`;
         barTidakHadir.title = `Tidak Hadir: ${tidakHadir} (${pctTidakHadir}%)`;
         const txt = barTidakHadir.querySelector('.bubbleBarText');
         if (txt) {
-            txt.textContent = numPctTidakHadir >= 12 ? `${Math.round(numPctTidakHadir)}%` : '';
+            txt.textContent = numPctTidakHadir >= 16 ? `${pctTidakHadir}%` : (numPctTidakHadir >= 8 ? `${numPctTidakHadir.toFixed(1).replace('.', ',')}%` : '');
         }
     }
     if (barBelum) {
-        barBelum.style.height = total === 0 ? '100%' : `${pctBelum}%`;
+        barBelum.style.height = total === 0 ? '100%' : `${numPctBelum.toFixed(2)}%`;
         barBelum.title = `Belum Presensi: ${belum} (${pctBelum}%)`;
         const txt = barBelum.querySelector('.bubbleBarText');
         if (txt) {
-            txt.textContent = total > 0 && numPctBelum >= 12 ? `${Math.round(numPctBelum)}%` : '';
+            txt.textContent = total > 0 && numPctBelum >= 16 ? `${pctBelum}%` : (total > 0 && numPctBelum >= 8 ? `${numPctBelum.toFixed(1).replace('.', ',')}%` : '');
         }
     }
 
-    // Micro-legend di bawah bar
+    // Micro-legend di bawah bar (2 angka di belakang koma)
     const legHadir = document.getElementById('bubbleLegendHadir');
     const legTidakHadir = document.getElementById('bubbleLegendTidakHadir');
     const legBelum = document.getElementById('bubbleLegendBelum');
@@ -5251,11 +5255,11 @@ function setupAuditUI() {
                 await bulkUpdatePathsInCloud(updates);
             }
 
-            // 2. Simpan juga ke IndexedDB lokal untuk backup offline
+            // 2. Simpan juga ke cache database jika diperlukan
             for (const item of selectedDiffs) {
                 const cand = currentCandidates.find(c => String(c.nip).trim() === String(item.nip).trim());
-                if (cand) {
-                    await db.saveCandidate(cand).catch(() => {});
+                if (cand && typeof db.updateCandidate === 'function') {
+                    await db.updateCandidate(cand).catch(() => {});
                 }
             }
 

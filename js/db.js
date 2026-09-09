@@ -69,6 +69,9 @@ export async function updateCandidate(candidate) {
     return await addOrUpdateCandidateCloud(candidate.examId, candidate);
 }
 
+// Alias saveCandidate untuk kompatibilitas
+export const saveCandidate = updateCandidate;
+
 export async function deleteCandidate(candidateId, examId = null) {
     if (examId) {
         return await deleteCandidateCloud(examId, candidateId);
