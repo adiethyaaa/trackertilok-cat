@@ -2337,6 +2337,7 @@ function updateFloatingAttendanceBubble() {
     const elBelum = document.getElementById('bubbleCountBelum');
     const elPctBelum = document.getElementById('bubblePctBelum');
     const elTotal = document.getElementById('bubbleCountTotal');
+    const elPctTotal = document.getElementById('bubblePctTotal');
     const elMiniCount = document.getElementById('bubbleMiniCount');
 
     if (elHadir) elHadir.textContent = hadir;
@@ -2346,24 +2347,51 @@ function updateFloatingAttendanceBubble() {
     if (elBelum) elBelum.textContent = belum;
     if (elPctBelum) elPctBelum.textContent = `(${pctBelum}%)`;
     if (elTotal) elTotal.textContent = total;
+    if (elPctTotal) elPctTotal.textContent = total > 0 ? '(100%)' : '(0%)';
     if (elMiniCount) elMiniCount.textContent = hadir;
 
-    // Multi-segmented bar
+    // Multi-segmented vertical bar (proporsi memanjang vertikal & lebih lebar)
     const barHadir = document.getElementById('bubbleBarHadir');
     const barTidakHadir = document.getElementById('bubbleBarTidakHadir');
     const barBelum = document.getElementById('bubbleBarBelum');
 
-    if (barHadir) barHadir.style.width = `${pctHadir}%`;
-    if (barTidakHadir) barTidakHadir.style.width = `${pctTidakHadir}%`;
-    if (barBelum) barBelum.style.width = `${pctBelum}%`;
+    const numPctHadir = parseFloat(pctHadir) || 0;
+    const numPctTidakHadir = parseFloat(pctTidakHadir) || 0;
+    const numPctBelum = parseFloat(pctBelum) || 0;
 
-    const lblHadir = document.getElementById('bubbleBarLabelHadir');
-    const lblTidakHadir = document.getElementById('bubbleBarLabelTidakHadir');
-    const lblBelum = document.getElementById('bubbleBarLabelBelum');
+    if (barHadir) {
+        barHadir.style.height = `${pctHadir}%`;
+        barHadir.title = `Hadir: ${hadir} (${pctHadir}%)`;
+        const txt = barHadir.querySelector('.bubbleBarText');
+        if (txt) {
+            txt.textContent = numPctHadir >= 12 ? `${Math.round(numPctHadir)}%` : '';
+        }
+    }
+    if (barTidakHadir) {
+        barTidakHadir.style.height = `${pctTidakHadir}%`;
+        barTidakHadir.title = `Tidak Hadir: ${tidakHadir} (${pctTidakHadir}%)`;
+        const txt = barTidakHadir.querySelector('.bubbleBarText');
+        if (txt) {
+            txt.textContent = numPctTidakHadir >= 12 ? `${Math.round(numPctTidakHadir)}%` : '';
+        }
+    }
+    if (barBelum) {
+        barBelum.style.height = total === 0 ? '100%' : `${pctBelum}%`;
+        barBelum.title = `Belum Presensi: ${belum} (${pctBelum}%)`;
+        const txt = barBelum.querySelector('.bubbleBarText');
+        if (txt) {
+            txt.textContent = total > 0 && numPctBelum >= 12 ? `${Math.round(numPctBelum)}%` : '';
+        }
+    }
 
-    if (lblHadir) lblHadir.textContent = `${Math.round(pctHadir)}% H`;
-    if (lblTidakHadir) lblTidakHadir.textContent = `${Math.round(pctTidakHadir)}% TH`;
-    if (lblBelum) lblBelum.textContent = `${Math.round(pctBelum)}% BP`;
+    // Micro-legend di bawah bar
+    const legHadir = document.getElementById('bubbleLegendHadir');
+    const legTidakHadir = document.getElementById('bubbleLegendTidakHadir');
+    const legBelum = document.getElementById('bubbleLegendBelum');
+
+    if (legHadir) legHadir.textContent = `${pctHadir}%`;
+    if (legTidakHadir) legTidakHadir.textContent = `${pctTidakHadir}%`;
+    if (legBelum) legBelum.textContent = `${pctBelum}%`;
 }
 window.updateFloatingAttendanceBubble = updateFloatingAttendanceBubble;
 
