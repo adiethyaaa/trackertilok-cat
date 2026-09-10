@@ -2655,14 +2655,14 @@ function getActionCellContent(cand) {
         const timeDetail = formatAttendanceTimeDetail(cand);
         const timeText = timeDetail ? ` pada ${timeDetail}` : '';
         const statusLabel = isHadir ? 'Kehadiran' : 'Ketidakhadiran';
-        const tooltipTitle = `Terverifikasi: ${statusLabel} sudah tercatat ${timeText}.`;
+        const tooltipTitle = `Terverifikasi: ${statusLabel} tercatat${timeText}.`;
 
         return `
-            <span class="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs select-none cursor-help" title="${tooltipTitle}">
-                <svg class="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <span class="inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-full text-[8.5px] font-extrabold tracking-tighter leading-none bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs select-none cursor-help whitespace-nowrap" title="${tooltipTitle}">
+                <svg class="w-2.5 h-2.5 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                 </svg>
-                <span>Verified</span>
+                <span>VRFD</span>
             </span>
         `;
     }
