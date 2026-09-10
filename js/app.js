@@ -309,14 +309,29 @@ async function setActiveExam(examId) {
                 activeCandidatesUnsubscribe();
                 activeCandidatesUnsubscribe = null;
             }
+            let cloudSyncDebounceTimer = null;
             activeCandidatesUnsubscribe = listenCandidatesCloud(currentExam.id, (cloudCandidates) => {
                 if (cloudCandidates) {
+                    const prevCount = currentCandidates ? currentCandidates.length : 0;
                     currentCandidates = cloudCandidates;
-                    renderDashboardStats();
-                    populatePelaksanaanFilterDropdown();
-                    populateSesiFilterDropdown(currentDateFilter || 'ALL');
-                    populateKelJabatanFilterDropdown();
-                    applyCandidateFilters();
+
+                    // Jika jumlah peserta berubah (tambah/hapus): perbarui dropdown dan tabel penuh
+                    if (cloudCandidates.length !== prevCount) {
+                        populatePelaksanaanFilterDropdown();
+                        populateSesiFilterDropdown(currentDateFilter || 'ALL');
+                        populateKelJabatanFilterDropdown();
+                        renderDashboardStats();
+                        applyCandidateFilters();
+                        return;
+                    }
+
+                    // Jika hanya perubahan status presensi: sinkronkan sel yang terlihat tanpa merender ulang seluruh DOM
+                    updateVisibleAttendanceCells();
+                    clearTimeout(cloudSyncDebounceTimer);
+                    cloudSyncDebounceTimer = setTimeout(() => {
+                        updateFloatingAttendanceBubble();
+                        renderDashboardStats();
+                    }, 250);
                 }
             });
         }
@@ -747,8 +762,8 @@ function renderDashboardStats() {
         if (total === 0) {
             kelJabatanContainer.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">Belum ada data peserta untuk ujian/tanggal ini.</p>`;
         } else {
-            // Struktur penampung statistik (menyimpan juga daftar kandidat per kategori)
-            const createStatHolder = () => ({ hadir: 0, tidakHadir: 0, belum: 0, total: 0, candidates: [] });
+            // Struktur penampung statistik (menyimpan NIP kandidat per kategori untuk efisiensi memori)
+            const createStatHolder = () => ({ hadir: 0, tidakHadir: 0, belum: 0, total: 0, candidateNips: [] });
             const categories = {
                 JPT_PRATAMA: { label: 'JPT Pratama', stat: createStatHolder() },
                 ADMINISTRATOR: { label: 'Administrator', stat: createStatHolder() },
@@ -782,7 +797,8 @@ function renderDashboardStats() {
                     else if (att === 'TIDAK_HADIR') statObj.tidakHadir++;
                     else statObj.belum++;
                     statObj.total++;
-                    statObj.candidates.push(c);
+                    const nipStr = String(c.nip || c.id || '').trim();
+                    if (nipStr) statObj.candidateNips.push(nipStr);
                 };
 
                 if (cls.category === 'FUNGSIONAL') {
@@ -1336,27 +1352,109 @@ async function handleSelectedExcelFile(file) {
             return;
         }
 
-        // Untuk mode SYSTEM atau upload normal pertama kali: lakukan analisis duplikasi
-        const dupAnalysis = analyzeDuplicates(parseResult.candidates, existingCandidates);
+        // De-duplikasi internal file Excel (jika ada NIP yang berulang dalam file Excel yang diunggah)
+        const seenNipsInExcel = new Set();
+        const distinctExcelCandidates = [];
+        parseResult.candidates.forEach(c => {
+            const cleanNip = String(c.nip || '').replace(/['"`\s]/g, '').trim();
+            if (cleanNip && !seenNipsInExcel.has(cleanNip)) {
+                seenNipsInExcel.add(cleanNip);
+                distinctExcelCandidates.push(c);
+            }
+        });
 
-        if (dupAnalysis.hasDuplicates) {
-            // Tampilkan pop-up modal konfirmasi duplikasi
-            openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult);
-            showToast(`Ditemukan ${dupAnalysis.totalDuplicateNips} NIP duplikat. Silakan tentukan data pada pop-up konfirmasi.`, "warning");
+        // JIKA DATABASE SUDAH MEMILIKI DATA PESERTA:
+        // Otomatis pisahkan peserta baru dan peserta yang sudah terdaftar
+        if (existingCandidates && existingCandidates.length > 0) {
+            const existingNipSet = new Set(
+                existingCandidates.map(c => String(c.nip || '').replace(/['"`\s]/g, '').trim())
+            );
+
+            const newCandidates = [];
+            const alreadyExistingCandidates = [];
+
+            distinctExcelCandidates.forEach(c => {
+                const cleanNip = String(c.nip || '').replace(/['"`\s]/g, '').trim();
+                if (existingNipSet.has(cleanNip)) {
+                    alreadyExistingCandidates.push(c);
+                } else {
+                    newCandidates.push(c);
+                }
+            });
+
+            // Beri nomor urut ulang dan penanda peserta baru
+            newCandidates.forEach((c, idx) => {
+                c.no = idx + 1;
+                c.isNewCandidate = true;
+            });
+
+            alreadyExistingCandidates.forEach((c, idx) => {
+                c.no = idx + 1;
+                c.isNewCandidate = false;
+            });
+
+            previewParsedData = {
+                examId: targetExamId,
+                candidates: newCandidates, // Tampilkan HANYA peserta baru sesuai permintaan user!
+                newCandidates: newCandidates,
+                alreadyExistingCandidates: alreadyExistingCandidates,
+                allExcelCandidates: distinctExcelCandidates,
+                isOnlyNewParticipants: true,
+                existingCount: alreadyExistingCandidates.length,
+                totalExcelRows: distinctExcelCandidates.length,
+                summary: {
+                    totalRows: newCandidates.length,
+                    newCount: newCandidates.length,
+                    existingCount: alreadyExistingCandidates.length,
+                    skippedRows: parseResult.summary.skippedRows,
+                    sesi1: newCandidates.filter(c => Number(c.sesi) === 1).length,
+                    sesi2: newCandidates.filter(c => Number(c.sesi) === 2).length,
+                    sesi3: newCandidates.filter(c => Number(c.sesi) === 3).length,
+                    nullScheduleRows: newCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
+                    fridayRows: newCandidates.filter(c => c.isFriday).length
+                }
+            };
+
+            renderExcelPreview(previewParsedData);
+
+            if (newCandidates.length > 0) {
+                showToast(`Ditemukan ${newCandidates.length} peserta baru (${alreadyExistingCandidates.length} peserta lama di database otomatis dilewati).`, "success");
+            } else {
+                showToast(`Tidak ada peserta baru. Seluruh ${alreadyExistingCandidates.length} peserta di file Excel ini sudah terdaftar di database.`, "info");
+            }
             return;
         }
 
-        // Jika tidak ada duplikasi sama sekali, langsung ke preview
+        // JIKA DATABASE MASIH KOSONG (Upload awal):
+        distinctExcelCandidates.forEach((c, idx) => {
+            c.no = idx + 1;
+            c.isNewCandidate = true;
+        });
+
         previewParsedData = {
             examId: targetExamId,
-            candidates: parseResult.candidates,
-            summary: parseResult.summary,
-            nipsToReplace: [],
-            isMergedUpdate: false
+            candidates: distinctExcelCandidates,
+            allExcelCandidates: distinctExcelCandidates,
+            newCandidates: distinctExcelCandidates,
+            alreadyExistingCandidates: [],
+            isOnlyNewParticipants: false,
+            existingCount: 0,
+            totalExcelRows: distinctExcelCandidates.length,
+            summary: {
+                totalRows: distinctExcelCandidates.length,
+                newCount: distinctExcelCandidates.length,
+                existingCount: 0,
+                skippedRows: parseResult.summary.skippedRows,
+                sesi1: distinctExcelCandidates.filter(c => Number(c.sesi) === 1).length,
+                sesi2: distinctExcelCandidates.filter(c => Number(c.sesi) === 2).length,
+                sesi3: distinctExcelCandidates.filter(c => Number(c.sesi) === 3).length,
+                nullScheduleRows: distinctExcelCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
+                fridayRows: distinctExcelCandidates.filter(c => c.isFriday).length
+            }
         };
 
-        renderExcelPreview(parseResult);
-        showToast(`Berhasil membaca ${parseResult.candidates.length} baris peserta (${parseResult.summary.skippedRows} baris kosong/tidak lengkap dilewati)!`, "success");
+        renderExcelPreview(previewParsedData);
+        showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta baru!`, "success");
 
     } catch (err) {
         console.error("Gagal membaca Excel:", err);
@@ -1395,55 +1493,262 @@ function openModalDuplicateResolution(dupAnalysis, targetExamId, parseResult) {
 }
 
 /**
- * Otomatis pilih baris pertama untuk setiap NIP
+ * Render Kartu Komparasi dan Checkbox Duplikasi Data Peserta (Default: Semua Dicentang)
  */
-window.autoSelectFirstExcelDuplicates = () => {
-    const seenNips = new Set();
-    document.querySelectorAll('.dup-checkbox').forEach(cb => {
-        const nip = cb.getAttribute('data-nip');
-        const type = cb.getAttribute('data-type');
+function renderDuplicateGroupsInModal(dupAnalysis) {
+    const container = document.getElementById('containerDuplicateGroups');
+    if (!container) return;
 
-        if (type === 'internal') {
-            if (!seenNips.has(nip)) {
-                cb.checked = true;
-                seenNips.add(nip);
-            } else {
-                cb.checked = false;
-            }
-        } else if (type === 'keep-db') {
-            // Default keep data DB
-            cb.checked = true;
-        } else if (type === 'existing') {
-            // Incoming default false
+    let html = '';
+
+    // 1. DUPLIKAT DENGAN DATABASE EKSISTING (Peserta yang sudah terdaftar di database)
+    if (dupAnalysis.existingDuplicates && dupAnalysis.existingDuplicates.length > 0) {
+        html += `
+            <div class="space-y-2">
+                <div class="flex items-center justify-between px-1">
+                    <span class="text-xs font-bold text-rose-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <i data-lucide="database" class="w-4 h-4 text-rose-600"></i>
+                        Data Sudah Ada di Database (${dupAnalysis.existingDuplicates.length} Peserta)
+                    </span>
+                    <span class="text-[11px] text-slate-500 italic">Default: dicentang untuk mengganti data lama dengan data baru</span>
+                </div>
+                <div class="space-y-2.5">
+        `;
+
+        dupAnalysis.existingDuplicates.forEach((group, gIdx) => {
+            const dbItem = group.existingItem;
+            const incomingItem = group.incomingItems && group.incomingItems[0] ? group.incomingItems[0] : null;
+
+            html += `
+                <div class="bg-white border-2 border-rose-100 hover:border-rose-200 rounded-xl p-3 shadow-2xs transition">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-2 mb-2.5 border-b border-slate-100 gap-1.5">
+                        <div class="flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">
+                                ${gIdx + 1}
+                            </span>
+                            <div>
+                                <span class="font-bold text-slate-900 text-sm">${group.nama || dbItem.nama}</span>
+                                <span class="font-mono text-xs text-slate-500 ml-2">NIP: ${group.nip}</span>
+                            </div>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 w-fit">
+                            NIP Ganda di Database
+                        </span>
+                    </div>
+
+                    <!-- Grid Komparasi: Data Database Saat Ini vs Data Excel Baru -->
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">
+                        <!-- Kolom Data Lama Database -->
+                        <div class="md:col-span-6 bg-slate-50/80 border border-slate-200 rounded-lg p-2.5">
+                            <div class="font-bold text-slate-700 text-[11px] uppercase mb-1.5 flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                                Data Database Saat Ini (Lama)
+                            </div>
+                            <div class="space-y-1 text-slate-600 text-[11px]">
+                                <div><span class="text-slate-400">Kel. Jabatan:</span> <strong class="text-slate-700">${dbItem.kelJabatan || '-'}</strong></div>
+                                <div><span class="text-slate-400">Jabatan:</span> ${dbItem.jabatan || '-'}</div>
+                                <div><span class="text-slate-400">Unit Kerja:</span> ${dbItem.unitKerja || '-'}</div>
+                                <div><span class="text-slate-400">Sesi:</span> <strong class="text-indigo-700">${dbItem.sesi ? `Sesi ${dbItem.sesi}` : 'NULL'}</strong> | <span class="text-slate-400">Status:</span> <span class="font-bold ${dbItem.kehadiran === 'HADIR' ? 'text-emerald-700' : 'text-slate-600'}">${dbItem.kehadiran || 'BELUM'}</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Kolom Data Baru Excel (DEFAULT: CHECKED ALL) -->
+                        <div class="md:col-span-6 bg-blue-50/70 border border-blue-200 rounded-lg p-2.5 flex flex-col justify-between">
+                            <div>
+                                <div class="font-bold text-blue-900 text-[11px] uppercase mb-1.5 flex items-center justify-between">
+                                    <span class="flex items-center gap-1">
+                                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                        Data Baru dari File Excel
+                                    </span>
+                                    <span class="text-[10px] text-blue-600 font-semibold lowercase">(${incomingItem.duplicateSource || 'Excel Baru'})</span>
+                                </div>
+                                <div class="space-y-1 text-slate-700 text-[11px]">
+                                    <div><span class="text-slate-400">Kel. Jabatan:</span> <strong class="text-blue-900">${incomingItem.kelJabatan || '-'}</strong></div>
+                                    <div><span class="text-slate-400">Jabatan:</span> ${incomingItem.jabatan || '-'}</div>
+                                    <div><span class="text-slate-400">Unit Kerja:</span> ${incomingItem.unitKerja || '-'}</div>
+                                    <div><span class="text-slate-400">Sesi:</span> <strong class="text-indigo-800">${incomingItem.sesi ? `Sesi ${incomingItem.sesi}` : 'NULL'}</strong> ${incomingItem.pelaksanaan ? `(${incomingItem.pelaksanaan})` : ''}</div>
+                                </div>
+                            </div>
+
+                            <!-- Checkbox Ganti Data (DEFAULT: CHECKED) -->
+                            <div class="mt-2.5 pt-2 border-t border-blue-200/80">
+                                <label class="flex items-center space-x-2 cursor-pointer select-none">
+                                    <input type="checkbox" 
+                                           class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
+                                           data-nip="${group.nip}" 
+                                           data-key="${incomingItem.uniqueKey}" 
+                                           data-type="existing" 
+                                           checked 
+                                           onchange="updateDuplicateSelectedCount()">
+                                    <span class="font-bold text-xs text-blue-950">Ganti data database dengan data Excel baru ini</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
+    // 2. DUPLIKAT INTERNAL EXCEL (NIP muncul > 1 kali di dalam file Excel yang sama)
+    if (dupAnalysis.internalDuplicates && dupAnalysis.internalDuplicates.length > 0) {
+        html += `
+            <div class="space-y-2 pt-3 border-t border-slate-200">
+                <div class="flex items-center justify-between px-1">
+                    <span class="text-xs font-bold text-blue-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <i data-lucide="copy" class="w-4 h-4 text-blue-600"></i>
+                        Duplikasi Internal di File Excel (${dupAnalysis.internalDuplicates.length} Peserta)
+                    </span>
+                    <span class="text-[11px] text-slate-500 italic">Pilih 1 baris yang ingin dimasukkan ke database</span>
+                </div>
+                <div class="space-y-2.5">
+        `;
+
+        dupAnalysis.internalDuplicates.forEach((group, gIdx) => {
+            html += `
+                <div class="bg-white border-2 border-blue-100 hover:border-blue-200 rounded-xl p-3 shadow-2xs transition">
+                    <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                        <div class="flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">
+                                ${gIdx + 1}
+                            </span>
+                            <div>
+                                <span class="font-bold text-slate-900 text-sm">${group.nama}</span>
+                                <span class="font-mono text-xs text-slate-500 ml-2">NIP: ${group.nip}</span>
+                            </div>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Muncul ${group.count} Kali di Excel
+                        </span>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        ${group.items.map((item, idx) => `
+                            <label class="flex items-center justify-between p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs">
+                                <div class="flex items-center space-x-2.5">
+                                    <input type="checkbox" 
+                                           class="dup-checkbox w-4 h-4 text-bkn-600 rounded cursor-pointer" 
+                                           data-nip="${group.nip}" 
+                                           data-key="${item.uniqueKey}" 
+                                           data-type="internal" 
+                                           ${idx === 0 ? 'checked' : ''} 
+                                           onchange="handleInternalDuplicateSingleCheck(this); updateDuplicateSelectedCount();">
+                                    <div>
+                                        <span class="font-bold text-slate-800">${item.duplicateSource}</span>:
+                                        <span class="text-slate-600 ml-1">${item.kelJabatan || '-'} | Sesi ${item.sesi || 'NULL'} | ${item.jabatan || '-'}</span>
+                                    </div>
+                                </div>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+    if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * Hitung jumlah item duplikat yang dipilih dan update status tombol & checkbox ALL
+ */
+function updateDuplicateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.dup-checkbox');
+    const checkedBoxes = document.querySelectorAll('.dup-checkbox:checked');
+    const totalCount = checkboxes.length;
+    const checkedCount = checkedBoxes.length;
+
+    const labelCount = document.getElementById('labelSelectedDuplicateCount');
+    if (labelCount) {
+        labelCount.textContent = checkedCount;
+    }
+
+    const checkAll = document.getElementById('checkSelectAllDuplicates');
+    if (checkAll) {
+        checkAll.checked = (checkedCount === totalCount && totalCount > 0);
+        checkAll.indeterminate = (checkedCount > 0 && checkedCount < totalCount);
+    }
+
+    const btnApply = document.getElementById('btnApplyDuplicates');
+    if (btnApply) {
+        const hasClean = activeDuplicateState && activeDuplicateState.dupAnalysis && activeDuplicateState.dupAnalysis.cleanCandidates.length > 0;
+        if (checkedCount === 0 && !hasClean) {
+            btnApply.disabled = true;
+            btnApply.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            btnApply.disabled = false;
+            btnApply.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+}
+window.updateDuplicateSelectedCount = updateDuplicateSelectedCount;
+
+/**
+ * Memastikan hanya 1 baris yang dipilih untuk duplikasi internal NIP yang sama
+ */
+window.handleInternalDuplicateSingleCheck = (currentCheckbox) => {
+    if (!currentCheckbox.checked) return;
+    const nip = currentCheckbox.getAttribute('data-nip');
+    document.querySelectorAll(`.dup-checkbox[data-type="internal"][data-nip="${nip}"]`).forEach(cb => {
+        if (cb !== currentCheckbox) {
             cb.checked = false;
         }
     });
-    updateDuplicateSelectedCount();
-    showToast("Dipilih: Hanya baris pertama tiap NIP.", "info");
 };
 
 /**
- * Ganti Data Database dengan File Excel Baru
+ * Toggle Centang / Uncheck Semua
  */
-window.autoSelectLatestExcelDuplicates = () => {
-    const seenNips = new Set();
+window.toggleSelectAllDuplicates = (isChecked) => {
+    const seenInternalNips = new Set();
     document.querySelectorAll('.dup-checkbox').forEach(cb => {
-        const nip = cb.getAttribute('data-nip');
         const type = cb.getAttribute('data-type');
-        
-        if (type === 'keep-db') {
-            cb.checked = false;
-        } else if (type === 'existing' || type === 'internal') {
-            if (!seenNips.has(nip)) {
-                cb.checked = true;
-                seenNips.add(nip);
+        const nip = cb.getAttribute('data-nip');
+
+        if (type === 'internal') {
+            if (isChecked) {
+                if (!seenInternalNips.has(nip)) {
+                    cb.checked = true;
+                    seenInternalNips.add(nip);
+                } else {
+                    cb.checked = false;
+                }
             } else {
                 cb.checked = false;
             }
+        } else {
+            cb.checked = isChecked;
         }
     });
     updateDuplicateSelectedCount();
-    showToast("Dipilih: Versi terbaru dari file Excel untuk menggantikan data lama.", "info");
+};
+
+/**
+ * Otomatis pilih baris pertama untuk setiap NIP internal
+ */
+window.autoSelectFirstDuplicates = () => {
+    window.toggleSelectAllDuplicates(true);
+    showToast("Semua data baru dicentang untuk menggantikan data lama.", "info");
+};
+window.autoSelectFirstExcelDuplicates = window.autoSelectFirstDuplicates;
+
+/**
+ * Ganti Data Database dengan File Excel Baru (Centang Semua)
+ */
+window.autoSelectLatestExcelDuplicates = () => {
+    window.toggleSelectAllDuplicates(true);
+    showToast("Semua data baru dicentang untuk menggantikan data lama.", "info");
 };
 
 /**
@@ -1541,43 +1846,155 @@ window.applyDuplicateResolutionAndProceed = () => {
 function renderExcelPreview(result) {
     const previewCard = document.getElementById('previewCard');
     const summaryContainer = document.getElementById('previewSummaryContainer');
-    const tbody = document.getElementById('tbodyExcelPreview');
+    const noticeContainer = document.getElementById('previewNoticeContainer');
+    const btnSave = document.getElementById('btnSaveExcelToDB');
 
-    if (!previewCard || !tbody) return;
+    if (!previewCard) return;
 
     previewCard.classList.remove('hidden');
 
     const s = result.summary;
+
+    // 1. Render Summary Badges
     if (summaryContainer) {
-        summaryContainer.innerHTML = `
-            <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                <div class="text-[10px] uppercase font-bold text-blue-700">Total Terbaca</div>
-                <div class="text-xl font-bold text-blue-900 mt-0.5">${s.totalRows} Peserta</div>
-            </div>
-            ${s.nullScheduleRows && s.nullScheduleRows > 0 ? `
+        if (result.isOnlyNewParticipants) {
+            summaryContainer.innerHTML = `
+                <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                    <div class="text-[10px] uppercase font-bold text-emerald-700">Peserta Baru Ditemukan</div>
+                    <div class="text-xl font-bold text-emerald-900 mt-0.5">${result.newCandidates ? result.newCandidates.length : s.totalRows} Peserta</div>
+                </div>
                 <div class="bg-slate-100 p-3 rounded-lg border border-slate-200">
-                    <div class="text-[10px] uppercase font-bold text-slate-600">Belum Terjadwal (NULL)</div>
-                    <div class="text-xl font-bold text-slate-800 mt-0.5">${s.nullScheduleRows} Peserta</div>
+                    <div class="text-[10px] uppercase font-bold text-slate-600">Sudah Ada di Database</div>
+                    <div class="text-xl font-bold text-slate-800 mt-0.5">${result.existingCount || 0} Peserta</div>
                 </div>
-            ` : `
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <div class="text-[10px] uppercase font-bold text-blue-700">Total Baris File Excel</div>
+                    <div class="text-xl font-bold text-blue-900 mt-0.5">${result.totalExcelRows || s.totalRows} Baris</div>
+                </div>
                 <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
-                    <div class="text-[10px] uppercase font-bold text-indigo-700">Sesi 1 (08.00-11.00)</div>
-                    <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.sesi1} Orang</div>
+                    <div class="text-[10px] uppercase font-bold text-indigo-700">Status Tampilan</div>
+                    <div class="text-sm font-bold text-indigo-900 mt-1">Hanya Peserta Baru</div>
                 </div>
-            `}
-            <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 relative">
-                ${s.fridayRows > 0 ? '<span class="absolute top-2 right-2 text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.2 rounded">JUMAT DETECTED</span>' : ''}
-                <div class="text-[10px] uppercase font-bold text-amber-700">Sesi 2 (11.00 / Jumat 13.00)</div>
-                <div class="text-xl font-bold text-amber-900 mt-0.5">${s.sesi2} Orang</div>
-            </div>
-            <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
-                <div class="text-[10px] uppercase font-bold text-emerald-700">Sesi 3 (14.00-17.00)</div>
-                <div class="text-xl font-bold text-emerald-900 mt-0.5">${s.sesi3} Orang</div>
-            </div>
-        `;
+            `;
+        } else {
+            summaryContainer.innerHTML = `
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <div class="text-[10px] uppercase font-bold text-blue-700">Total Terbaca</div>
+                    <div class="text-xl font-bold text-blue-900 mt-0.5">${s.totalRows} Peserta</div>
+                </div>
+                ${s.nullScheduleRows && s.nullScheduleRows > 0 ? `
+                    <div class="bg-slate-100 p-3 rounded-lg border border-slate-200">
+                        <div class="text-[10px] uppercase font-bold text-slate-600">Belum Terjadwal (NULL)</div>
+                        <div class="text-xl font-bold text-slate-800 mt-0.5">${s.nullScheduleRows} Peserta</div>
+                    </div>
+                ` : `
+                    <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                        <div class="text-[10px] uppercase font-bold text-indigo-700">Sesi 1 (08.00-11.00)</div>
+                        <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.sesi1} Orang</div>
+                    </div>
+                `}
+                <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 relative">
+                    ${s.fridayRows > 0 ? '<span class="absolute top-2 right-2 text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.2 rounded">JUMAT DETECTED</span>' : ''}
+                    <div class="text-[10px] uppercase font-bold text-amber-700">Sesi 2 (11.00 / Jumat 13.00)</div>
+                    <div class="text-xl font-bold text-amber-900 mt-0.5">${s.sesi2} Orang</div>
+                </div>
+                <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                    <div class="text-[10px] uppercase font-bold text-emerald-700">Sesi 3 (14.00-17.00)</div>
+                    <div class="text-xl font-bold text-emerald-900 mt-0.5">${s.sesi3} Orang</div>
+                </div>
+            `;
+        }
     }
 
-    const previewList = result.candidates.slice(0, 25);
+    // 2. Render Notice Banner & Toggle Buttons
+    if (noticeContainer) {
+        if (result.isOnlyNewParticipants) {
+            const newCount = result.newCandidates ? result.newCandidates.length : 0;
+            if (newCount > 0) {
+                noticeContainer.innerHTML = `
+                    <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div class="flex items-start sm:items-center space-x-2.5 text-emerald-950">
+                            <div class="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
+                                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <span class="font-bold text-sm block sm:inline">Ditemukan ${newCount} Peserta Baru!</span>
+                                <span class="text-emerald-800 ml-0 sm:ml-1">Tabel di bawah otomatis hanya menampilkan baris peserta baru. Data ${result.existingCount} peserta yang sudah ada di database dilewati agar tidak terganggu.</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-1.5 self-end sm:self-center flex-shrink-0">
+                            <button type="button" id="btnPreviewFilterNew" onclick="switchPreviewCandidateView('new')" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-700 text-white shadow-sm transition">
+                                Peserta Baru (${newCount})
+                            </button>
+                            <button type="button" id="btnPreviewFilterAll" onclick="switchPreviewCandidateView('all')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition">
+                                Semua di Excel (${result.totalExcelRows})
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                noticeContainer.innerHTML = `
+                    <div class="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center space-x-3 text-xs text-amber-900">
+                        <div class="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="info" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <span class="font-bold text-sm block">Tidak Ada Peserta Baru</span>
+                            <span class="text-amber-800">Seluruh <strong>${result.existingCount} peserta</strong> di dalam file Excel ini sudah terdaftar di database. Tidak ada peserta baru yang perlu ditambahkan.</span>
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            noticeContainer.innerHTML = '';
+        }
+    }
+
+    // 3. Render Table Rows (Default: hanya peserta baru jika mode isOnlyNewParticipants)
+    renderPreviewTableRows(result.candidates, false);
+
+    // 4. Update Tombol Simpan
+    if (btnSave) {
+        if (result.isOnlyNewParticipants) {
+            const newCount = result.newCandidates ? result.newCandidates.length : 0;
+            if (newCount > 0) {
+                btnSave.disabled = false;
+                btnSave.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnSave.innerHTML = `<i data-lucide="user-plus" class="w-4 h-4 mr-1 inline"></i><span>Simpan ${newCount} Peserta Baru ke Database</span>`;
+            } else {
+                btnSave.disabled = true;
+                btnSave.classList.add('opacity-50', 'cursor-not-allowed');
+                btnSave.innerHTML = `<i data-lucide="check" class="w-4 h-4 mr-1 inline"></i><span>Semua Sudah Terdaftar di Database</span>`;
+            }
+        } else {
+            btnSave.disabled = false;
+            btnSave.classList.remove('opacity-50', 'cursor-not-allowed');
+            btnSave.innerHTML = `<i data-lucide="database" class="w-4 h-4 mr-1 inline"></i><span>Simpan ke Database</span>`;
+        }
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * Render Baris Tabel Preview Excel
+ */
+function renderPreviewTableRows(list, isShowingAll = false) {
+    const tbody = document.getElementById('tbodyExcelPreview');
+    if (!tbody) return;
+
+    if (!list || list.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="p-8 text-center text-slate-500 font-medium italic">
+                    Tidak ada peserta baru yang ditemukan dari file ini (seluruh peserta sudah ada di database).
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    const previewList = list.slice(0, 100);
     tbody.innerHTML = previewList.map((c, idx) => {
         const isNullSchedule = !c.pelaksanaan || c.pelaksanaan === 'NULL' || !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0;
         const isFri = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
@@ -1585,8 +2002,17 @@ function renderExcelPreview(result) {
         return `
             <tr class="${isFri ? 'bg-amber-50/60 font-medium' : 'hover:bg-slate-50'}">
                 <td class="p-2.5 text-center text-slate-500">${c.no || (idx + 1)}</td>
-                <td class="p-2.5 font-mono text-slate-900">${c.nip}</td>
-                <td class="p-2.5 font-semibold text-slate-900">${c.nama}</td>
+                <td class="p-2.5 font-mono text-slate-900 whitespace-nowrap">${c.nip}</td>
+                <td class="p-2.5 font-semibold text-slate-900">
+                    <div class="flex items-center space-x-1.5">
+                        <span>${c.nama}</span>
+                        ${c.isNewCandidate ? `
+                            <span class="inline-flex items-center px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded border border-emerald-200">BARU</span>
+                        ` : (isShowingAll ? `
+                            <span class="inline-flex items-center px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] font-medium rounded border border-slate-200">SUDAH ADA</span>
+                        ` : '')}
+                    </div>
+                </td>
                 <td class="p-2.5 font-medium text-blue-700">${c.kelJabatan || '-'}</td>
                 <td class="p-2.5 text-slate-600">
                     ${isNullUnit ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.unitKerja}
@@ -1618,16 +2044,41 @@ function renderExcelPreview(result) {
         `;
     }).join('');
 
-    if (result.candidates.length > 25) {
+    if (list.length > 100) {
         tbody.innerHTML += `
             <tr>
                 <td colspan="9" class="p-3 text-center text-xs text-slate-500 bg-slate-50 font-medium italic">
-                    ... dan ${result.candidates.length - 25} peserta lainnya akan dimasukkan ke database saat disimpan.
+                    ... dan ${list.length - 100} peserta lainnya akan dimasukkan ke database saat disimpan.
                 </td>
             </tr>
         `;
     }
+
+    if (window.lucide) window.lucide.createIcons();
 }
+
+/**
+ * Switch Tampilan Preview (Hanya Peserta Baru vs Semua Baris di Excel)
+ */
+window.switchPreviewCandidateView = (viewType) => {
+    if (!previewParsedData) return;
+    const btnNew = document.getElementById('btnPreviewFilterNew');
+    const btnAll = document.getElementById('btnPreviewFilterAll');
+
+    if (viewType === 'all') {
+        renderPreviewTableRows(previewParsedData.allExcelCandidates, true);
+        if (btnNew && btnAll) {
+            btnNew.className = "px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition";
+            btnAll.className = "px-3 py-1.5 text-xs font-bold rounded-lg bg-bkn-700 text-white shadow-sm transition";
+        }
+    } else {
+        renderPreviewTableRows(previewParsedData.newCandidates, false);
+        if (btnNew && btnAll) {
+            btnNew.className = "px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-700 text-white shadow-sm transition";
+            btnAll.className = "px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition";
+        }
+    }
+};
 
 /**
  * Batalkan preview upload
@@ -1649,7 +2100,7 @@ window.cancelUploadPreview = () => {
  */
 window.savePreviewDataToDatabase = async () => {
     if (!previewParsedData || !previewParsedData.candidates || previewParsedData.candidates.length === 0) {
-        showToast("Tidak ada data untuk disimpan!", "warning");
+        showToast("Tidak ada data peserta baru untuk disimpan!", "warning");
         return;
     }
 
@@ -1668,6 +2119,23 @@ window.savePreviewDataToDatabase = async () => {
                 await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
             }
             showToast(`Sukses! Jadwal ${count} peserta berhasil diperbarui (Nama & Jabatan sistem tetap terlindungi).`, "success");
+        } else if (previewParsedData.isOnlyNewParticipants) {
+            // Simpan HANYA peserta baru yang belum ada di database!
+            // Peserta lama yang sudah ada di database sama sekali tidak dihapus / tidak diubah
+            const candidatesToAdd = previewParsedData.newCandidates && previewParsedData.newCandidates.length > 0 
+                ? previewParsedData.newCandidates 
+                : previewParsedData.candidates;
+
+            if (!candidatesToAdd || candidatesToAdd.length === 0) {
+                showToast("Tidak ada peserta baru untuk disimpan!", "warning");
+                return;
+            }
+
+            const count = await db.bulkAddCandidates(previewParsedData.examId, candidatesToAdd);
+            if (isCloudActive()) {
+                await bulkAddCandidatesToCloud(previewParsedData.examId, candidatesToAdd);
+            }
+            showToast(`Sukses! ${count} peserta baru berhasil ditambahkan ke dalam database. Data lama tetap aman.`, "success");
         } else {
             // Hapus data lama yang digantikan jika ada dari resolusi duplikasi
             if (previewParsedData.nipsToReplace && previewParsedData.nipsToReplace.length > 0) {
@@ -2112,9 +2580,78 @@ function getCumulativeSessionNumber(c, sortedDates) {
 }
 
 /**
- * Toggle Status Kehadiran Peserta (HADIR, TIDAK_HADIR, RESET)
+ * Helper untuk merender HTML sel presensi secara instan dengan native SVG (Zero-lag, 60fps)
  */
-window.toggleAttendance = async (candidateNipOrId, action) => {
+function getAttendanceCellContent(cand) {
+    const candidateKey = String(cand.nip || cand.id || '').trim();
+    const rawKel = String(cand.kelJabatan || '').trim();
+    const isKelEmpty = !rawKel || rawKel === '-' || rawKel === 'NULL';
+
+    if (isKelEmpty) {
+        return `
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem.">
+                <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M4.93 4.93l14.14 14.14" stroke-width="2"/></svg>
+                <span>Tidak ada</span>
+            </span>
+        `;
+    }
+
+    if (cand.kehadiran === 'HADIR') {
+        return `
+            <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer active:scale-95" title="Status: Hadir. Klik untuk ubah/batal">
+                <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                <span>Hadir</span>
+            </button>
+        `;
+    }
+
+    if (cand.kehadiran === 'TIDAK_HADIR') {
+        return `
+            <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer active:scale-95" title="Status: Tidak Hadir. Klik untuk ubah/batal">
+                <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                <span>Tidak Hadir</span>
+            </button>
+        `;
+    }
+
+    return `
+        <div class="inline-flex items-center justify-center gap-1">
+            <button onclick="toggleAttendance('${candidateKey}', 'HADIR')" class="p-1 rounded-md bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer active:scale-95" title="Tandai Hadir">
+                <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </button>
+            <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1 rounded-md bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer active:scale-95" title="Tandai Tidak Hadir">
+                <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    `;
+}
+
+/**
+ * Sinkronkan sel kehadiran yang terlihat tanpa render ulang seluruh DOM tabel
+ */
+function updateVisibleAttendanceCells() {
+    if (!currentCandidates) return;
+    currentCandidates.forEach(cand => {
+        const candidateKey = String(cand.nip || cand.id || '').trim();
+        const cell = document.getElementById('att-cell-' + candidateKey);
+        if (cell) {
+            const currentStatus = cell.getAttribute('data-status');
+            const newStatus = cand.kehadiran || 'NULL';
+            if (currentStatus !== newStatus) {
+                cell.setAttribute('data-status', newStatus);
+                cell.innerHTML = getAttendanceCellContent(cand);
+            }
+        }
+    });
+}
+
+/**
+ * Toggle Status Kehadiran Peserta (HADIR, TIDAK_HADIR, RESET) - Ultra-Fast 0ms Latency
+ */
+let rapidAttendanceTimer = null;
+let lastAttendanceToastTime = 0;
+
+window.toggleAttendance = (candidateNipOrId, action) => {
     const lookup = String(candidateNipOrId || '').trim();
     const cand = currentCandidates.find(c => String(c.nip || '').trim() === lookup || String(c.id || '').trim() === lookup);
     if (!cand) {
@@ -2122,27 +2659,45 @@ window.toggleAttendance = async (candidateNipOrId, action) => {
         return;
     }
 
-    if (action === 'RESET') {
-        cand.kehadiran = null;
-    } else {
-        cand.kehadiran = action; // 'HADIR' atau 'TIDAK_HADIR'
+    // 1. UPDATE MEMORI LOKAL INSTAN (0ms)
+    const newStatus = action === 'RESET' ? null : action;
+    cand.kehadiran = newStatus;
+    cand.updatedAt = new Date().toISOString();
+
+    // 2. UPDATE DOM SEL INI SAJA SECARA LOKAL (INSTAN, TANPA RENDER ULANG TABEL!)
+    const candidateKey = String(cand.nip || cand.id || '').trim();
+    const cell = document.getElementById('att-cell-' + candidateKey);
+    if (cell) {
+        cell.setAttribute('data-status', newStatus || 'NULL');
+        cell.innerHTML = getAttendanceCellContent(cand);
     }
 
-    try {
-        await db.updateCandidate(cand);
+    // 3. UPDATE FLOATING ATTENDANCE BUBBLE SECARA INSTAN
+    updateFloatingAttendanceBubble();
 
-        // Sinkronkan ke Firebase Cloud secara Realtime dengan NIP string asli
-        if (isCloudActive() && currentExam) {
-            updateAttendanceInCloud(currentExam.id, String(cand.nip || cand.id).trim(), cand.kehadiran);
-        }
-
-        applyCandidateFilters();
+    // 4. TOAST RINGAN TANPA MENUMPUK/MEMBEBANI BROWSER
+    const now = Date.now();
+    if (now - lastAttendanceToastTime > 600) {
         const statusText = cand.kehadiran === 'HADIR' ? 'Hadir' : (cand.kehadiran === 'TIDAK_HADIR' ? 'Tidak Hadir' : 'Direset');
         showToast(`Status ${cand.nama}: ${statusText}`, cand.kehadiran === 'HADIR' ? 'success' : (cand.kehadiran === 'TIDAK_HADIR' ? 'error' : 'info'));
-    } catch (err) {
-        console.error("Gagal update status kehadiran:", err);
-        showToast("Gagal menyimpan status kehadiran: " + err.message, "error");
+        lastAttendanceToastTime = now;
     }
+
+    // 5. SINKRONKAN KE DATABASE CLOUD SECARA BACKGROUND (FIRE-AND-FORGET, NON-BLOCKING!)
+    if (isCloudActive() && currentExam) {
+        updateAttendanceInCloud(currentExam.id, candidateKey, cand.kehadiran).catch(err => {
+            console.error("Gagal sinkron presensi ke cloud:", err);
+        });
+    }
+
+    // 6. JIKA KOLOM SORTING AKTIF ADALAH 'KEHADIRAN':
+    // Debounce re-sort 800ms agar posisi baris tidak meloncat saat user sedang menandai cepat
+    clearTimeout(rapidAttendanceTimer);
+    rapidAttendanceTimer = setTimeout(() => {
+        if (currentSortColumn === 'kehadiran') {
+            applyCandidateFilters();
+        }
+    }, 800);
 };
 
 /**
@@ -2177,7 +2732,10 @@ function updateSortIcons() {
     });
 }
 
-function applyCandidateFilters() {
+function applyCandidateFilters(resetPage = true) {
+    if (resetPage) {
+        candidateCurrentPage = 1;
+    }
     const sortedDates = getSortedExamDates();
 
     filteredCandidates = currentCandidates.filter(c => {
@@ -2545,15 +3103,33 @@ function updateActiveFilterStyles() {
 }
 window.updateActiveFilterStyles = updateActiveFilterStyles;
 
+let candidateCurrentPage = 1;
+let candidatePageSize = 50;
+
+window.changeCandidatePageSize = (size) => {
+    candidatePageSize = size === 'ALL' ? 'ALL' : Number(size);
+    candidateCurrentPage = 1;
+    renderCandidateListTable();
+};
+
+window.changeCandidatePage = (page) => {
+    candidateCurrentPage = Math.max(1, Number(page) || 1);
+    renderCandidateListTable();
+    const tableEl = document.getElementById('tableCandidateContainer') || document.getElementById('tbodyCandidateList');
+    if (tableEl) {
+        tableEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+};
+
 function renderCandidateListTable() {
     const tbody = document.getElementById('tbodyCandidateList');
     const countBadge = document.getElementById('countTableVisible');
     const paginationInfo = document.getElementById('tablePaginationInfo');
+    const paginationControls = document.getElementById('candidatePaginationControls');
 
     if (!tbody) return;
 
     if (countBadge) countBadge.textContent = `${filteredCandidates.length} Data`;
-    if (paginationInfo) paginationInfo.textContent = `Menampilkan ${filteredCandidates.length} dari ${currentCandidates.length} total peserta`;
 
     // Hitung peserta dengan Kelompok Jabatan kosong
     const countKelEmptyBadge = document.getElementById('countTableKelEmpty');
@@ -2576,6 +3152,8 @@ function renderCandidateListTable() {
                 </td>
             </tr>
         `;
+        if (paginationInfo) paginationInfo.textContent = `Menampilkan 0 dari 0 peserta`;
+        if (paginationControls) paginationControls.innerHTML = '';
         if (window.lucide) window.lucide.createIcons();
         return;
     }
@@ -2590,6 +3168,8 @@ function renderCandidateListTable() {
                 </td>
             </tr>
         `;
+        if (paginationInfo) paginationInfo.textContent = `Menampilkan 0 dari 0 peserta`;
+        if (paginationControls) paginationControls.innerHTML = '';
         if (window.lucide) window.lucide.createIcons();
         return;
     }
@@ -2604,13 +3184,73 @@ function renderCandidateListTable() {
                 </td>
             </tr>
         `;
+        if (paginationInfo) paginationInfo.textContent = `Menampilkan 0 dari 0 peserta`;
+        if (paginationControls) paginationControls.innerHTML = '';
         if (window.lucide) window.lucide.createIcons();
         return;
     }
 
+    // Paginasi Virtual (Hanya render 50 baris per halaman agar hemat memori & ultra responsif)
+    const totalFiltered = filteredCandidates.length;
+    const isAll = candidatePageSize === 'ALL';
+    const effectivePageSize = isAll ? Math.max(1, totalFiltered) : (Number(candidatePageSize) || 50);
+    const totalPages = Math.max(1, Math.ceil(totalFiltered / effectivePageSize));
+
+    if (candidateCurrentPage > totalPages) candidateCurrentPage = totalPages;
+    if (candidateCurrentPage < 1) candidateCurrentPage = 1;
+
+    const startIndex = isAll ? 0 : (candidateCurrentPage - 1) * effectivePageSize;
+    const endIndex = isAll ? totalFiltered : Math.min(startIndex + effectivePageSize, totalFiltered);
+    const displayedCandidates = filteredCandidates.slice(startIndex, endIndex);
+
+    // Update info footer
+    if (paginationInfo) {
+        const startStr = (startIndex + 1).toLocaleString('id-ID');
+        const endStr = endIndex.toLocaleString('id-ID');
+        const totalStr = totalFiltered.toLocaleString('id-ID');
+        paginationInfo.innerHTML = `Menampilkan <span class="font-bold text-slate-800">${startStr} - ${endStr}</span> dari <span class="font-bold text-slate-800">${totalStr}</span> peserta`;
+    }
+
+    // Render kontrol navigasi halaman
+    if (paginationControls) {
+        if (totalPages <= 1) {
+            paginationControls.innerHTML = `<span class="text-slate-400 text-xs px-2 py-1 font-medium bg-slate-100/70 rounded">Semua data ditampilkan</span>`;
+        } else {
+            let optionsHtml = '';
+            for (let p = 1; p <= totalPages; p++) {
+                optionsHtml += `<option value="${p}" ${p === candidateCurrentPage ? 'selected' : ''}>Hal ${p} / ${totalPages}</option>`;
+            }
+
+            const isFirst = candidateCurrentPage === 1;
+            const isLast = candidateCurrentPage === totalPages;
+
+            paginationControls.innerHTML = `
+                <div class="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs">
+                    <button onclick="changeCandidatePage(1)" ${isFirst ? 'disabled' : ''} class="px-2 py-1 text-[11px] font-bold rounded ${isFirst ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-100 cursor-pointer active:scale-95'}" title="Halaman Pertama">
+                        ⇤
+                    </button>
+                    <button onclick="changeCandidatePage(${candidateCurrentPage - 1})" ${isFirst ? 'disabled' : ''} class="px-2 py-1 text-[11px] font-bold rounded ${isFirst ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-100 cursor-pointer active:scale-95'}" title="Halaman Sebelumnya">
+                        ‹ Prev
+                    </button>
+                    <select onchange="changeCandidatePage(Number(this.value))" class="text-[11px] font-bold bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 focus:ring-1 focus:ring-bkn-600 outline-none cursor-pointer">
+                        ${optionsHtml}
+                    </select>
+                    <button onclick="changeCandidatePage(${candidateCurrentPage + 1})" ${isLast ? 'disabled' : ''} class="px-2 py-1 text-[11px] font-bold rounded ${isLast ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-100 cursor-pointer active:scale-95'}" title="Halaman Berikutnya">
+                        Next ›
+                    </button>
+                    <button onclick="changeCandidatePage(${totalPages})" ${isLast ? 'disabled' : ''} class="px-2 py-1 text-[11px] font-bold rounded ${isLast ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-100 cursor-pointer active:scale-95'}" title="Halaman Terakhir">
+                        ⇥
+                    </button>
+                </div>
+            `;
+        }
+    }
+
     const sortedDates = getSortedExamDates();
 
-    tbody.innerHTML = filteredCandidates.map((c, idx) => {
+    // Render baris data tabel hanya untuk halaman aktif dengan native SVG (Bebas lag & hemat memori)
+    tbody.innerHTML = displayedCandidates.map((c, localIdx) => {
+        const globalIdx = startIndex + localIdx + 1;
         const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
         const isNullDate = !c.pelaksanaan || c.pelaksanaan === 'NULL' || c.pelaksanaan === '-';
         const isNullSchedule = isNullDate || isSesi00;
@@ -2632,54 +3272,21 @@ function renderCandidateListTable() {
             ? 'bg-rose-50/70 border-l-4 border-l-red-900 hover:bg-rose-100/60' 
             : (isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50');
 
+        const candidateKey = String(c.nip || c.id || '').trim();
+        const safeNama = String(c.nama || '').replace(/'/g, "\\'");
+
         return `
-            <tr class="${rowBgClass} transition text-[11px] sm:text-xs">
-                <td class="p-2 text-center text-slate-500 font-medium">${idx + 1}</td>
-                <td class="p-1.5 text-center whitespace-nowrap">
-                    ${(() => {
-                        const candidateKey = String(c.nip || c.id || '').trim();
-                        if (isKelEmpty) {
-                            return `
-                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem.">
-                                    <i data-lucide="slash" class="w-3 h-3 text-slate-400"></i>
-                                    <span>Tidak ada</span>
-                                </span>
-                            `;
-                        }
-                        if (c.kehadiran === 'HADIR') {
-                            return `
-                                <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer" title="Status: Hadir. Klik untuk ubah/batal">
-                                    <i data-lucide="check" class="w-3 h-3 stroke-[3]"></i>
-                                    <span>Hadir</span>
-                                </button>
-                            `;
-                        }
-                        if (c.kehadiran === 'TIDAK_HADIR') {
-                            return `
-                                <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer" title="Status: Tidak Hadir. Klik untuk ubah/batal">
-                                    <i data-lucide="x" class="w-3 h-3 stroke-[3]"></i>
-                                    <span>Tidak Hadir</span>
-                                </button>
-                            `;
-                        }
-                        return `
-                            <div class="inline-flex items-center justify-center gap-1">
-                                <button onclick="toggleAttendance('${candidateKey}', 'HADIR')" class="p-1 rounded-md bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer" title="Tandai Hadir">
-                                    <i data-lucide="check" class="w-3.5 h-3.5 stroke-[2.5]"></i>
-                                </button>
-                                <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1 rounded-md bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer" title="Tandai Tidak Hadir">
-                                    <i data-lucide="x" class="w-3.5 h-3.5 stroke-[2.5]"></i>
-                                </button>
-                            </div>
-                        `;
-                    })()}
+            <tr id="cand-row-${candidateKey}" class="${rowBgClass} transition text-[11px] sm:text-xs">
+                <td class="p-2 text-center text-slate-500 font-medium">${globalIdx}</td>
+                <td id="att-cell-${candidateKey}" data-status="${c.kehadiran || 'NULL'}" class="p-1.5 text-center whitespace-nowrap">
+                    ${getAttendanceCellContent(c)}
                 </td>
                 <td class="p-2 font-mono font-medium text-slate-900 truncate" title="${c.nip}">${c.nip}</td>
                 <td class="p-2 font-bold text-slate-900 break-words line-clamp-2" title="${c.nama}">${c.nama}</td>
                 <td class="p-2 truncate" title="${isKelEmpty ? 'Peserta Belum Terdaftar' : c.kelJabatan}">
                     ${isKelEmpty ? `
                         <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs whitespace-nowrap">
-                            <i data-lucide="alert-circle" class="w-3 h-3 text-red-200 stroke-[2.5]"></i>
+                            <svg class="w-3 h-3 text-red-200 inline" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                             <span>Belum Terdaftar</span>
                         </span>
                     ` : `
@@ -2721,29 +3328,21 @@ function renderCandidateListTable() {
                         </div>
                     `}
                 </td>
-                <!-- Kolom Waktu (WIT) di-hide. Untuk mengaktifkan kembali, hapus class 'hidden' -->
+                <!-- Kolom Waktu (WIT) di-hide -->
                 <td class="p-2 whitespace-nowrap hidden ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
                     ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
                 </td>
                 <td class="p-2 text-center whitespace-nowrap">
-                    ${(() => {
-                        const candidateKey = String(c.nip || c.id || '').trim();
-                        const safeNama = String(c.nama || '').replace(/'/g, "\\'");
-                        return `
-                            <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
-                                <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
-                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            </button>
-                        `;
-                    })()}
+                    <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
+                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                    </button>
+                    <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
+                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
                 </td>
             </tr>
         `;
     }).join('');
-
-    if (window.lucide) window.lucide.createIcons();
 }
 
 window.deleteSingleCandidate = async (candidateIdOrNip, name) => {
@@ -4653,23 +5252,40 @@ window.openModalDetailKelompokJabatan = (key, encodedLabel) => {
     currentDetailKelJabatanStatusFilter = 'ALL';
 
     const categories = window._activeKelJabatanStats;
-    let list = [];
+    let nips = [];
 
     if (categories) {
         if (key && key.startsWith('FUNGSIONAL:')) {
             const sub = key.replace('FUNGSIONAL:', '');
-            list = (categories.FUNGSIONAL && categories.FUNGSIONAL.children && categories.FUNGSIONAL.children[sub]) 
-                ? (categories.FUNGSIONAL.children[sub].candidates || []) 
+            nips = (categories.FUNGSIONAL && categories.FUNGSIONAL.children && categories.FUNGSIONAL.children[sub]) 
+                ? (categories.FUNGSIONAL.children[sub].candidateNips || categories.FUNGSIONAL.children[sub].candidates || []) 
                 : [];
         } else if (key && key.startsWith('LAINNYA:')) {
             const other = key.replace('LAINNYA:', '');
-            list = (categories.LAINNYA && categories.LAINNYA[other]) 
-                ? (categories.LAINNYA[other].candidates || []) 
+            nips = (categories.LAINNYA && categories.LAINNYA[other]) 
+                ? (categories.LAINNYA[other].candidateNips || categories.LAINNYA[other].candidates || []) 
                 : [];
         } else if (categories[key]) {
-            list = categories[key].stat ? (categories[key].stat.candidates || []) : [];
+            nips = categories[key].stat ? (categories[key].stat.candidateNips || categories[key].stat.candidates || []) : [];
         }
     }
+
+    // Buat lookup Map cepat dari currentCandidates agar hemat memori & O(1) akses
+    const candMap = new Map();
+    (currentCandidates || []).forEach(c => {
+        const k = String(c.nip || c.id || '').trim();
+        if (k) candMap.set(k, c);
+    });
+
+    let list = [];
+    nips.forEach(item => {
+        if (typeof item === 'string') {
+            const found = candMap.get(item);
+            if (found) list.push(found);
+        } else if (item && typeof item === 'object') {
+            list.push(item);
+        }
+    });
 
     currentDetailKelJabatanList = list;
 
@@ -4713,6 +5329,10 @@ window.closeModalDetailKelompokJabatan = () => {
         modal.classList.add('hidden');
         modal.classList.remove('flex');
     }
+    // Bersihkan memori dan DOM table saat modal ditutup
+    currentDetailKelJabatanList = [];
+    const tbody = document.getElementById('tbodyDetailKelJabatan');
+    if (tbody) tbody.innerHTML = '';
 };
 
 window.setDetailKelJabatanStatusFilter = (status) => {
@@ -5010,6 +5630,9 @@ function setupAuditUI() {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         }
+        const tbody = document.getElementById('tbodyAuditCompareList');
+        if (tbody) tbody.innerHTML = '';
+        if (selectedAuditNips) selectedAuditNips.clear();
     };
 
     window.setAuditCompareCategoryFilter = (category) => {
@@ -5213,20 +5836,31 @@ function setupAuditUI() {
         const btnApply = document.getElementById('btnApplyAuditSelected');
         if (btnApply) {
             btnApply.disabled = true;
-            btnApply.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div> Menerapkan Perubahan...`;
+            btnApply.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2 inline-block"></div> Menerapkan ${selectedDiffs.length} Data...`;
         }
+
+        // Beri jeda 20ms agar browser sempat merender spinner pada tombol sebelum komputasi & network call
+        await new Promise(r => setTimeout(r, 20));
 
         try {
             const updates = {};
             let countKehadiranUpdated = 0;
             let countSesiUpdated = 0;
+            const nowIso = new Date().toISOString();
+
+            // Bangun index lookup Map O(1) agar tidak O(N*M) linear scanning
+            const candidateMap = new Map();
+            currentCandidates.forEach(c => {
+                candidateMap.set(String(c.nip).trim(), c);
+            });
 
             selectedDiffs.forEach(item => {
-                const safeKey = String(item.nip).trim().replace(/[.#$[\]/]/g, '_');
+                const nipClean = String(item.nip).trim();
+                const safeKey = nipClean.replace(/[.#$[\]/]/g, '_');
                 const pathPrefix = `candidates/${currentExam.id}/${safeKey}/`;
 
-                // Update candidate lokal di memori
-                const candInMem = currentCandidates.find(c => String(c.nip).trim() === String(item.nip).trim());
+                // Update candidate lokal di memori secara instan
+                const candInMem = candidateMap.get(nipClean);
 
                 item.changes.forEach(ch => {
                     const rawVal = ch.rawNewValue !== undefined ? ch.rawNewValue : ch.newValue;
@@ -5246,36 +5880,29 @@ function setupAuditUI() {
                     if (candInMem) candInMem.status = 'Terjadwal';
                 }
 
-                updates[pathPrefix + 'updatedAt'] = new Date().toISOString();
-                if (candInMem) candInMem.updatedAt = new Date().toISOString();
+                updates[pathPrefix + 'updatedAt'] = nowIso;
+                if (candInMem) candInMem.updatedAt = nowIso;
             });
 
-            // 1. Simpan ke Firebase Realtime Database
-            if (isCloudActive()) {
+            // 1. Simpan ke Firebase Realtime Database SECARA BULK ATOMIK (1 Kali Request Cepat!)
+            if (isCloudActive() && Object.keys(updates).length > 0) {
                 await bulkUpdatePathsInCloud(updates);
             }
 
-            // 2. Simpan juga ke cache database jika diperlukan
-            for (const item of selectedDiffs) {
-                const cand = currentCandidates.find(c => String(c.nip).trim() === String(item.nip).trim());
-                if (cand && typeof db.updateCandidate === 'function') {
-                    await db.updateCandidate(cand).catch(() => {});
-                }
-            }
+            // 2. Tutup modal komparasi review terlebih dahulu
+            window.closeModalAuditCompare();
 
-            // 3. Re-kalkulasi dan refresh seluruh tabel & statistik
+            // 3. Re-kalkulasi dan refresh seluruh tabel & statistik satu kali secara instan
             applyCandidateFilters();
             renderDashboardStats();
             updateFloatingAttendanceBubble();
 
-            // 4. Tutup modal komparasi
-            window.closeModalAuditCompare();
-
-            // 5. Tampilkan notifikasi dan update panel hasil
-            showToast(`Sukses memperbarui ${selectedDiffs.length} data peserta! (${countKehadiranUpdated} presensi Hadir, ${countSesiUpdated} sesi disesuaikan)`, "success");
-
-            // Reset upload file agar siap untuk upload baru berikutnya
+            // 4. Reset upload file agar siap untuk upload audit baru berikutnya
             window.resetAuditUpload();
+
+            // 5. Buka DIALOG KONFIRMASI SUKSES informatif & elegan!
+            window.openModalAuditSuccess(selectedDiffs.length, countKehadiranUpdated, countSesiUpdated);
+            showToast(`Sukses memperbarui ${selectedDiffs.length} data peserta!`, "success");
 
         } catch (err) {
             console.error("Gagal menerapkan perubahan audit:", err);
@@ -5286,6 +5913,41 @@ function setupAuditUI() {
                 btnApply.innerHTML = `<i data-lucide="check-check" class="w-4 h-4"></i><span>Terapkan Perubahan Terpilih</span>`;
                 if (window.lucide) window.lucide.createIcons();
             }
+        }
+    };
+
+    /**
+     * Buka Dialog Konfirmasi Sukses Audit
+     */
+    window.openModalAuditSuccess = (totalCount, kehadiranCount, sesiCount) => {
+        const modal = document.getElementById('modalAuditSuccess');
+        const elTotal = document.getElementById('auditSuccessTotalCount');
+        const elKehadiran = document.getElementById('auditSuccessKehadiranCount');
+        const elSesi = document.getElementById('auditSuccessSesiCount');
+
+        if (elTotal) elTotal.textContent = `${totalCount} Orang`;
+        if (elKehadiran) elKehadiran.textContent = `${kehadiranCount} Peserta`;
+        if (elSesi) elSesi.textContent = `${sesiCount} Peserta`;
+
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        if (window.lucide) window.lucide.createIcons();
+    };
+
+    /**
+     * Tutup Dialog Konfirmasi Sukses Audit
+     */
+    window.closeModalAuditSuccess = (goToPeserta = false) => {
+        const modal = document.getElementById('modalAuditSuccess');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+        if (goToPeserta && typeof switchTab === 'function') {
+            switchTab('daftar-peserta');
         }
     };
 }

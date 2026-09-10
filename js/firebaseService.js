@@ -515,7 +515,7 @@ export async function deleteCandidatesByNipsCloud(examId, nipList) {
 }
 
 /**
- * Update Status Kehadiran secara Realtime ke Firebase
+ * Update Status Kehadiran secara Realtime ke Firebase (Cepat & Non-blocking)
  */
 export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) {
     if (!examId || !candidateIdOrNip) return false;
@@ -525,32 +525,11 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
     const targetRef = ref(db, 'candidates/' + examId + '/' + safeKey);
 
     try {
-        // Cek dulu apakah targetRef memiliki data peserta lengkap sebelum update (hindari membuat node kosong)
-        const checkSnap = await get(targetRef);
-        if (checkSnap.exists() && checkSnap.val() && checkSnap.val().nama) {
-            await update(targetRef, {
-                kehadiran: status,
-                attendanceTimestamp: new Date().toISOString()
-            });
-            return true;
-        }
-
-        // Jika safeKey tidak cocok langsung, cari kandidat berdasarkan NIP di parent
-        const parentRef = ref(db, 'candidates/' + examId);
-        const snap = await get(parentRef);
-        if (snap.exists()) {
-            const data = snap.val();
-            for (const key of Object.keys(data)) {
-                if (data[key] && (data[key].nip === safeKey || key === safeKey)) {
-                    await update(ref(db, 'candidates/' + examId + '/' + key), {
-                        kehadiran: status,
-                        attendanceTimestamp: new Date().toISOString()
-                    });
-                    return true;
-                }
-            }
-        }
-        return false;
+        await update(targetRef, {
+            kehadiran: status,
+            attendanceTimestamp: new Date().toISOString()
+        });
+        return true;
     } catch (e) {
         console.warn("Gagal update presensi di cloud:", e);
         return false;
@@ -590,10 +569,25 @@ export async function getExamStatsCloud(examId) {
 
 /**
  * Update multi-path fields secara atomik di Firebase Realtime Database
+ * Mendukung pembaruan ribuan path secara paralel dan cepat
  */
 export async function bulkUpdatePathsInCloud(updates) {
     if (!updates || Object.keys(updates).length === 0) return 0;
     const db = ensureDb();
-    await update(ref(db), updates);
-    return Object.keys(updates).length;
+    const keys = Object.keys(updates);
+    const BATCH_SIZE = 400;
+
+    if (keys.length <= BATCH_SIZE) {
+        await update(ref(db), updates);
+    } else {
+        const promises = [];
+        for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+            const batchKeys = keys.slice(i, i + BATCH_SIZE);
+            const batchUpdates = {};
+            batchKeys.forEach(k => { batchUpdates[k] = updates[k]; });
+            promises.push(update(ref(db), batchUpdates));
+        }
+        await Promise.all(promises);
+    }
+    return keys.length;
 }
