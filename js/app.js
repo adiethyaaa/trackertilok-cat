@@ -6,7 +6,7 @@
 
 import { masterInstansiData, toTitleCase, getInstansiPin } from '../masterInstansi.js';
 import * as db from './db.js';
-import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber, calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
+import { parseFlexibleDate, isFriday, isSunday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber, calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
 import { 
     parseExcelFile, 
     downloadExcelTemplate, 
@@ -673,6 +673,52 @@ function classifyCandidateKelompok(c) {
     }
 
     return { category: 'LAINNYA', label: rawK, sub: null, isWarning: false };
+}
+
+/**
+ * Menghasilkan HTML badge berwarna khas untuk kolom Kel. Jabatan peserta */
+function getCandidateKelJabatanBadge(c) {
+    const rawKel = String(c.kelJabatan || '').trim();
+    const isKelEmpty = !rawKel || rawKel === '-' || rawKel.toUpperCase() === 'NULL' || rawKel.toLowerCase() === 'belum terdata' || rawKel.toLowerCase().includes('belum terdaftar');
+
+    if (isKelEmpty) {
+        return `
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs whitespace-nowrap" title="Peserta Belum Terdaftar">
+                <svg class="w-3 h-3 text-red-200 inline flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>Belum Terdaftar</span>
+            </span>
+        `;
+    }
+
+    const cls = classifyCandidateKelompok(c);
+    let colorClasses = 'bg-slate-100 text-slate-800 border-slate-300';
+
+    switch (cls.category) {
+        case 'JPT_PRATAMA':
+            colorClasses = 'bg-indigo-50/90 text-indigo-900 border-indigo-300';
+            break;
+        case 'ADMINISTRATOR':
+            colorClasses = 'bg-sky-50/90 text-sky-950 border-sky-300';
+            break;
+        case 'PENGAWAS':
+            colorClasses = 'bg-teal-50/90 text-teal-950 border-teal-300';
+            break;
+        case 'ESELON_V':
+            colorClasses = 'bg-emerald-50/90 text-emerald-950 border-emerald-300';
+            break;
+        case 'FUNGSIONAL':
+            colorClasses = 'bg-amber-50/90 text-amber-950 border-amber-300';
+            break;
+        case 'PELAKSANA':
+            colorClasses = 'bg-violet-50/90 text-violet-950 border-violet-300';
+            break;
+        case 'LAINNYA':
+        default:
+            colorClasses = 'bg-slate-100 text-slate-800 border-slate-300';
+            break;
+    }
+
+    return `<span class="font-semibold ${colorClasses} px-1.5 py-0.5 rounded border text-[10px] sm:text-[11px] truncate block" title="${c.kelJabatan}">${c.kelJabatan}</span>`;
 }
 
 /**
@@ -2013,7 +2059,7 @@ function renderPreviewTableRows(list, isShowingAll = false) {
                         ` : '')}
                     </div>
                 </td>
-                <td class="p-2.5 font-medium text-blue-700">${c.kelJabatan || '-'}</td>
+                <td class="p-2.5 truncate max-w-[170px]">${getCandidateKelJabatanBadge(c)}</td>
                 <td class="p-2.5 text-slate-600">
                     ${isNullUnit ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.unitKerja}
                 </td>
@@ -3237,14 +3283,7 @@ function renderCandidateRowHtml(c, globalIdx, sortedDates) {
             <td class="p-2 font-mono font-medium text-slate-900 truncate" title="${c.nip}">${c.nip}</td>
             <td class="p-2 font-bold text-slate-900 break-words line-clamp-2" title="${c.nama}">${c.nama}</td>
             <td class="p-2 truncate" title="${isKelEmpty ? 'Peserta Belum Terdaftar' : c.kelJabatan}">
-                ${isKelEmpty ? `
-                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs whitespace-nowrap">
-                        <svg class="w-3 h-3 text-red-200 inline" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        <span>Belum Terdaftar</span>
-                    </span>
-                ` : `
-                    <span class="font-semibold text-blue-800 bg-blue-50/60 px-1.5 py-0.5 rounded border border-blue-200/50 text-[10px] sm:text-[11px] truncate block">${c.kelJabatan}</span>
-                `}
+                ${getCandidateKelJabatanBadge(c)}
             </td>
             <td class="p-2 text-slate-600 truncate" title="${c.unitKerja || '-'}">
                 ${isNullUnit ? `
@@ -3612,19 +3651,28 @@ function setupManualCandidateForm() {
     const selectSesi = document.getElementById('selectManualSesi');
     const inputWaktu = document.getElementById('inputManualWaktu');
 
-    function autoCalculateTime() {
-        const d = inputDate.value.trim();
-        const s = selectSesi.value;
+    function onDateChange() {
+        const d = inputDate ? inputDate.value.trim() : '';
+        const currentSesiVal = selectSesi ? selectSesi.value : '1';
+        populateManualCandidateSessionOptions(currentSesiVal, d);
+        if (d && selectSesi && selectSesi.value) {
+            inputWaktu.value = getSessionTime(selectSesi.value, d);
+        }
+    }
+
+    function onSesiChange() {
+        const d = inputDate ? inputDate.value.trim() : '';
+        const s = selectSesi ? selectSesi.value : '1';
         if (d && s) {
             inputWaktu.value = getSessionTime(s, d);
         }
     }
 
     if (inputDate) {
-        inputDate.addEventListener('input', autoCalculateTime);
-        inputDate.addEventListener('change', autoCalculateTime);
+        inputDate.addEventListener('input', onDateChange);
+        inputDate.addEventListener('change', onDateChange);
     }
-    if (selectSesi) selectSesi.addEventListener('change', autoCalculateTime);
+    if (selectSesi) selectSesi.addEventListener('change', onSesiChange);
 
     if (form) {
         form.addEventListener('submit', async (e) => {
@@ -3731,12 +3779,16 @@ function getAvailableExamDates() {
 
 /**
  * Mengisi dropdown pilihan tanggal pelaksanaan pada modal tambah/edit peserta
+ * Lengkap dengan spill jumlah peserta existing pada masing-masing tanggal
  */
 function populateManualCandidateDateOptions(selectedDate = '') {
     const select = document.getElementById('inputManualPelaksanaan');
     if (!select) return;
 
-    const dates = getAvailableExamDates();
+    const allDates = getAvailableExamDates();
+    // Khusus pada pop-up edit & tambah peserta: Hari Minggu TIDAK ditampilkan
+    const dates = allDates.filter(d => !isSunday(d));
+
     if (dates.length === 0) {
         select.innerHTML = `<option value="">-- Belum ada tanggal ujian --</option>`;
         return;
@@ -3745,16 +3797,19 @@ function populateManualCandidateDateOptions(selectedDate = '') {
     let html = `<option value="">-- Pilih Tanggal Pelaksanaan --</option>`;
     dates.forEach(d => {
         const fri = isFriday(d);
-        const label = `${d}${fri ? ' (Jumat)' : ''}`;
+        const count = currentCandidates.filter(c => c.pelaksanaan === d).length;
+        const countBadge = count > 0 ? `${count} Peserta` : '0 Peserta (Tersedia)';
+        const label = `${d}${fri ? ' (Jumat)' : ''} — [${countBadge}]`;
         html += `<option value="${d}">${label}</option>`;
     });
 
     select.innerHTML = html;
 
-    // Set nilai terpilih
-    if (selectedDate && dates.includes(selectedDate)) {
+    // Set nilai terpilih (pastikan hari Minggu tidak dimasukkan)
+    const isSelSunday = isSunday(selectedDate);
+    if (!isSelSunday && selectedDate && dates.includes(selectedDate)) {
         select.value = selectedDate;
-    } else if (selectedDate) {
+    } else if (!isSelSunday && selectedDate) {
         const parsedSel = parseFlexibleDate(selectedDate);
         const matched = dates.find(d => {
             const p = parseFlexibleDate(d);
@@ -3763,14 +3818,76 @@ function populateManualCandidateDateOptions(selectedDate = '') {
         if (matched) {
             select.value = matched;
         } else {
+            const count = currentCandidates.filter(c => c.pelaksanaan === selectedDate).length;
+            const countBadge = count > 0 ? `${count} Peserta` : '0 Peserta (Tersedia)';
             const newOpt = document.createElement('option');
             newOpt.value = selectedDate;
-            newOpt.textContent = selectedDate;
+            newOpt.textContent = `${selectedDate} — [${countBadge}]`;
             select.appendChild(newOpt);
             select.value = selectedDate;
         }
     } else if (dates.length > 0) {
         select.value = dates[0];
+    }
+}
+
+/**
+ * Mengisi dropdown pilihan sesi ujian pada modal tambah/edit peserta
+ * Menyesuaikan tanggal yang dipilih dan spill jumlah peserta existing per sesi
+ */
+function populateManualCandidateSessionOptions(selectedSesi = 1, targetDate = '') {
+    const selectSesi = document.getElementById('selectManualSesi');
+    if (!selectSesi) return;
+
+    const curDate = targetDate || (document.getElementById('inputManualPelaksanaan') ? document.getElementById('inputManualPelaksanaan').value.trim() : '');
+    const fri = isFriday(curDate);
+
+    // Hitung peserta existing di tanggal ini per sesi
+    const candsOnDate = currentCandidates.filter(c => c.pelaksanaan === curDate);
+    const countS1 = candsOnDate.filter(c => Number(c.sesi) === 1).length;
+    const countS2 = candsOnDate.filter(c => Number(c.sesi) === 2).length;
+    const countS3 = candsOnDate.filter(c => Number(c.sesi) === 3).length;
+    const countS0 = candsOnDate.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length;
+
+    const sessions = [
+        {
+            val: 1,
+            label: `Sesi 1 (08.00 - 11.00 WIT)`,
+            count: countS1
+        },
+        {
+            val: 2,
+            label: fri ? `Sesi 2 (13.00 - 16.00 WIT Khusus Jumat)` : `Sesi 2 (11.00 - 14.00 WIT)`,
+            count: countS2
+        },
+        {
+            val: 3,
+            label: fri ? `Sesi 3 (16.00 - 19.00 WIT Tambahan)` : `Sesi 3 (14.00 - 17.00 WIT)`,
+            count: countS3
+        }
+    ];
+
+    if (countS0 > 0) {
+        sessions.unshift({
+            val: 0,
+            label: `Belum Terjadwal (Sesi 00)`,
+            count: countS0
+        });
+    }
+
+    let html = '';
+    sessions.forEach(s => {
+        const countBadge = s.count > 0 ? `${s.count} Peserta` : '0 Peserta (Tersedia)';
+        html += `<option value="${s.val}">${s.label} — [${countBadge}]</option>`;
+    });
+
+    selectSesi.innerHTML = html;
+
+    const selNum = Number(selectedSesi);
+    if (sessions.some(s => s.val === selNum)) {
+        selectSesi.value = String(selNum);
+    } else {
+        selectSesi.value = '1';
     }
 }
 
@@ -3790,8 +3907,10 @@ window.openModalAddCandidate = () => {
     populateManualCandidateDateOptions();
     const selectDate = document.getElementById('inputManualPelaksanaan');
     const curDate = selectDate ? selectDate.value : '';
-    document.getElementById('selectManualSesi').value = '1';
-    document.getElementById('inputManualWaktu').value = getSessionTime(1, curDate);
+    populateManualCandidateSessionOptions(1, curDate);
+    const selectSesi = document.getElementById('selectManualSesi');
+    const activeSesi = selectSesi ? selectSesi.value : 1;
+    document.getElementById('inputManualWaktu').value = getSessionTime(activeSesi, curDate);
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -3823,8 +3942,8 @@ window.editCandidate = (candidateIdOrNip) => {
     document.getElementById('inputManualJabatan').value = cand.jabatan || '';
 
     populateManualCandidateDateOptions(cand.pelaksanaan);
-    document.getElementById('selectManualSesi').value = cand.sesi || 1;
     const curDate = document.getElementById('inputManualPelaksanaan').value || cand.pelaksanaan;
+    populateManualCandidateSessionOptions(cand.sesi || 1, curDate);
     document.getElementById('inputManualWaktu').value = cand.waktu || getSessionTime(cand.sesi || 1, curDate);
 
     modal.classList.remove('hidden');

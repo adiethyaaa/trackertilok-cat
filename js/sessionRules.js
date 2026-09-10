@@ -142,6 +142,17 @@ export function isFriday(dateInput) {
 }
 
 /**
+ * Cek apakah sebuah tanggal adalah hari Minggu (Sunday)
+ * @param {string|Date|number} dateInput 
+ * @returns {boolean}
+ */
+export function isSunday(dateInput) {
+    const d = parseFlexibleDate(dateInput);
+    if (!d) return false;
+    return d.getDay() === 0; // 0 = Sunday
+}
+
+/**
  * Mengambil nama hari dalam Bahasa Indonesia
  * @param {string|Date|number} dateInput 
  * @returns {string}
