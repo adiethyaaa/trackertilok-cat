@@ -281,103 +281,145 @@
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         <!-- ==================== TAB 1 (DEFAULT ACTIVE): DAFTAR PESERTA & JADWAL ==================== -->
-        <section id="pane-daftar-peserta" class="tab-pane space-y-6 fade-in relative">
+        <section id="pane-daftar-peserta" class="tab-pane space-y-3 fade-in relative">
 
-            <!-- Filter Bar & Actions (Sticky di Atas Layar Saat Scroll ke Bawah) -->
-            <div class="sticky top-[108px] z-30 bg-white/95 backdrop-blur-md shadow-md border border-slate-200/90 rounded-xl p-4 sm:p-5 space-y-4 transition-all" style="top: 108px;">
-                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5 sm:gap-3">
+            <!-- Filter Bar & Actions (Sticky di Atas Layar Saat Scroll ke Bawah - Ukuran Dioptimalkan Ringkas & Hemat Tempat) -->
+            <div class="sticky top-[108px] z-30 bg-white/95 backdrop-blur-md shadow-xs border border-slate-200/90 rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 space-y-1.5 transition-all" style="top: 108px;">
+                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-1.5 sm:gap-2">
                     <!-- Session Filters (Ukuran font dan tombol lebih kecil & hemat tempat) -->
-                    <div class="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px]">
-                        <span class="text-[11px] font-bold text-slate-500 uppercase mr-0.5 tracking-wide flex-shrink-0">Filter Sesi:</span>
-                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition">
+                    <div class="flex flex-wrap items-center gap-1 text-[10.5px]">
+                        <span class="text-[10px] font-bold text-slate-500 uppercase mr-0.5 tracking-wide flex-shrink-0">Filter Sesi:</span>
+                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition">
                             Sesi (<span id="countFilterAll">0</span>)
                         </button>
-                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 1 (08.00-11.00) [<span id="countFilter1">0</span>]
+                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 1 (08-11) [<span id="countFilter1">0</span>]
                         </button>
-                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 2 (11.00 / Jumat 13.00) [<span id="countFilter2">0</span>]
+                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 2 (11/13) [<span id="countFilter2">0</span>]
                         </button>
-                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 3 (14.00-17.00) [<span id="countFilter3">0</span>]
+                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            Sesi 3 (14-17) [<span id="countFilter3">0</span>]
                         </button>
                     </div>
 
-                    <!-- Action Buttons (Tetap Ramping & Tidak Melebar) -->
-                    <div class="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-xs rounded-lg transition border border-blue-200 flex-shrink-0 whitespace-nowrap shadow-2xs">
-                            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                    <!-- Action Buttons (Ramping, Pendek & Hemat Tempat) -->
+                    <div class="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-[11px] rounded-md transition border border-blue-200 flex-shrink-0 whitespace-nowrap shadow-2xs h-7">
+                            <i data-lucide="user-plus" class="w-3 h-3"></i>
                             <span>Tambah Manual</span>
                         </button>
-                        <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow-2xs transition flex-shrink-0 whitespace-nowrap">
-                            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                        <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-[11px] rounded-md shadow-2xs transition flex-shrink-0 whitespace-nowrap h-7">
+                            <i data-lucide="printer" class="w-3 h-3"></i>
                             <span>Cetak Presensi</span>
                         </button>
-                        <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition flex-shrink-0 whitespace-nowrap">
-                            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                        <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] rounded-md shadow-2xs transition flex-shrink-0 whitespace-nowrap h-7">
+                            <i data-lucide="file-spreadsheet" class="w-3 h-3"></i>
                             <span>Export Excel</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- Search & Filters (Pencarian Ramping, Filter Kelompok Jabatan, Filter Tanggal, Filter Sesi, & Tombol Reset Sebaris) -->
-                <div class="flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-100">
+                <!-- Search & Filters (Pencarian Ramping, Filter Kelompok Jabatan, Tanggal, Sesi, & Tombol Reset Sebaris & Compact) -->
+                <div class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-100">
                     <!-- Search Box (Ukuran ramping / diperkecil) -->
-                    <div class="w-36 sm:w-44 relative flex-shrink-0">
-                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
-                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs transition-colors">
+                    <div class="w-32 sm:w-40 relative flex-shrink-0">
+                        <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-8 pr-2.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white text-slate-800 focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs transition-colors">
                     </div>
 
                     <!-- Filter Kelompok Jabatan -->
-                    <div class="w-44 sm:w-56 flex-shrink-0">
-                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs font-semibold text-slate-800 truncate transition-colors">
+                    <div class="w-36 sm:w-48 flex-shrink-0">
+                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs font-semibold text-slate-800 truncate transition-colors">
                             <option value="ALL">-- Kel. Jabatan (0) --</option>
                         </select>
                     </div>
 
                     <!-- Filter Tanggal Pelaksanaan -->
-                    <div class="w-44 sm:w-52 flex-shrink-0">
-                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none shadow-xs truncate transition-colors">
-                            <option value="ALL">-- Tanggal Pelaksanaan --</option>
+                    <div class="w-36 sm:w-44 flex-shrink-0">
+                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs truncate transition-colors">
+                            <option value="ALL">-- Tanggal --</option>
                         </select>
                     </div>
 
-                    <!-- Filter Sesi (Typing + Dropdown) - Filter Utama: Dibuat Lebar & Fleksibel -->
-                    <div class="flex-1 min-w-[280px] sm:min-w-[340px] flex items-center gap-1.5">
+                    <!-- Filter Sesi (Typing + Dropdown) - Dibuat Ramping & Hemat Ruang -->
+                    <div class="flex-1 min-w-[200px] sm:min-w-[260px] flex items-center gap-1.5">
                         <!-- Input ketik untuk panggil angka sesi -->
-                        <div class="w-16 sm:w-20 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
+                        <div class="w-14 sm:w-16 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
                             <input type="text" 
                                    id="inputFilterSesiTyping" 
                                    oninput="onFilterSesiTypeInput(this.value)" 
                                    placeholder="Sesi #" 
                                    maxlength="4" 
-                                   class="w-full px-2 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white font-bold text-center text-bkn-900 focus:ring-2 focus:ring-bkn-600 focus:outline-none placeholder:font-normal placeholder:text-slate-400 shadow-xs transition-colors">
+                                   class="w-full px-1.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white font-bold text-center text-bkn-900 focus:ring-1.5 focus:ring-bkn-600 focus:outline-none placeholder:font-normal placeholder:text-slate-400 shadow-2xs transition-colors">
                         </div>
 
                         <!-- Dropdown pemilihan sesi kumulatif (menyesuaikan tanggal aktif) -->
                         <div class="flex-1 min-w-0">
                             <select id="selectFilterSesiDropdown" 
                                     onchange="onFilterSesiDropdownChange(this.value)" 
-                                    class="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none truncate shadow-xs transition-colors">
+                                    class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none truncate shadow-2xs transition-colors">
                                 <option value="ALL">-- Sesi --</option>
                             </select>
                         </div>
                     </div>
 
-                    <!-- Tombol Reset Filter (Selalu berada di baris filter bersama elemen lainnya) -->
+                    <!-- Tombol Reset Filter (Ramping & Hemat Tempat) -->
                     <div class="flex-shrink-0">
                         <button type="button" 
                                 id="btnResetCandidateFilter"
                                 onclick="resetAllCandidateFilters()" 
-                                class="py-2 px-3.5 text-xs font-bold rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer select-none whitespace-nowrap" 
+                                class="h-7 sm:h-7.5 px-2.5 py-1 text-[11px] font-bold rounded-md border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition flex items-center justify-center gap-1 shadow-2xs cursor-pointer select-none whitespace-nowrap" 
                                 title="Reset semua filter dan pencarian ke default">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 stroke-[2.5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 stroke-[2.5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                                 <path d="M3 3v5h5"/>
                             </svg>
                             <span>Reset</span>
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Bar Card Sesi Akumulasi (Glassmorphism, Horizontal Smooth Scroll & Auto-Tracking Real-Time - Compact & Hemat Ruang) -->
+            <div id="cumulativeSessionCardsBar" class="backdrop-blur-md bg-white/75 border border-white/80 rounded-xl p-1.5 sm:p-2 shadow-xs transition-all mb-2">
+                <div class="flex items-center justify-between gap-1.5 mb-1 px-0.5">
+                    <div class="flex items-center gap-1.5">
+                        <span class="inline-flex items-center justify-center w-4 h-4 rounded bg-bkn-800 text-white text-[9px] font-black shadow-2xs">
+                            <i data-lucide="layers" class="w-2.5 h-2.5"></i>
+                        </span>
+                        <span class="text-[11px] font-bold text-slate-800 tracking-tight">Sesi Akumulasi</span>
+                        <span id="sessionCardsLiveStatus" class="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+                            <span id="sessionCardsLiveStatusText">Auto-Tracking</span>
+                        </span>
+                    </div>
+
+                    <!-- Indikator tanggal aktif & Tombol navigasi scroll kiri-kanan -->
+                    <div class="flex items-center gap-1.5">
+                        <span id="sessionCardsActiveDateLabel" class="text-[10px] font-semibold text-slate-600 hidden md:inline"></span>
+                        <div class="flex items-center space-x-1">
+                            <button type="button" 
+                                    id="btnScrollSessionLeft" 
+                                    onclick="scrollSessionCards('left')" 
+                                    class="p-0.5 rounded border border-slate-200 bg-white/90 hover:bg-slate-100 text-slate-600 hover:text-slate-900 shadow-2xs transition cursor-pointer" 
+                                    title="Geser sesi ke kiri">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <button type="button" 
+                                    id="btnScrollSessionRight" 
+                                    onclick="scrollSessionCards('right')" 
+                                    class="p-0.5 rounded border border-slate-200 bg-white/90 hover:bg-slate-100 text-slate-600 hover:text-slate-900 shadow-2xs transition cursor-pointer" 
+                                    title="Geser sesi ke kanan">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Horizontal scrollable card container -->
+                <div id="sessionCardsScrollContainer" class="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth py-0.5 px-0.5">
+                    <!-- Populated dynamically by renderCumulativeSessionCards() -->
                 </div>
             </div>
 

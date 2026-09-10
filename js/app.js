@@ -6,7 +6,21 @@
 
 import { masterInstansiData, toTitleCase, getInstansiPin } from '../masterInstansi.js';
 import * as db from './db.js';
-import { parseFlexibleDate, isFriday, isSunday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber, calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
+import { 
+    parseFlexibleDate, 
+    isFriday, 
+    isSunday, 
+    getSessionTime, 
+    formatDateDisplay, 
+    getDayNameID, 
+    formatCumulativeSessionNumber, 
+    calculateCumulativeSessionNumber, 
+    convertCumulativeSessionToDaily,
+    getCurrentWitDate,
+    determineActiveSessionByTime,
+    findRelevantExamDate,
+    getMaxSessionsForDate
+} from './sessionRules.js';
 import { 
     parseExcelFile, 
     downloadExcelTemplate, 
@@ -122,6 +136,11 @@ function initLiveClockWIT() {
             const dayName = getDayNameID(witDate);
             const formatted = formatDateDisplay(witDate, 'long');
             dateEl.textContent = `${dayName}, ${formatted}`;
+        }
+
+        // Pengecekan otomatis perpindahan sesi saat jam berganti (08:00, 11:00, 14:00, 17:00 WIT)
+        if (seconds === '00' || !lastCheckedSessionKey) {
+            checkAndAutoSwitchSession();
         }
     }
 
@@ -318,10 +337,14 @@ async function setActiveExam(examId) {
                     // Jika jumlah peserta berubah (tambah/hapus): perbarui dropdown dan tabel penuh
                     if (cloudCandidates.length !== prevCount) {
                         populatePelaksanaanFilterDropdown();
-                        populateSesiFilterDropdown(currentDateFilter || 'ALL');
                         populateKelJabatanFilterDropdown();
                         renderDashboardStats();
-                        applyCandidateFilters();
+                        if (!userManualFilterApplied) {
+                            autoApplyLiveSessionFilter(false);
+                        } else {
+                            populateSesiFilterDropdown(currentDateFilter || 'ALL');
+                            applyCandidateFilters();
+                        }
                         return;
                     }
 
@@ -331,6 +354,7 @@ async function setActiveExam(examId) {
                     cloudSyncDebounceTimer = setTimeout(() => {
                         updateFloatingAttendanceBubble();
                         renderDashboardStats();
+                        renderCumulativeSessionCards();
                     }, 250);
                 }
             });
@@ -345,9 +369,13 @@ async function setActiveExam(examId) {
 
     renderDashboardStats();
     populatePelaksanaanFilterDropdown();
-    populateSesiFilterDropdown('ALL');
     populateKelJabatanFilterDropdown();
-    applyCandidateFilters();
+    if (!userManualFilterApplied) {
+        autoApplyLiveSessionFilter(false);
+    } else {
+        populateSesiFilterDropdown(currentDateFilter || 'ALL');
+        applyCandidateFilters();
+    }
 }
 
 /**
@@ -2241,6 +2269,7 @@ window.triggerDownloadTemplate = () => {
  * Filter dan Render Tabel Data Peserta
  */
 window.setCandidateFilterSession = (session) => {
+    userManualFilterApplied = true;
     currentSessionFilter = session;
 
     // Update status aktif tombol pills
@@ -2290,6 +2319,7 @@ window.setCandidateFilterSession = (session) => {
  * Mengatur filter tanggal sekaligus menyaring opsi filter sesi agar hanya sesi pada tanggal tersebut yang aktif
  */
 window.onFilterPelaksanaanChange = (dateVal) => {
+    userManualFilterApplied = true;
     currentDateFilter = dateVal || 'ALL';
     populateSesiFilterDropdown(currentDateFilter);
     applyCandidateFilters();
@@ -2300,6 +2330,7 @@ window.onFilterPelaksanaanChange = (dateVal) => {
  */
 let sessionTypeDebounce = null;
 window.onFilterSesiTypeInput = (inputVal) => {
+    userManualFilterApplied = true;
     clearTimeout(sessionTypeDebounce);
     sessionTypeDebounce = setTimeout(() => {
         const select = document.getElementById('selectFilterSesiDropdown');
@@ -2347,6 +2378,7 @@ window.onFilterSesiTypeInput = (inputVal) => {
  * Event handler saat dropdown filter sesi dipilih
  */
 window.onFilterSesiDropdownChange = (sessionValue) => {
+    userManualFilterApplied = true;
     const inputTyping = document.getElementById('inputFilterSesiTyping');
     if (sessionValue === 'ALL') {
         currentCumulativeSessionFilter = 'ALL';
@@ -2386,8 +2418,362 @@ window.renderCandidateTable = () => {
     window.onFilterPelaksanaanChange(selectDate ? selectDate.value : 'ALL');
 };
 
+let userManualFilterApplied = false;
+let lastCheckedSessionKey = '';
+
+/**
+ * Otomatis mendeteksi status sesi berjalan saat ini (berdasarkan waktu WIT)
+ */
+function evaluateCurrentSessionSchedule() {
+    const sortedDates = getSortedExamDates();
+    if (!sortedDates || sortedDates.length === 0) {
+        return {
+            hasDates: false,
+            sortedDates: [],
+            relevantDate: null,
+            activeDailySesi: null,
+            isOutsideSessionHours: true,
+            activeCumNum: null,
+            daySessions: []
+        };
+    }
+
+    const relevantDate = findRelevantExamDate(sortedDates);
+    const timeInfo = determineActiveSessionByTime(relevantDate);
+    const maxS = getMaxSessionsForDate(relevantDate);
+
+    const daySessions = [];
+    for (let s = 1; s <= maxS; s++) {
+        const cum = calculateCumulativeSessionNumber({ pelaksanaan: relevantDate, sesi: s }, sortedDates);
+        if (cum !== null) {
+            daySessions.push({
+                dailySesi: s,
+                cumNum: cum
+            });
+        }
+    }
+
+    let activeCumNum = null;
+    if (!timeInfo.isOutsideSessionHours && timeInfo.activeDailySesi) {
+        activeCumNum = calculateCumulativeSessionNumber({ pelaksanaan: relevantDate, sesi: timeInfo.activeDailySesi }, sortedDates);
+    }
+
+    return {
+        hasDates: true,
+        sortedDates,
+        relevantDate,
+        activeDailySesi: timeInfo.activeDailySesi,
+        isOutsideSessionHours: timeInfo.isOutsideSessionHours,
+        currentMinutes: timeInfo.currentMinutes,
+        activeCumNum,
+        daySessions
+    };
+}
+
+/**
+ * Merender deretan Card Sesi Akumulasi Glassmorphism di atas tabel
+ * Sesuai referensi: card bernuansa tanggal kalender dengan indikator sesi berjalan,
+ * efek multi-active di luar jam sesi, dan highlight kontras saat sesi aktif.
+ */
+function renderCumulativeSessionCards() {
+    const bar = document.getElementById('cumulativeSessionCardsBar');
+    const container = document.getElementById('sessionCardsScrollContainer');
+    const statusTextEl = document.getElementById('sessionCardsLiveStatusText');
+    const statusBadgeEl = document.getElementById('sessionCardsLiveStatus');
+    const dateLabelEl = document.getElementById('sessionCardsActiveDateLabel');
+
+    if (!bar || !container) return;
+
+    if (!currentExam || !currentCandidates || currentCandidates.length === 0) {
+        bar.classList.add('hidden');
+        return;
+    }
+    bar.classList.remove('hidden');
+
+    const schedule = evaluateCurrentSessionSchedule();
+    if (!schedule.hasDates) {
+        container.innerHTML = `<span class="text-xs text-slate-400 italic py-2">Belum ada jadwal sesi ujian.</span>`;
+        return;
+    }
+
+    const sortedDates = schedule.sortedDates;
+    const relevantDate = schedule.relevantDate;
+
+    // Update label tanggal aktif di kanan
+    if (dateLabelEl) {
+        const isFri = isFriday(relevantDate);
+        dateLabelEl.innerHTML = `Hari Ini: <strong class="text-slate-800">${relevantDate}</strong> ${isFri ? '<span class="text-rose-600 font-bold">(Jumat)</span>' : ''}`;
+    }
+
+    // Update status badge real-time
+    if (statusTextEl && statusBadgeEl) {
+        if (userManualFilterApplied) {
+            statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200';
+            statusTextEl.innerHTML = 'Filter Manual Aktif (Klik Reset untuk Auto-Tracking)';
+        } else if (schedule.isOutsideSessionHours) {
+            statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200';
+            statusTextEl.innerHTML = `Luar Jam Sesi • Default: Semua Sesi (${relevantDate})`;
+        } else {
+            statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200';
+            statusTextEl.innerHTML = `Sesi ${schedule.activeDailySesi} Berjalan • Auto-Tracking Aktif`;
+        }
+    }
+
+    // Hitung peserta Sesi 00 (Belum Terjadwal) jika ada
+    const countSesi00 = currentCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length;
+
+    let html = '';
+
+    // Card Sesi 00 jika ada peserta belum terjadwal
+    if (countSesi00 > 0) {
+        const is00Selected = currentCumulativeSessionFilter === '00' || currentSessionFilter === '00';
+        html += `
+            <button type="button" 
+                    id="session-card-00"
+                    onclick="selectCumulativeSessionCard('00', 'ALL')" 
+                    class="flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none ${
+                        is00Selected 
+                            ? 'bg-slate-800 text-white border-2 border-slate-900 shadow-xs scale-105 ring-1 ring-slate-400' 
+                            : 'border border-slate-300 bg-slate-100/90 hover:bg-slate-200 text-slate-700 shadow-2xs'
+                    }" 
+                    title="Sesi 00 (Belum Terjadwal) - ${countSesi00} Peserta">
+                <span class="text-[8.5px] sm:text-[9px] font-bold ${is00Selected ? 'text-slate-200' : 'text-slate-500'} leading-none">Sesi</span>
+                <span class="text-xs sm:text-sm font-black leading-none my-0.5 tracking-tight ${is00Selected ? 'text-white' : 'text-slate-800'}">00</span>
+                <span class="text-[7.5px] sm:text-[8px] font-bold ${is00Selected ? 'text-slate-200' : 'text-rose-600'} leading-none">[${countSesi00}]</span>
+            </button>
+        `;
+    }
+
+    // Loop tiap tanggal dan tiap sesi
+    sortedDates.forEach(dateStr => {
+        const isFri = isFriday(dateStr);
+        const dayMax = getMaxSessionsForDate(dateStr);
+        const dObj = parseFlexibleDate(dateStr);
+        const dayNamesShort = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+        const dayAbbr = dObj ? dayNamesShort[dObj.getDay()] : 'Sesi';
+
+        for (let s = 1; s <= dayMax; s++) {
+            const cumNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, sortedDates);
+            if (cumNum === null) continue;
+
+            const cumFormatted = formatCumulativeSessionNumber(cumNum);
+            const candCount = currentCandidates.filter(c => c.pelaksanaan === dateStr && Number(c.sesi) === s).length;
+            const timeStr = getSessionTime(s, dateStr);
+
+            // Kondisi aktif:
+            // 1. Single Active:
+            //    - Waktu sesi sedang berjalan di jam ini (dan user tidak sedang filter manual)
+            //    - ATAU user secara manual mengklik sesi kumulatif ini
+            const isRunningNow = !schedule.isOutsideSessionHours && (dateStr === relevantDate && schedule.activeDailySesi === s);
+            const isManualSelected = currentCumulativeSessionFilter !== 'ALL' && Number(currentCumulativeSessionFilter) === cumNum;
+            const isSingleActive = (!userManualFilterApplied && isRunningNow) || isManualSelected;
+
+            // 2. Multi Active:
+            //    - Saat di luar jam sesi, semua card sesi pada tanggal relevan (misal 10 Sep sesi 4,5,6) aktif bersamaan
+            //    - ATAU filter tanggal = dateStr dan currentCumulativeSessionFilter === 'ALL'
+            const isDayMatch = (dateStr === relevantDate);
+            const isOutsideMultiActive = !userManualFilterApplied && schedule.isOutsideSessionHours && isDayMatch && currentCumulativeSessionFilter === 'ALL';
+            const isDateFilterMatch = userManualFilterApplied && currentDateFilter === dateStr && currentCumulativeSessionFilter === 'ALL';
+            const isMultiActive = !isSingleActive && (isOutsideMultiActive || isDateFilterMatch);
+
+            let cardClasses = '';
+            let topTextClass = '';
+            let numTextClass = '';
+            let subTextClass = '';
+
+            if (isSingleActive) {
+                // Tampilan Single Active (Solid Blue Fill, Popped Scale, White Text - Seperti "Thu 24" di gambar)
+                cardClasses = 'session-card-single-active flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none bg-gradient-to-b from-blue-600 to-blue-700 text-white border-2 border-blue-700 shadow-xs ring-1 ring-blue-300 scale-105';
+                topTextClass = 'text-blue-100 font-bold';
+                numTextClass = 'text-white font-black';
+                subTextClass = 'text-blue-200 font-semibold';
+            } else if (isMultiActive) {
+                // Tampilan Multi Active (Luar jam sesi: Sesi hari ini serempak aktif dengan warna seragam)
+                cardClasses = 'session-card-multi-active flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none bg-sky-100 text-sky-950 border border-sky-500 shadow-2xs font-bold scale-[1.02]';
+                topTextClass = 'text-sky-800 font-extrabold';
+                numTextClass = 'text-sky-950 font-black';
+                subTextClass = 'text-sky-700 font-bold';
+            } else if (isFri) {
+                // Tampilan Hari Jumat (Border & Teks Merah - Seperti "Fri 25" di gambar)
+                cardClasses = 'flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none border border-rose-400 bg-rose-50/70 hover:bg-rose-100 text-rose-800 hover:border-rose-500 shadow-2xs';
+                topTextClass = 'text-rose-700 font-bold';
+                numTextClass = 'text-rose-800 font-black';
+                subTextClass = 'text-rose-600 font-semibold';
+            } else {
+                // Tampilan Normal (Border Halus, Background Putih/Transparan - Seperti "Mon 21" di gambar)
+                cardClasses = 'flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none border border-blue-200/80 bg-white/90 hover:bg-blue-50 hover:border-blue-400 text-slate-800 shadow-2xs';
+                topTextClass = 'text-slate-600 font-semibold';
+                numTextClass = 'text-slate-900 font-black';
+                subTextClass = 'text-slate-500 font-medium';
+            }
+
+            const tooltipTitle = `Sesi Kumulatif ${cumFormatted}: ${dateStr} (Sesi ${s} - ${timeStr}) [${candCount} Peserta]`;
+
+            html += `
+                <button type="button" 
+                        id="session-card-${cumNum}"
+                        onclick="selectCumulativeSessionCard(${cumNum}, '${dateStr}')" 
+                        class="${cardClasses}" 
+                        title="${tooltipTitle}">
+                    <span class="text-[8.5px] sm:text-[9px] ${topTextClass} leading-none truncate max-w-full px-0.5">${dayAbbr}, S${s}</span>
+                    <span class="text-xs sm:text-sm ${numTextClass} leading-none my-0.5 tracking-tight">${cumFormatted}</span>
+                    <span class="text-[7.5px] sm:text-[8px] ${subTextClass} leading-none">[${candCount}]</span>
+                </button>
+            `;
+        }
+    });
+
+    container.innerHTML = html;
+}
+
+window.renderCumulativeSessionCards = renderCumulativeSessionCards;
+
+/**
+ * Klik card sesi kumulatif manual oleh pengguna
+ */
+window.selectCumulativeSessionCard = (cumNum, targetDate) => {
+    userManualFilterApplied = true;
+
+    if (cumNum === '00' || cumNum === 0) {
+        setCandidateFilterSession('00');
+        return;
+    }
+
+    const num = Number(cumNum);
+    currentDateFilter = targetDate;
+    currentCumulativeSessionFilter = num;
+    currentSessionFilter = 'ALL';
+
+    const selectDate = document.getElementById('selectFilterPelaksanaan');
+    if (selectDate) selectDate.value = targetDate;
+
+    populateSesiFilterDropdown(targetDate);
+
+    const selectSesi = document.getElementById('selectFilterSesiDropdown');
+    if (selectSesi) selectSesi.value = String(num);
+
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(num);
+
+    document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+        btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+    });
+
+    applyCandidateFilters();
+    showToast(`Filter manual: Sesi Kumulatif ${formatCumulativeSessionNumber(num)} (${targetDate})`, 'info');
+};
+
+/**
+ * Menggeser card sesi horizontal ke kiri atau ke kanan
+ */
+window.scrollSessionCards = (direction) => {
+    const container = document.getElementById('sessionCardsScrollContainer');
+    if (!container) return;
+    const amount = direction === 'left' ? -220 : 220;
+    container.scrollBy({ left: amount, behavior: 'smooth' });
+};
+
+/**
+ * Menggulir fokus kontainer sesi ke card yang sedang aktif secara halus
+ */
+function scrollActiveSessionCardIntoView() {
+    const container = document.getElementById('sessionCardsScrollContainer');
+    if (!container) return;
+    const activeCard = container.querySelector('.session-card-single-active') || 
+                       container.querySelector('.session-card-multi-active');
+    if (activeCard) {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+}
+
+/**
+ * Menerapkan filter sesi otomatis berbasis jam WIT
+ */
+function autoApplyLiveSessionFilter(showResetToast = false) {
+    userManualFilterApplied = false;
+    const schedule = evaluateCurrentSessionSchedule();
+
+    if (!schedule.hasDates) {
+        currentDateFilter = 'ALL';
+        currentCumulativeSessionFilter = 'ALL';
+        currentSessionFilter = 'ALL';
+        populatePelaksanaanFilterDropdown();
+        populateSesiFilterDropdown('ALL');
+        applyCandidateFilters();
+        return;
+    }
+
+    const selectDate = document.getElementById('selectFilterPelaksanaan');
+    const inputTyping = document.getElementById('inputFilterSesiTyping');
+    const selectSesi = document.getElementById('selectFilterSesiDropdown');
+
+    if (!schedule.isOutsideSessionHours && schedule.activeCumNum) {
+        // Sedang dalam jam sesi aktif:
+        currentDateFilter = schedule.relevantDate;
+        currentCumulativeSessionFilter = schedule.activeCumNum;
+        currentSessionFilter = 'ALL';
+
+        if (selectDate) selectDate.value = schedule.relevantDate;
+        populateSesiFilterDropdown(schedule.relevantDate);
+
+        if (selectSesi) selectSesi.value = String(schedule.activeCumNum);
+        if (inputTyping) inputTyping.value = formatCumulativeSessionNumber(schedule.activeCumNum);
+
+        document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+            btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        });
+
+        if (showResetToast) {
+            showToast(`Filter di-reset ke Sesi Kumulatif ${formatCumulativeSessionNumber(schedule.activeCumNum)} (Sesi ${schedule.activeDailySesi} sedang berjalan).`, 'info');
+        }
+    } else {
+        // Di luar jam sesi:
+        // Default menampilkan seluruh sesi pada tanggal tersebut (misal sesi 4,5,6 untuk 10 September)
+        currentDateFilter = schedule.relevantDate;
+        currentCumulativeSessionFilter = 'ALL';
+        currentSessionFilter = 'ALL';
+
+        if (selectDate) selectDate.value = schedule.relevantDate;
+        populateSesiFilterDropdown(schedule.relevantDate);
+
+        if (selectSesi) selectSesi.value = 'ALL';
+        if (inputTyping) inputTyping.value = '';
+
+        document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+            btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        });
+        const btnAll = document.getElementById('btnFilterSesiAll');
+        if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
+
+        if (showResetToast) {
+            showToast(`Filter di-reset ke seluruh sesi tanggal ${schedule.relevantDate} (Luar Jam Sesi).`, 'info');
+        }
+    }
+
+    populateKelJabatanFilterDropdown();
+    applyCandidateFilters();
+    setTimeout(scrollActiveSessionCardIntoView, 150);
+}
+window.autoApplyLiveSessionFilter = autoApplyLiveSessionFilter;
+
+/**
+ * Pengecekan real-time periodik untuk transisi sesi otomatis saat jam berganti
+ */
+function checkAndAutoSwitchSession() {
+    if (userManualFilterApplied || !currentExam || !currentCandidates || currentCandidates.length === 0) return;
+    const schedule = evaluateCurrentSessionSchedule();
+    if (!schedule.hasDates) return;
+
+    const currentKey = `${schedule.relevantDate}_${schedule.isOutsideSessionHours ? 'OUTSIDE' : schedule.activeDailySesi}`;
+    if (currentKey !== lastCheckedSessionKey) {
+        lastCheckedSessionKey = currentKey;
+        autoApplyLiveSessionFilter(false);
+    }
+}
+
 /**
  * Reset Seluruh Filter dan Input Pencarian ke Nilai Default
+ * Kondisi filter yang aktif otomatis mengikuti kondisi sesi yang sedang berjalan saat ini
  */
 window.resetAllCandidateFilters = () => {
     // 1. Reset input search
@@ -2400,32 +2786,8 @@ window.resetAllCandidateFilters = () => {
     if (selectKel) selectKel.value = 'ALL';
     currentKelJabatanFilter = 'ALL';
 
-    // 3. Reset Tanggal Pelaksanaan
-    const selectDate = document.getElementById('selectFilterPelaksanaan');
-    if (selectDate) selectDate.value = 'ALL';
-    currentDateFilter = 'ALL';
-
-    // 4. Reset Sesi Pills & Sesi Kumulatif
-    currentSessionFilter = 'ALL';
-    currentCumulativeSessionFilter = 'ALL';
-
-    const inputTyping = document.getElementById('inputFilterSesiTyping');
-    if (inputTyping) inputTyping.value = '';
-
-    const selectSesi = document.getElementById('selectFilterSesiDropdown');
-    if (selectSesi) selectSesi.value = 'ALL';
-
-    document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
-        btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
-    });
-    const btnAll = document.getElementById('btnFilterSesiAll');
-    if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
-
-    populateSesiFilterDropdown('ALL');
-    populateKelJabatanFilterDropdown();
-    applyCandidateFilters();
-
-    showToast("Semua filter dan pencarian telah di-reset.", "info");
+    // 3. Reset filter sesi dan tanggal mengikuti kondisi berjalan saat ini
+    autoApplyLiveSessionFilter(true);
 };
 
 function populatePelaksanaanFilterDropdown() {
@@ -2982,6 +3344,7 @@ function applyCandidateFilters(resetPage = true) {
     renderCandidateListTable();
     updateActiveFilterStyles();
     updateFloatingAttendanceBubble();
+    renderCumulativeSessionCards();
 }
 
 /**

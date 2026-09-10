@@ -309,4 +309,95 @@ export function convertCumulativeSessionToDaily(cumulativeSessionNum, sortedDate
     };
 }
 
+/**
+ * Mengambil Date object saat ini dalam zona Waktu Indonesia Timur (WIT / UTC+9)
+ * @returns {Date}
+ */
+export function getCurrentWitDate() {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    return new Date(utc + (3600000 * 9));
+}
+
+/**
+ * Menentukan sesi harian yang sedang berjalan berdasarkan waktu WIT saat ini
+ * Aturan:
+ * Hari Biasa:
+ * - Sesi 1: 08:00 - 11:00 WIT (480 - 660 mnt)
+ * - Sesi 2: 11:00 - 14:00 WIT (660 - 840 mnt)
+ * - Sesi 3: 14:00 - 17:00 WIT (840 - 1020 mnt)
+ * Khusus Hari Jumat:
+ * - Sesi 1: 08:00 - 11:00 WIT (480 - 660 mnt)
+ * - Sesi 2: 13:00 - 16:00 WIT (780 - 960 mnt)
+ * Di luar jam sesi: returns { activeDailySesi: null, isOutsideSessionHours: true }
+ * 
+ * @param {string|Date|number} dateInput Tanggal yang dievaluasi
+ * @param {Date} [witDateNow=null] Opsional Date object WIT
+ * @returns {{ activeDailySesi: number|null, isOutsideSessionHours: boolean, currentMinutes: number }}
+ */
+export function determineActiveSessionByTime(dateInput, witDateNow = null) {
+    const now = witDateNow || getCurrentWitDate();
+    const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+    const fri = isFriday(dateInput);
+
+    if (fri) {
+        if (currentMinutes >= 480 && currentMinutes < 660) {
+            return { activeDailySesi: 1, isOutsideSessionHours: false, currentMinutes };
+        }
+        if (currentMinutes >= 780 && currentMinutes < 960) {
+            return { activeDailySesi: 2, isOutsideSessionHours: false, currentMinutes };
+        }
+        return { activeDailySesi: null, isOutsideSessionHours: true, currentMinutes };
+    } else {
+        if (currentMinutes >= 480 && currentMinutes < 660) {
+            return { activeDailySesi: 1, isOutsideSessionHours: false, currentMinutes };
+        }
+        if (currentMinutes >= 660 && currentMinutes < 840) {
+            return { activeDailySesi: 2, isOutsideSessionHours: false, currentMinutes };
+        }
+        if (currentMinutes >= 840 && currentMinutes < 1020) {
+            return { activeDailySesi: 3, isOutsideSessionHours: false, currentMinutes };
+        }
+        return { activeDailySesi: null, isOutsideSessionHours: true, currentMinutes };
+    }
+}
+
+/**
+ * Mencari tanggal ujian yang relevan saat ini dari daftar sortedDates
+ * Jika tanggal hari ini ada di daftar sortedDates, gunakan tanggal tersebut.
+ * Jika hari ini sebelum tanggal pertama, gunakan tanggal pertama.
+ * Jika hari ini setelah tanggal terakhir, gunakan tanggal terakhir.
+ * @param {Array<string>} sortedDates 
+ * @param {Date} [witDateNow=null] 
+ * @returns {string|null}
+ */
+export function findRelevantExamDate(sortedDates, witDateNow = null) {
+    if (!Array.isArray(sortedDates) || sortedDates.length === 0) return null;
+    const now = witDateNow || getCurrentWitDate();
+    
+    // Cari tanggal yang sama persis
+    for (const dStr of sortedDates) {
+        const dObj = parseFlexibleDate(dStr);
+        if (dObj && dObj.getDate() === now.getDate() && 
+            dObj.getMonth() === now.getMonth() && 
+            dObj.getFullYear() === now.getFullYear()) {
+            return dStr;
+        }
+    }
+
+    const nowZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const firstDateObj = parseFlexibleDate(sortedDates[0]);
+    if (firstDateObj && nowZero < new Date(firstDateObj.getFullYear(), firstDateObj.getMonth(), firstDateObj.getDate()).getTime()) {
+        return sortedDates[0];
+    }
+
+    const lastDateObj = parseFlexibleDate(sortedDates[sortedDates.length - 1]);
+    if (lastDateObj && nowZero > new Date(lastDateObj.getFullYear(), lastDateObj.getMonth(), lastDateObj.getDate()).getTime()) {
+        return sortedDates[sortedDates.length - 1];
+    }
+
+    return sortedDates[0];
+}
+
+
 
