@@ -4832,10 +4832,13 @@ function renderRekapModalTables() {
             }
         });
 
-        // Rincian Akumulasi Sesi per Tanggal
-        const sessions = [1, 2, 3];
+        // Rincian Akumulasi Sesi per Tanggal (Jumat otomatis 2 sesi)
+        const sessions = isFriday(dateStr) ? [1, 2] : [1, 2, 3];
         const hasSession0 = candsDate.some(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0);
         if (hasSession0) sessions.unshift(0);
+        if (isFriday(dateStr) && candsDate.some(c => Number(c.sesi) === 3)) {
+            sessions.push(3);
+        }
 
         sessions.forEach(s => {
             const candsSession = candsDate.filter(c => {
@@ -4843,8 +4846,8 @@ function renderRekapModalTables() {
                 return Number(c.sesi) === s;
             });
 
-            if (candsSession.length > 0 || (s >= 1 && s <= 3)) {
-                const cumSesiNum = (dayIdx * 3) + s;
+            if (candsSession.length > 0 || (s >= 1 && s <= (isFriday(dateStr) ? 2 : 3))) {
+                const cumSesiNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, uniqueDates) || ((dayIdx * 3) + s);
                 const label = s === 0 ? 'Belum Terjadwal (00)' : `Sesi ${s} [${cumSesiNum}]`;
 
                 const sessData = {
@@ -4853,6 +4856,8 @@ function renderRekapModalTables() {
                     label: label,
                     hadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
                     tidakHadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+                    totalHadir: 0,
+                    totalTidakHadir: 0,
                     total: candsSession.length
                 };
 
@@ -4872,6 +4877,9 @@ function renderRekapModalTables() {
 
                     if (targetObj) targetObj[pilar]++;
                 });
+
+                sessData.totalHadir = ['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + sessData.hadir[k], 0);
+                sessData.totalTidakHadir = ['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + sessData.tidakHadir[k], 0);
 
                 rowData.sessionBreakdown.push(sessData);
             }
@@ -4924,7 +4932,11 @@ function renderRekapModalTables() {
         `;
 
         let tbodyHtml = tab1Rows.map((r, idx) => {
-            const childSubRowsHtml = (r.sessionBreakdown || []).map((sb, sIdx) => `
+            const childSubRowsHtml = (r.sessionBreakdown || []).map((sb, sIdx) => {
+                const totHadir = sb.totalHadir !== undefined ? sb.totalHadir : (['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + (sb.hadir[k] || 0), 0));
+                const totTidakHadir = sb.totalTidakHadir !== undefined ? sb.totalTidakHadir : (['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + (sb.tidakHadir[k] || 0), 0));
+
+                return `
                 <tr class="hover:bg-blue-100/80 transition-colors border-b border-slate-300 text-[9px] sm:text-[10px] bg-slate-50/80">
                     <td class="p-1 sm:p-1.5 text-center font-bold text-slate-900 border-r border-slate-300 bg-slate-200/90 truncate">
                         ${sb.label}
@@ -4934,13 +4946,19 @@ function renderRekapModalTables() {
                     <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.admin}</td>
                     <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.pengawas}</td>
                     <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-extrabold border-r border-slate-200 bg-emerald-200/80">${sb.hadir.jf}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-300 bg-emerald-100/70">${sb.hadir.pelaksana}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-bold border-r border-slate-200 bg-emerald-100/70">${sb.hadir.pelaksana}</td>
+                    <!-- Kolom Tambahan: Total Hadir Sesi -->
+                    <td class="p-1 sm:p-1.5 text-center text-emerald-950 font-black border-r border-slate-400 bg-emerald-200/90 shadow-2xs">${totHadir}</td>
+
                     <!-- Tidak Hadir (Shade Merah Lebih Gelap Sedikit) -->
                     <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.jpt}</td>
                     <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.admin}</td>
                     <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.pengawas}</td>
                     <td class="p-1 sm:p-1.5 text-center text-rose-950 font-extrabold border-r border-slate-200 bg-rose-200/80">${sb.tidakHadir.jf}</td>
-                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-300 bg-rose-100/70">${sb.tidakHadir.pelaksana}</td>
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-bold border-r border-slate-200 bg-rose-100/70">${sb.tidakHadir.pelaksana}</td>
+                    <!-- Kolom Tambahan: Total Tidak Hadir Sesi -->
+                    <td class="p-1 sm:p-1.5 text-center text-rose-950 font-black border-r border-slate-400 bg-rose-200/90 shadow-2xs">${totTidakHadir}</td>
+
                     <!-- Total -->
                     <td class="p-1 sm:p-1.5 text-center font-extrabold text-slate-900 border-r border-slate-300 bg-slate-200">${sb.total}</td>
                     <!-- Aksi -->
@@ -4954,7 +4972,8 @@ function renderRekapModalTables() {
                         </button>
                     </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
 
             return `
                 <tr class="hover:bg-blue-50/60 transition-colors border-b border-slate-100 text-[10px] sm:text-[11px] cursor-pointer group select-none"
@@ -5008,19 +5027,21 @@ function renderRekapModalTables() {
                             <table class="w-full table-fixed text-left border-collapse border border-slate-400 rounded-lg overflow-hidden shadow-2xs">
                                 <thead class="text-white text-[9px] sm:text-[10px] uppercase font-extrabold select-none shadow-xs border-b border-slate-700">
                                     <tr>
-                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-amber-300 border-r border-slate-700" style="width: 11%;">Sesi</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir JPT Pratama">JPT</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir Administrator">Admin</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir Pengawas">Pengawas</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 7.2%;" title="Hadir JF">JF</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-slate-400 truncate" style="width: 7.2%;" title="Hadir Pelaksana">Pelaksana</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir JPT Pratama">JPT</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir Administrator">Admin</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir Pengawas">Pengawas</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 7.2%;" title="Tidak Hadir JF">JF</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-slate-400 truncate" style="width: 7.2%;" title="Tidak Hadir Pelaksana">Pelaksana</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white border-r border-slate-700" style="width: 8.5%;">Total</th>
-                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white" style="width: 8.5%;">Aksi</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-amber-300 border-r border-slate-700" style="width: 10%;">Sesi</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 6%;" title="Hadir JPT Pratama">JPT</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 6%;" title="Hadir Administrator">Admin</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 6.5%;" title="Hadir Pengawas">Pengawas</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-emerald-800 truncate" style="width: 5.5%;" title="Hadir JF">JF</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-900 text-emerald-100 border-r border-slate-300 truncate" style="width: 6.5%;" title="Hadir Pelaksana">Pelaksana</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-emerald-950 text-emerald-200 border-r border-slate-400 truncate font-black" style="width: 7.5%;" title="Total Hadir Sesi Ini"><span class="hidden sm:inline">Tot Hadir</span><span class="sm:hidden">Hdr</span></th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 6%;" title="Tidak Hadir JPT Pratama">JPT</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 6%;" title="Tidak Hadir Administrator">Admin</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 6.5%;" title="Tidak Hadir Pengawas">Pengawas</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-rose-800 truncate" style="width: 5.5%;" title="Tidak Hadir JF">JF</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-900 text-rose-100 border-r border-slate-300 truncate" style="width: 6.5%;" title="Tidak Hadir Pelaksana">Pelaksana</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-rose-950 text-rose-200 border-r border-slate-400 truncate font-black" style="width: 7.5%;" title="Total Tidak Hadir Sesi Ini"><span class="hidden sm:inline">Tot T.Hadir</span><span class="sm:hidden">TH</span></th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white border-r border-slate-700" style="width: 7.5%;">Total</th>
+                                        <th class="p-1 sm:p-1.5 text-center bg-slate-900 text-white" style="width: 6.5%;">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-300 bg-slate-50">
@@ -5345,9 +5366,11 @@ window.copySessionRekapKelJabatan = (rowIdx, sIdx) => {
     const row = currentRekapData.tab1Rows && currentRekapData.tab1Rows[rowIdx];
     if (!row || !row.sessionBreakdown || !row.sessionBreakdown[sIdx]) return;
     const sb = row.sessionBreakdown[sIdx];
+    const totHadir = sb.totalHadir !== undefined ? sb.totalHadir : (['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + (sb.hadir[k] || 0), 0));
+    const totTidakHadir = sb.totalTidakHadir !== undefined ? sb.totalTidakHadir : (['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].reduce((acc, k) => acc + (sb.tidakHadir[k] || 0), 0));
 
-    const headerStr = `Tanggal\tSesi\tHadir JPT Pratama\tHadir Administrator\tHadir Pengawas\tHadir Jab. Fungsional\tHadir Pelaksana\tTidak Hadir JPT Pratama\tTidak Hadir Administrator\tTidak Hadir Pengawas\tTidak Hadir Jab. Fungsional\tTidak Hadir Pelaksana\tTotal`;
-    const dataStr = `${row.date}\t${sb.label}\t${sb.hadir.jpt}\t${sb.hadir.admin}\t${sb.hadir.pengawas}\t${sb.hadir.jf}\t${sb.hadir.pelaksana}\t${sb.tidakHadir.jpt}\t${sb.tidakHadir.admin}\t${sb.tidakHadir.pengawas}\t${sb.tidakHadir.jf}\t${sb.tidakHadir.pelaksana}\t${sb.total}`;
+    const headerStr = `Tanggal\tSesi\tHadir JPT Pratama\tHadir Administrator\tHadir Pengawas\tHadir Jab. Fungsional\tHadir Pelaksana\tTotal Hadir\tTidak Hadir JPT Pratama\tTidak Hadir Administrator\tTidak Hadir Pengawas\tTidak Hadir Jab. Fungsional\tTidak Hadir Pelaksana\tTotal Tidak Hadir\tTotal`;
+    const dataStr = `${row.date}\t${sb.label}\t${sb.hadir.jpt}\t${sb.hadir.admin}\t${sb.hadir.pengawas}\t${sb.hadir.jf}\t${sb.hadir.pelaksana}\t${totHadir}\t${sb.tidakHadir.jpt}\t${sb.tidakHadir.admin}\t${sb.tidakHadir.pengawas}\t${sb.tidakHadir.jf}\t${sb.tidakHadir.pelaksana}\t${totTidakHadir}\t${sb.total}`;
 
     copyTextToClipboard(`${headerStr}\n${dataStr}`, `Data ${sb.label} (${row.date}) berhasil disalin! Format siap di-paste ke Excel.`);
 };
