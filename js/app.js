@@ -2531,15 +2531,15 @@ function renderCumulativeSessionCards() {
             <button type="button" 
                     id="session-card-00"
                     onclick="selectCumulativeSessionCard('00', 'ALL')" 
-                    class="flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none ${
+                    class="flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none ${
                         is00Selected 
-                            ? 'bg-slate-800 text-white border-2 border-slate-900 shadow-xs scale-105 ring-1 ring-slate-400' 
+                            ? 'session-card-single-active bg-slate-800 text-white border-2 border-slate-900 shadow-md scale-105 ring-2 ring-slate-400 z-10' 
                             : 'border border-slate-300 bg-slate-100/90 hover:bg-slate-200 text-slate-700 shadow-2xs'
                     }" 
                     title="Sesi 00 (Belum Terjadwal) - ${countSesi00} Peserta">
-                <span class="text-[8.5px] sm:text-[9px] font-bold ${is00Selected ? 'text-slate-200' : 'text-slate-500'} leading-none">Sesi</span>
-                <span class="text-xs sm:text-sm font-black leading-none my-0.5 tracking-tight ${is00Selected ? 'text-white' : 'text-slate-800'}">00</span>
-                <span class="text-[7.5px] sm:text-[8px] font-bold ${is00Selected ? 'text-slate-200' : 'text-rose-600'} leading-none">[${countSesi00}]</span>
+                <span class="text-[9px] sm:text-[9.5px] font-bold ${is00Selected ? 'text-slate-200' : 'text-slate-500'} leading-none block text-center truncate max-w-full px-0.5 tracking-tight">Sesi</span>
+                <span class="text-sm sm:text-base font-black leading-tight tracking-tight my-0 ${is00Selected ? 'text-white' : 'text-slate-800'}">00</span>
+                <span class="text-[8px] sm:text-[8.5px] font-bold ${is00Selected ? 'text-slate-200' : 'text-rose-600'} leading-none">[${countSesi00}]</span>
             </button>
         `;
     }
@@ -2583,25 +2583,25 @@ function renderCumulativeSessionCards() {
 
             if (isSingleActive) {
                 // Tampilan Single Active (Solid Blue Fill, Popped Scale, White Text - Seperti "Thu 24" di gambar)
-                cardClasses = 'session-card-single-active flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none bg-gradient-to-b from-blue-600 to-blue-700 text-white border-2 border-blue-700 shadow-xs ring-1 ring-blue-300 scale-105';
+                cardClasses = 'session-card-single-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-gradient-to-b from-blue-600 to-blue-700 text-white border-2 border-blue-700 shadow-md ring-2 ring-blue-300 scale-105 z-10';
                 topTextClass = 'text-blue-100 font-bold';
                 numTextClass = 'text-white font-black';
                 subTextClass = 'text-blue-200 font-semibold';
             } else if (isMultiActive) {
                 // Tampilan Multi Active (Luar jam sesi: Sesi hari ini serempak aktif dengan warna seragam)
-                cardClasses = 'session-card-multi-active flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none bg-sky-100 text-sky-950 border border-sky-500 shadow-2xs font-bold scale-[1.02]';
+                cardClasses = 'session-card-multi-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-sky-100 text-sky-950 border-2 border-sky-500 shadow-2xs font-bold scale-[1.02]';
                 topTextClass = 'text-sky-800 font-extrabold';
                 numTextClass = 'text-sky-950 font-black';
                 subTextClass = 'text-sky-700 font-bold';
             } else if (isFri) {
                 // Tampilan Hari Jumat (Border & Teks Merah - Seperti "Fri 25" di gambar)
-                cardClasses = 'flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none border border-rose-400 bg-rose-50/70 hover:bg-rose-100 text-rose-800 hover:border-rose-500 shadow-2xs';
+                cardClasses = 'flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none border-2 border-rose-400 bg-rose-50/70 hover:bg-rose-100 text-rose-800 hover:border-rose-500 shadow-2xs';
                 topTextClass = 'text-rose-700 font-bold';
                 numTextClass = 'text-rose-800 font-black';
                 subTextClass = 'text-rose-600 font-semibold';
             } else {
                 // Tampilan Normal (Border Halus, Background Putih/Transparan - Seperti "Mon 21" di gambar)
-                cardClasses = 'flex-shrink-0 w-12 sm:w-14 h-[44px] sm:h-[48px] rounded-lg flex flex-col items-center justify-center p-1 transition-all duration-200 cursor-pointer select-none border border-blue-200/80 bg-white/90 hover:bg-blue-50 hover:border-blue-400 text-slate-800 shadow-2xs';
+                cardClasses = 'flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none border border-blue-200/90 bg-white/90 hover:bg-blue-50 hover:border-blue-400 text-slate-800 shadow-2xs';
                 topTextClass = 'text-slate-600 font-semibold';
                 numTextClass = 'text-slate-900 font-black';
                 subTextClass = 'text-slate-500 font-medium';
@@ -2615,15 +2615,21 @@ function renderCumulativeSessionCards() {
                         onclick="selectCumulativeSessionCard(${cumNum}, '${dateStr}')" 
                         class="${cardClasses}" 
                         title="${tooltipTitle}">
-                    <span class="text-[8.5px] sm:text-[9px] ${topTextClass} leading-none truncate max-w-full px-0.5">${dayAbbr}, S${s}</span>
-                    <span class="text-xs sm:text-sm ${numTextClass} leading-none my-0.5 tracking-tight">${cumFormatted}</span>
-                    <span class="text-[7.5px] sm:text-[8px] ${subTextClass} leading-none">[${candCount}]</span>
+                    <span class="text-[9px] sm:text-[9.5px] ${topTextClass} leading-none block text-center truncate max-w-full px-0.5 tracking-tight">${dayAbbr}, S${s}</span>
+                    <span class="text-sm sm:text-base ${numTextClass} leading-tight tracking-tight my-0">${cumFormatted}</span>
+                    <span class="text-[8px] sm:text-[8.5px] ${subTextClass} leading-none">[${candCount}]</span>
                 </button>
             `;
         }
     });
 
     container.innerHTML = html;
+
+    // Otomatis posisikan sesi aktif tepat di tengah layar
+    requestAnimationFrame(() => {
+        scrollActiveSessionCardIntoView();
+        setTimeout(scrollActiveSessionCardIntoView, 60);
+    });
 }
 
 window.renderCumulativeSessionCards = renderCumulativeSessionCards;
@@ -2636,6 +2642,7 @@ window.selectCumulativeSessionCard = (cumNum, targetDate) => {
 
     if (cumNum === '00' || cumNum === 0) {
         setCandidateFilterSession('00');
+        setTimeout(() => scrollActiveSessionCardIntoView('session-card-00'), 80);
         return;
     }
 
@@ -2661,6 +2668,11 @@ window.selectCumulativeSessionCard = (cumNum, targetDate) => {
 
     applyCandidateFilters();
     showToast(`Filter manual: Sesi Kumulatif ${formatCumulativeSessionNumber(num)} (${targetDate})`, 'info');
+
+    // Otomatis posisikan sesi card yang dipilih tepat di tengah layar
+    setTimeout(() => {
+        scrollActiveSessionCardIntoView(`session-card-${num}`);
+    }, 80);
 };
 
 /**
@@ -2674,17 +2686,59 @@ window.scrollSessionCards = (direction) => {
 };
 
 /**
- * Menggulir fokus kontainer sesi ke card yang sedang aktif secara halus
+ * Menggulir kontainer horizontal secara presisi agar card sesi yang aktif berada tepat di tengah layar
+ * @param {HTMLElement|string|null} target - Element card atau ID card atau null (otomatis mencari card yang aktif)
  */
-function scrollActiveSessionCardIntoView() {
+function scrollActiveSessionCardIntoView(target = null) {
     const container = document.getElementById('sessionCardsScrollContainer');
     if (!container) return;
-    const activeCard = container.querySelector('.session-card-single-active') || 
-                       container.querySelector('.session-card-multi-active');
-    if (activeCard) {
-        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+    let targetEl = null;
+    if (typeof target === 'string') {
+        targetEl = document.getElementById(target);
+    } else if (target && target instanceof HTMLElement) {
+        targetEl = target;
+    }
+
+    if (!targetEl) {
+        // 1. Cek apakah ada card single active (misal sesi berjalan atau sesi yang dipilih)
+        targetEl = container.querySelector('.session-card-single-active');
+
+        // 2. Jika tidak ada, cek apakah ada multi-active (luar jam sesi). Ambil card di tengah grup aktif
+        if (!targetEl) {
+            const multiCards = container.querySelectorAll('.session-card-multi-active');
+            if (multiCards && multiCards.length > 0) {
+                const midIdx = Math.floor(multiCards.length / 2);
+                targetEl = multiCards[midIdx];
+            }
+        }
+    }
+
+    if (!targetEl) return;
+
+    // Hitung posisi horizontal pusat target relative terhadap pusat container
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+
+    const targetCenter = targetRect.left + (targetRect.width / 2);
+    const containerCenter = containerRect.left + (containerRect.width / 2);
+    const diff = targetCenter - containerCenter;
+
+    // Geser container secara halus hanya pada sumbu horizontal
+    if (Math.abs(diff) > 2) {
+        container.scrollBy({
+            left: diff,
+            behavior: 'smooth'
+        });
     }
 }
+window.scrollActiveSessionCardIntoView = scrollActiveSessionCardIntoView;
+
+// Listener resize layar agar card aktif selalu tetap di tengah
+window.addEventListener('resize', () => {
+    clearTimeout(window._sessionCardResizeTimer);
+    window._sessionCardResizeTimer = setTimeout(scrollActiveSessionCardIntoView, 200);
+});
 
 /**
  * Menerapkan filter sesi otomatis berbasis jam WIT
