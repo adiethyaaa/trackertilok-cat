@@ -6,7 +6,7 @@
 
 import { masterInstansiData, toTitleCase, getInstansiPin } from '../masterInstansi.js';
 import * as db from './db.js';
-import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber } from './sessionRules.js';
+import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, getDayNameID, formatCumulativeSessionNumber, calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
 import { 
     parseExcelFile, 
     downloadExcelTemplate, 
@@ -2567,16 +2567,11 @@ function getSortedExamDates() {
 
 /**
  * Menghitung nomor sesi kumulatif berlanjut antar hari
- * Hari 1: Sesi 1 -> 1, Sesi 2 -> 2, Sesi 3 -> 3
- * Hari 2: Sesi 1 -> 4, Sesi 2 -> 5, Sesi 3 -> 6, dst.
+ * Hari biasa: 3 sesi per hari (Sesi 1, 2, 3)
+ * Hari Jumat: 2 sesi per hari (Sesi 1, 2)
  */
 function getCumulativeSessionNumber(c, sortedDates) {
-    if (!c || !c.pelaksanaan || c.pelaksanaan === 'NULL' || !c.sesi || c.sesi === 'NULL') return null;
-    const dayIndex = sortedDates.indexOf(c.pelaksanaan);
-    if (dayIndex === -1) return null;
-    const s = Number(c.sesi);
-    if (isNaN(s) || s < 1) return null;
-    return (dayIndex * 3) + s;
+    return calculateCumulativeSessionNumber(c, sortedDates);
 }
 
 /**
@@ -5640,7 +5635,8 @@ function setupAuditUI() {
 
         try {
             const auditRows = await parseAuditExcel(file);
-            const comparison = compareAuditDataWithDatabase(auditRows, currentCandidates);
+            const sortedDates = getSortedExamDates();
+            const comparison = compareAuditDataWithDatabase(auditRows, currentCandidates, { sortedDates });
             currentAuditResult = comparison;
 
             // Default: pilih semua NIP yang memiliki perbedaan
@@ -5989,8 +5985,27 @@ function setupAuditUI() {
                         candInMem[ch.field] = rawVal;
                     }
 
+                    if (ch.field === 'sesi') {
+                        countSesiUpdated++;
+
+                        // Jika ada targetPelaksanaan hasil konversi sesi akumulasi
+                        if (ch.targetPelaksanaan && ch.targetPelaksanaan !== 'NULL') {
+                            updates[pathPrefix + 'pelaksanaan'] = ch.targetPelaksanaan;
+                            if (candInMem) candInMem.pelaksanaan = ch.targetPelaksanaan;
+
+                            // Perbarui jam pelaksanaan standar sesi
+                            const newTime = getSessionTime(rawVal, ch.targetPelaksanaan);
+                            updates[pathPrefix + 'waktu'] = newTime;
+                            if (candInMem) candInMem.waktu = newTime;
+
+                            const d = parseFlexibleDate(ch.targetPelaksanaan);
+                            const isFri = d ? isFriday(d) : false;
+                            updates[pathPrefix + 'isFriday'] = isFri;
+                            if (candInMem) candInMem.isFriday = isFri;
+                        }
+                    }
+
                     if (ch.field === 'kehadiran') countKehadiranUpdated++;
-                    if (ch.field === 'sesi') countSesiUpdated++;
                 });
 
                 // Set status Terjadwal jika sesi valid

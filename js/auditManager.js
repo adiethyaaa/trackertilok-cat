@@ -8,6 +8,9 @@
  * 4. Menyediakan antarmuka komparasi ala Windows dengan checkbox individual (Keep vs Replace) dan Select All.
  */
 
+import { calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
+
+
 // Mapping kolom fleksibel untuk file hasil sistem pasca ujian
 const AUDIT_HEADER_ALIASES = {
     nip: ['nip', 'nip baru', 'nomor induk pegawai', 'nrp', 'nip_peserta'],
@@ -167,12 +170,21 @@ export async function parseAuditExcel(file) {
 }
 
 /**
+ * Helper untuk menghitung nomor sesi akumulasi/kumulatif kandidat database
+ * Menghubungkan hari pelaksanaan dengan nomor sesi harian (Hari Jumat otomatis 2 sesi)
+ */
+function calculateCandidateCumulativeSession(cand, sortedDates) {
+    return calculateCumulativeSessionNumber(cand, sortedDates);
+}
+
+/**
  * Membandingkan data Excel pasca ujian dengan data database peserta yang aktif
  * @param {Array<Object>} auditRows Data baris dari Excel
  * @param {Array<Object>} currentCandidates Data peserta database ujian aktif
+ * @param {Object} options Opsi tambahan termasuk sortedDates untuk perhitungan sesi kumulatif
  * @returns {Object} Hasil komparasi lengkap
  */
-export function compareAuditDataWithDatabase(auditRows, currentCandidates) {
+export function compareAuditDataWithDatabase(auditRows, currentCandidates, options = {}) {
     if (!Array.isArray(auditRows) || !Array.isArray(currentCandidates)) {
         return {
             totalExcel: 0,
@@ -183,6 +195,8 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates) {
             unmatchedExcelRows: []
         };
     }
+
+    const sortedDates = options.sortedDates || [];
 
     // Buat lookup map untuk kandidat database berdasarkan NIP
     const candidatesByNip = new Map();
@@ -215,21 +229,25 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates) {
         matchedCount++;
         const changes = [];
 
-        // 1. Cek Sesi (Mendukung sesi akumulasi 1..99)
+        // 1. Cek Sesi (Membandingkan SESI AKUMULASI / KUMULATIF bukan sesi harian, otomatis deteksi Jumat = 2 sesi)
         if (row.sesi !== null && row.sesi !== undefined) {
-            const curSesi = (existingCand.sesi !== undefined && existingCand.sesi !== null && existingCand.sesi !== 'NULL') 
-                ? Number(existingCand.sesi) 
-                : null;
+            const newCumSesi = Number(row.sesi);
+            const curCumSesi = calculateCumulativeSessionNumber(existingCand, sortedDates);
             
-            if (curSesi !== row.sesi) {
+            if (curCumSesi !== newCumSesi) {
+                // Tentukan target sesi harian (1, 2, atau 3) dan tanggal pelaksanaan jika ada sortedDates
+                const { targetPelaksanaan, targetDailySesi, scheduleDetail } = convertCumulativeSessionToDaily(newCumSesi, sortedDates);
+
                 changes.push({
                     field: 'sesi',
-                    label: 'Sesi Ujian',
+                    label: 'Sesi Akumulasi',
                     category: 'sesi',
-                    oldValue: curSesi !== null ? `Sesi ${curSesi}` : 'NULL (Belum Ada)',
-                    newValue: `Sesi ${row.sesi}`,
-                    rawNewValue: row.sesi,
-                    reason: `Penyesuaian sesi akumulasi pasca ujian (Sesi ${row.sesi})`
+                    oldValue: curCumSesi !== null ? `Sesi Akumulasi ${curCumSesi}` : 'Belum Terjadwal (Sesi 00)',
+                    newValue: `Sesi Akumulasi ${newCumSesi}`,
+                    rawNewValue: targetDailySesi, // Nilai sesi harian (1, 2, 3) yang aman untuk database
+                    targetPelaksanaan: targetPelaksanaan || existingCand.pelaksanaan, // Tanggal pelaksanaan hasil penyesuaian sesi akumulasi
+                    newCumulativeSesi: newCumSesi,
+                    reason: `Penyesuaian sesi akumulasi pasca ujian: ${scheduleDetail}`
                 });
                 sesiChangedCount++;
             }

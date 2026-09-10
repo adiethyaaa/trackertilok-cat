@@ -207,3 +207,95 @@ export function formatCumulativeSessionNumber(num) {
     return String(n).padStart(2, '0');
 }
 
+/**
+ * Mengambil batas maksimum sesi untuk tanggal tertentu.
+ * Hari Jumat: 2 sesi (Sesi 1 & Sesi 2)
+ * Hari Lainnya: 3 sesi (Sesi 1, Sesi 2, & Sesi 3)
+ * @param {string|Date|number} dateInput 
+ * @returns {number}
+ */
+export function getMaxSessionsForDate(dateInput) {
+    return isFriday(dateInput) ? 2 : 3;
+}
+
+/**
+ * Menghitung nomor sesi kumulatif/akumulasi kandidat berdasarkan urutan tanggal pelaksanaan
+ * Hari Jumat otomatis dihitung maksimal 2 sesi, sedangkan hari biasa dihitung 3 sesi.
+ * @param {Object} candidate Objek kandidat dengan properti pelaksanaan dan sesi
+ * @param {Array<string>} sortedDates Array tanggal pelaksanaan terurut kronologis
+ * @returns {number|null} Nomor sesi kumulatif (misal 1..n) atau null jika belum terjadwal
+ */
+export function calculateCumulativeSessionNumber(candidate, sortedDates) {
+    if (!candidate || !candidate.pelaksanaan || candidate.pelaksanaan === 'NULL' || candidate.pelaksanaan === '-') return null;
+    const rawSesi = candidate.sesi;
+    if (rawSesi === undefined || rawSesi === null || rawSesi === 'NULL' || rawSesi === '00' || rawSesi === 0 || rawSesi === '0') {
+        return null;
+    }
+    const s = Number(rawSesi);
+    if (isNaN(s) || s < 1) return null;
+
+    if (!Array.isArray(sortedDates) || sortedDates.length === 0) {
+        return s;
+    }
+
+    const dayIndex = sortedDates.indexOf(candidate.pelaksanaan);
+    if (dayIndex === -1) return s;
+
+    let totalPreceding = 0;
+    for (let i = 0; i < dayIndex; i++) {
+        totalPreceding += getMaxSessionsForDate(sortedDates[i]);
+    }
+    return totalPreceding + s;
+}
+
+/**
+ * Mengonversi nomor sesi kumulatif/akumulasi menjadi tanggal pelaksanaan dan sesi harian (1, 2, atau 3)
+ * Otomatis mendeteksi Hari Jumat yang hanya memiliki 2 sesi.
+ * @param {number|string} cumulativeSessionNum Nomor sesi kumulatif (misal 1, 2, 3, 4, ...)
+ * @param {Array<string>} sortedDates Array tanggal pelaksanaan terurut kronologis
+ * @returns {{ targetPelaksanaan: string|null, targetDailySesi: number, scheduleDetail: string }}
+ */
+export function convertCumulativeSessionToDaily(cumulativeSessionNum, sortedDates) {
+    const cum = Number(cumulativeSessionNum);
+    if (isNaN(cum) || cum < 1) {
+        return { targetPelaksanaan: null, targetDailySesi: 1, scheduleDetail: 'Sesi Tidak Valid' };
+    }
+
+    if (!Array.isArray(sortedDates) || sortedDates.length === 0) {
+        return {
+            targetPelaksanaan: null,
+            targetDailySesi: cum,
+            scheduleDetail: `Sesi Akumulasi ${cum}`
+        };
+    }
+
+    let remaining = cum;
+    for (let i = 0; i < sortedDates.length; i++) {
+        const dateStr = sortedDates[i];
+        const dayMax = getMaxSessionsForDate(dateStr);
+
+        if (remaining <= dayMax) {
+            const isFri = isFriday(dateStr);
+            return {
+                targetPelaksanaan: dateStr,
+                targetDailySesi: remaining,
+                scheduleDetail: `Sesi Akumulasi ${cum} (${dateStr}${isFri ? ' [Jumat]' : ''}, Sesi ${remaining})`
+            };
+        }
+        remaining -= dayMax;
+    }
+
+    // Jika nomor sesi melebihi total seluruh slot yang tersedia pada tanggal yang ada:
+    const lastDate = sortedDates[sortedDates.length - 1];
+    const isFri = isFriday(lastDate);
+    const lastDayMax = getMaxSessionsForDate(lastDate);
+    const dailySesi = Math.min(remaining, lastDayMax);
+
+    return {
+        targetPelaksanaan: lastDate,
+        targetDailySesi: dailySesi,
+        scheduleDetail: `Sesi Akumulasi ${cum} (${lastDate}${isFri ? ' [Jumat]' : ''}, Sesi ${dailySesi})`
+    };
+}
+
+
