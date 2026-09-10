@@ -3105,6 +3105,14 @@ window.updateActiveFilterStyles = updateActiveFilterStyles;
 
 let candidateCurrentPage = 1;
 let candidatePageSize = 50;
+let isVirtualScrollActive = false;
+let virtualScrollTicking = false;
+let lastVirtualStartIndex = -1;
+let lastVirtualEndIndex = -1;
+
+const VIRTUAL_ROW_HEIGHT = 41;
+const VIRTUAL_BUFFER = 15;
+const VIRTUAL_WINDOW = 45;
 
 window.changeCandidatePageSize = (size) => {
     candidatePageSize = size === 'ALL' ? 'ALL' : Number(size);
@@ -3120,6 +3128,151 @@ window.changeCandidatePage = (page) => {
         tableEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 };
+
+function onCandidateVirtualScroll() {
+    if (candidatePageSize !== 'ALL' || filteredCandidates.length <= 60) return;
+    if (virtualScrollTicking) return;
+
+    virtualScrollTicking = true;
+    requestAnimationFrame(() => {
+        virtualScrollTicking = false;
+        renderVirtualCandidateSlice();
+    });
+}
+
+function renderCandidateRowHtml(c, globalIdx, sortedDates) {
+    const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
+    const isNullDate = !c.pelaksanaan || c.pelaksanaan === 'NULL' || c.pelaksanaan === '-';
+    const isNullSchedule = isNullDate || isSesi00;
+    const isFriSession2 = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
+    const cumSesi = isNullSchedule ? null : getCumulativeSessionNumber(c, sortedDates);
+    const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
+    const isNullUnit = !c.unitKerja || c.unitKerja === 'NULL' || c.unitKerja === '-';
+
+    const rawKel = String(c.kelJabatan || '').trim();
+    const isKelEmpty = !rawKel || rawKel === '-' || rawKel === 'NULL';
+
+    const sesiColorBadge = Number(c.sesi) === 1 
+        ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+        : (Number(c.sesi) === 2 
+            ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+            : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
+
+    const rowBgClass = isKelEmpty 
+        ? 'bg-rose-50/70 border-l-4 border-l-red-900 hover:bg-rose-100/60' 
+        : (isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50');
+
+    const candidateKey = String(c.nip || c.id || '').trim();
+    const safeNama = String(c.nama || '').replace(/'/g, "\\'");
+
+    return `
+        <tr id="cand-row-${candidateKey}" class="${rowBgClass} transition text-[11px] sm:text-xs">
+            <td class="p-2 text-center text-slate-500 font-medium">${globalIdx}</td>
+            <td id="att-cell-${candidateKey}" data-status="${c.kehadiran || 'NULL'}" class="p-1.5 text-center whitespace-nowrap">
+                ${getAttendanceCellContent(c)}
+            </td>
+            <td class="p-2 font-mono font-medium text-slate-900 truncate" title="${c.nip}">${c.nip}</td>
+            <td class="p-2 font-bold text-slate-900 break-words line-clamp-2" title="${c.nama}">${c.nama}</td>
+            <td class="p-2 truncate" title="${isKelEmpty ? 'Peserta Belum Terdaftar' : c.kelJabatan}">
+                ${isKelEmpty ? `
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs whitespace-nowrap">
+                        <svg class="w-3 h-3 text-red-200 inline" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span>Belum Terdaftar</span>
+                    </span>
+                ` : `
+                    <span class="font-semibold text-blue-800 bg-blue-50/60 px-1.5 py-0.5 rounded border border-blue-200/50 text-[10px] sm:text-[11px] truncate block">${c.kelJabatan}</span>
+                `}
+            </td>
+            <td class="p-2 text-slate-600 truncate" title="${c.unitKerja || '-'}">
+                ${isNullUnit ? `
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
+                ` : (c.unitKerja || '-')}
+            </td>
+            <td class="p-2 text-slate-600 truncate" title="${c.jabatan || '-'}">${c.jabatan || '-'}</td>
+            <td class="p-2 text-center whitespace-nowrap">
+                ${isNullDate ? `
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
+                ` : `
+                    <span class="font-semibold text-slate-800 text-[11px]">${c.pelaksanaan}</span>
+                    ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-0.5">Jumat</span>' : ''}
+                `}
+            </td>
+            <td class="p-2 text-center whitespace-nowrap">
+                ${isSesi00 ? `
+                    <div class="inline-flex items-center justify-center gap-1">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-300">
+                            S00
+                        </span>
+                        <span class="px-1 py-0.5 rounded text-[10px] font-extrabold bg-slate-400 text-white shadow-xs" title="Sesi Kumulatif: 00">
+                            00
+                        </span>
+                    </div>
+                ` : `
+                    <div class="inline-flex items-center justify-center gap-1">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${sesiColorBadge}">
+                            S${c.sesi}
+                        </span>
+                        <span class="px-1 py-0.5 rounded text-[10px] font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
+                            ${cumSesiFormatted}
+                        </span>
+                    </div>
+                `}
+            </td>
+            <!-- Kolom Waktu (WIT) di-hide -->
+            <td class="p-2 whitespace-nowrap hidden ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
+                ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
+            </td>
+            <td class="p-2 text-center whitespace-nowrap">
+                <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
+                    <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                </button>
+                <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
+                    <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </td>
+        </tr>
+    `;
+}
+
+function renderVirtualCandidateSlice() {
+    const tbody = document.getElementById('tbodyCandidateList');
+    if (!tbody || candidatePageSize !== 'ALL') return;
+
+    const total = filteredCandidates.length;
+    if (total <= 60) return;
+
+    const rect = tbody.getBoundingClientRect();
+    const scrolledPast = Math.max(0, -rect.top);
+    const firstVisible = Math.floor(scrolledPast / VIRTUAL_ROW_HEIGHT);
+    const startIndex = Math.max(0, firstVisible - VIRTUAL_BUFFER);
+    const endIndex = Math.min(total, firstVisible + VIRTUAL_WINDOW + VIRTUAL_BUFFER);
+
+    if (lastVirtualStartIndex !== -1 && Math.abs(startIndex - lastVirtualStartIndex) < 4 && endIndex === lastVirtualEndIndex) {
+        return;
+    }
+
+    lastVirtualStartIndex = startIndex;
+    lastVirtualEndIndex = endIndex;
+
+    const topSpacer = startIndex * VIRTUAL_ROW_HEIGHT;
+    const bottomSpacer = (total - endIndex) * VIRTUAL_ROW_HEIGHT;
+    const sortedDates = getSortedExamDates();
+
+    const rowsHtml = filteredCandidates.slice(startIndex, endIndex).map((c, i) => {
+        return renderCandidateRowHtml(c, startIndex + i + 1, sortedDates);
+    }).join('');
+
+    let fullHtml = '';
+    if (topSpacer > 0) {
+        fullHtml += `<tr id="virtual-spacer-top" style="height:${topSpacer}px;border:none;"><td colspan="10" style="padding:0;height:${topSpacer}px;border:none;line-height:0;font-size:0;"></td></tr>`;
+    }
+    fullHtml += rowsHtml;
+    if (bottomSpacer > 0) {
+        fullHtml += `<tr id="virtual-spacer-bottom" style="height:${bottomSpacer}px;border:none;"><td colspan="10" style="padding:0;height:${bottomSpacer}px;border:none;line-height:0;font-size:0;"></td></tr>`;
+    }
+
+    tbody.innerHTML = fullHtml;
+}
 
 function renderCandidateListTable() {
     const tbody = document.getElementById('tbodyCandidateList');
@@ -3143,6 +3296,10 @@ function renderCandidateListTable() {
     }
 
     if (!currentExam) {
+        if (isVirtualScrollActive) {
+            window.removeEventListener('scroll', onCandidateVirtualScroll);
+            isVirtualScrollActive = false;
+        }
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" class="p-8 text-center text-slate-400">
@@ -3159,6 +3316,10 @@ function renderCandidateListTable() {
     }
 
     if (currentCandidates.length === 0) {
+        if (isVirtualScrollActive) {
+            window.removeEventListener('scroll', onCandidateVirtualScroll);
+            isVirtualScrollActive = false;
+        }
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" class="p-8 text-center text-slate-400">
@@ -3175,6 +3336,10 @@ function renderCandidateListTable() {
     }
 
     if (filteredCandidates.length === 0) {
+        if (isVirtualScrollActive) {
+            window.removeEventListener('scroll', onCandidateVirtualScroll);
+            isVirtualScrollActive = false;
+        }
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" class="p-8 text-center text-slate-400">
@@ -3190,17 +3355,64 @@ function renderCandidateListTable() {
         return;
     }
 
-    // Paginasi Virtual (Hanya render 50 baris per halaman agar hemat memori & ultra responsif)
     const totalFiltered = filteredCandidates.length;
     const isAll = candidatePageSize === 'ALL';
-    const effectivePageSize = isAll ? Math.max(1, totalFiltered) : (Number(candidatePageSize) || 50);
+    const sortedDates = getSortedExamDates();
+
+    // =========================================================================
+    // KASUS 1: MODE "SEMUA" DENGAN VIRTUAL SCROLLING (HEMAT MEMORI & BEBAS FREEZE)
+    // =========================================================================
+    if (isAll) {
+        if (totalFiltered > 60) {
+            if (!isVirtualScrollActive) {
+                window.addEventListener('scroll', onCandidateVirtualScroll, { passive: true });
+                isVirtualScrollActive = true;
+            }
+            lastVirtualStartIndex = -1;
+            lastVirtualEndIndex = -1;
+            renderVirtualCandidateSlice();
+        } else {
+            if (isVirtualScrollActive) {
+                window.removeEventListener('scroll', onCandidateVirtualScroll);
+                isVirtualScrollActive = false;
+            }
+            tbody.innerHTML = filteredCandidates.map((c, idx) => {
+                return renderCandidateRowHtml(c, idx + 1, sortedDates);
+            }).join('');
+        }
+
+        if (paginationInfo) {
+            const totalStr = totalFiltered.toLocaleString('id-ID');
+            paginationInfo.innerHTML = `Menampilkan <span class="font-bold text-slate-800">Semua (${totalStr})</span> peserta`;
+        }
+
+        if (paginationControls) {
+            paginationControls.innerHTML = `
+                <div class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-lg text-emerald-800 text-xs font-semibold shadow-2xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Virtual Scroll Aktif (Hemat RAM)</span>
+                </div>
+            `;
+        }
+        return;
+    }
+
+    // =========================================================================
+    // KASUS 2: MODE PAGINASI (50, 100, 250)
+    // =========================================================================
+    if (isVirtualScrollActive) {
+        window.removeEventListener('scroll', onCandidateVirtualScroll);
+        isVirtualScrollActive = false;
+    }
+
+    const effectivePageSize = Number(candidatePageSize) || 50;
     const totalPages = Math.max(1, Math.ceil(totalFiltered / effectivePageSize));
 
     if (candidateCurrentPage > totalPages) candidateCurrentPage = totalPages;
     if (candidateCurrentPage < 1) candidateCurrentPage = 1;
 
-    const startIndex = isAll ? 0 : (candidateCurrentPage - 1) * effectivePageSize;
-    const endIndex = isAll ? totalFiltered : Math.min(startIndex + effectivePageSize, totalFiltered);
+    const startIndex = (candidateCurrentPage - 1) * effectivePageSize;
+    const endIndex = Math.min(startIndex + effectivePageSize, totalFiltered);
     const displayedCandidates = filteredCandidates.slice(startIndex, endIndex);
 
     // Update info footer
@@ -3246,102 +3458,9 @@ function renderCandidateListTable() {
         }
     }
 
-    const sortedDates = getSortedExamDates();
-
-    // Render baris data tabel hanya untuk halaman aktif dengan native SVG (Bebas lag & hemat memori)
+    // Render baris data tabel hanya untuk halaman aktif dengan native SVG
     tbody.innerHTML = displayedCandidates.map((c, localIdx) => {
-        const globalIdx = startIndex + localIdx + 1;
-        const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
-        const isNullDate = !c.pelaksanaan || c.pelaksanaan === 'NULL' || c.pelaksanaan === '-';
-        const isNullSchedule = isNullDate || isSesi00;
-        const isFriSession2 = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
-        const cumSesi = isNullSchedule ? null : getCumulativeSessionNumber(c, sortedDates);
-        const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
-        const isNullUnit = !c.unitKerja || c.unitKerja === 'NULL' || c.unitKerja === '-';
-
-        const rawKel = String(c.kelJabatan || '').trim();
-        const isKelEmpty = !rawKel || rawKel === '-' || rawKel === 'NULL';
-
-        const sesiColorBadge = Number(c.sesi) === 1 
-            ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-            : (Number(c.sesi) === 2 
-                ? 'bg-amber-100 text-amber-800 border border-amber-200' 
-                : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
-
-        const rowBgClass = isKelEmpty 
-            ? 'bg-rose-50/70 border-l-4 border-l-red-900 hover:bg-rose-100/60' 
-            : (isFriSession2 ? 'bg-amber-50/60' : 'hover:bg-slate-50');
-
-        const candidateKey = String(c.nip || c.id || '').trim();
-        const safeNama = String(c.nama || '').replace(/'/g, "\\'");
-
-        return `
-            <tr id="cand-row-${candidateKey}" class="${rowBgClass} transition text-[11px] sm:text-xs">
-                <td class="p-2 text-center text-slate-500 font-medium">${globalIdx}</td>
-                <td id="att-cell-${candidateKey}" data-status="${c.kehadiran || 'NULL'}" class="p-1.5 text-center whitespace-nowrap">
-                    ${getAttendanceCellContent(c)}
-                </td>
-                <td class="p-2 font-mono font-medium text-slate-900 truncate" title="${c.nip}">${c.nip}</td>
-                <td class="p-2 font-bold text-slate-900 break-words line-clamp-2" title="${c.nama}">${c.nama}</td>
-                <td class="p-2 truncate" title="${isKelEmpty ? 'Peserta Belum Terdaftar' : c.kelJabatan}">
-                    ${isKelEmpty ? `
-                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900 text-red-100 border border-red-950 shadow-xs whitespace-nowrap">
-                            <svg class="w-3 h-3 text-red-200 inline" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            <span>Belum Terdaftar</span>
-                        </span>
-                    ` : `
-                        <span class="font-semibold text-blue-800 bg-blue-50/60 px-1.5 py-0.5 rounded border border-blue-200/50 text-[10px] sm:text-[11px] truncate block">${c.kelJabatan}</span>
-                    `}
-                </td>
-                <td class="p-2 text-slate-600 truncate" title="${c.unitKerja || '-'}">
-                    ${isNullUnit ? `
-                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
-                    ` : (c.unitKerja || '-')}
-                </td>
-                <td class="p-2 text-slate-600 truncate" title="${c.jabatan || '-'}">${c.jabatan || '-'}</td>
-                <td class="p-2 text-center whitespace-nowrap">
-                    ${isNullDate ? `
-                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
-                    ` : `
-                        <span class="font-semibold text-slate-800 text-[11px]">${c.pelaksanaan}</span>
-                        ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-0.5">Jumat</span>' : ''}
-                    `}
-                </td>
-                <td class="p-2 text-center whitespace-nowrap">
-                    ${isSesi00 ? `
-                        <div class="inline-flex items-center justify-center gap-1">
-                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-300">
-                                S00
-                            </span>
-                            <span class="px-1 py-0.5 rounded text-[10px] font-extrabold bg-slate-400 text-white shadow-xs" title="Sesi Kumulatif: 00">
-                                00
-                            </span>
-                        </div>
-                    ` : `
-                        <div class="inline-flex items-center justify-center gap-1">
-                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${sesiColorBadge}">
-                                S${c.sesi}
-                            </span>
-                            <span class="px-1 py-0.5 rounded text-[10px] font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
-                                ${cumSesiFormatted}
-                            </span>
-                        </div>
-                    `}
-                </td>
-                <!-- Kolom Waktu (WIT) di-hide -->
-                <td class="p-2 whitespace-nowrap hidden ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
-                    ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
-                </td>
-                <td class="p-2 text-center whitespace-nowrap">
-                    <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
-                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                    </button>
-                    <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
-                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                </td>
-            </tr>
-        `;
+        return renderCandidateRowHtml(c, startIndex + localIdx + 1, sortedDates);
     }).join('');
 }
 
