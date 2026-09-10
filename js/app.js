@@ -2622,6 +2622,64 @@ function getAttendanceCellContent(cand) {
 }
 
 /**
+ * Format timestamp kehadiran ke tampilan detail jam menit: "10 Sept 2026, pukul 12:15 WIT"
+ */
+function formatAttendanceTimeDetail(cand) {
+    if (!cand) return '';
+    const rawTs = cand.attendanceTimestamp || (cand.kehadiran === 'HADIR' && cand.loginTime ? cand.loginTime : cand.updatedAt);
+    if (!rawTs) return '';
+
+    const d = new Date(rawTs);
+    if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agust', 'Sept', 'Okt', 'Nov', 'Des'];
+        const mon = monthsShort[d.getMonth()];
+        const y = d.getFullYear();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${day} ${mon} ${y}, pukul ${hh}:${mm} WIT`;
+    }
+    return String(rawTs);
+}
+
+/**
+ * Helper untuk merender isi kolom Aksi baris peserta
+ * Khusus jika data peserta sudah ditandai hadir atau tidak hadir:
+ * tombol edit dan hapus otomatis hilang dan kolom aksi diganti status verified ceklis lengkap dengan detail jam menit kapan disubmit.
+ * Tombol edit dan hapus akan muncul kembali jika status kehadiran di-reset.
+ */
+function getActionCellContent(cand) {
+    const isVerified = cand && (cand.kehadiran === 'HADIR' || cand.kehadiran === 'TIDAK_HADIR');
+    if (isVerified) {
+        const isHadir = cand.kehadiran === 'HADIR';
+        const timeDetail = formatAttendanceTimeDetail(cand);
+        const timeText = timeDetail ? ` pada ${timeDetail}` : '';
+        const statusLabel = isHadir ? 'Kehadiran' : 'Ketidakhadiran';
+        const tooltipTitle = `Terverifikasi: ${statusLabel} sudah tercatat ${timeText}.`;
+
+        return `
+            <span class="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs select-none cursor-help" title="${tooltipTitle}">
+                <svg class="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                </svg>
+                <span>Verified</span>
+            </span>
+        `;
+    }
+
+    const candidateKey = String(cand.nip || cand.id || '').trim();
+    const safeNama = String(cand.nama || '').replace(/'/g, "\\'");
+    return `
+        <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
+            <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+        </button>
+        <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
+            <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+    `;
+}
+
+/**
  * Sinkronkan sel kehadiran yang terlihat tanpa render ulang seluruh DOM tabel
  */
 function updateVisibleAttendanceCells() {
@@ -2636,6 +2694,10 @@ function updateVisibleAttendanceCells() {
                 cell.setAttribute('data-status', newStatus);
                 cell.innerHTML = getAttendanceCellContent(cand);
             }
+        }
+        const actionCell = document.getElementById('action-cell-' + candidateKey);
+        if (actionCell) {
+            actionCell.innerHTML = getActionCellContent(cand);
         }
     });
 }
@@ -2656,8 +2718,10 @@ window.toggleAttendance = (candidateNipOrId, action) => {
 
     // 1. UPDATE MEMORI LOKAL INSTAN (0ms)
     const newStatus = action === 'RESET' ? null : action;
+    const nowIso = new Date().toISOString();
     cand.kehadiran = newStatus;
-    cand.updatedAt = new Date().toISOString();
+    cand.attendanceTimestamp = newStatus ? nowIso : null;
+    cand.updatedAt = nowIso;
 
     // 2. UPDATE DOM SEL INI SAJA SECARA LOKAL (INSTAN, TANPA RENDER ULANG TABEL!)
     const candidateKey = String(cand.nip || cand.id || '').trim();
@@ -2665,6 +2729,10 @@ window.toggleAttendance = (candidateNipOrId, action) => {
     if (cell) {
         cell.setAttribute('data-status', newStatus || 'NULL');
         cell.innerHTML = getAttendanceCellContent(cand);
+    }
+    const actionCell = document.getElementById('action-cell-' + candidateKey);
+    if (actionCell) {
+        actionCell.innerHTML = getActionCellContent(cand);
     }
 
     // 3. UPDATE FLOATING ATTENDANCE BUBBLE SECARA INSTAN
@@ -3217,13 +3285,8 @@ function renderCandidateRowHtml(c, globalIdx, sortedDates) {
             <td class="p-2 whitespace-nowrap hidden ${isFriSession2 ? 'font-bold text-amber-800' : 'text-slate-700 font-medium'}">
                 ${(!c.waktu || c.waktu === 'NULL' || c.waktu === '-') ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>' : c.waktu}
             </td>
-            <td class="p-2 text-center whitespace-nowrap">
-                <button onclick="editCandidate('${candidateKey}')" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded mr-0.5 cursor-pointer" title="Edit Data">
-                    <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                </button>
-                <button onclick="deleteSingleCandidate('${candidateKey}', '${safeNama}')" class="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer" title="Hapus Peserta">
-                    <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>
+            <td id="action-cell-${candidateKey}" class="p-2 text-center whitespace-nowrap">
+                ${getActionCellContent(c)}
             </td>
         </tr>
     `;
@@ -3460,9 +3523,15 @@ function renderCandidateListTable() {
 }
 
 window.deleteSingleCandidate = async (candidateIdOrNip, name) => {
+    const safeKey = String(candidateIdOrNip || '').trim();
+    const cand = currentCandidates.find(c => String(c.nip || '').trim() === safeKey || String(c.id || '').trim() === safeKey);
+    if (cand && (cand.kehadiran === 'HADIR' || cand.kehadiran === 'TIDAK_HADIR')) {
+        showToast("Data peserta sudah terverifikasi (Hadir/Tidak Hadir) dan tidak dapat dihapus. Reset status kehadiran terlebih dahulu jika ingin menghapus.", "warning");
+        return;
+    }
+
     if (confirm(`Hapus peserta "${name}" dari jadwal ujian?`)) {
         try {
-            const safeKey = String(candidateIdOrNip || '').trim();
             await db.deleteCandidate(safeKey, currentExam ? currentExam.id : null);
             currentCandidates = currentCandidates.filter(c => String(c.nip || '').trim() !== safeKey && String(c.id || '').trim() !== safeKey);
             renderDashboardStats();
@@ -3733,6 +3802,11 @@ window.editCandidate = (candidateIdOrNip) => {
     const safeLookup = String(candidateIdOrNip || '').trim();
     const cand = currentCandidates.find(c => String(c.nip || '').trim() === safeLookup || String(c.id || '').trim() === safeLookup);
     if (!cand) return;
+
+    if (cand.kehadiran === 'HADIR' || cand.kehadiran === 'TIDAK_HADIR') {
+        showToast("Data peserta sudah terverifikasi (Hadir/Tidak Hadir). Reset status kehadiran terlebih dahulu jika ingin mengedit.", "warning");
+        return;
+    }
 
     const modal = document.getElementById('modalCandidateManual');
     const title = document.getElementById('modalCandidateTitle');
@@ -6028,7 +6102,11 @@ function setupAuditUI() {
                         }
                     }
 
-                    if (ch.field === 'kehadiran') countKehadiranUpdated++;
+                    if (ch.field === 'kehadiran') {
+                        countKehadiranUpdated++;
+                        updates[pathPrefix + 'attendanceTimestamp'] = nowIso;
+                        if (candInMem) candInMem.attendanceTimestamp = nowIso;
+                    }
                 });
 
                 // Set status Terjadwal jika sesi valid

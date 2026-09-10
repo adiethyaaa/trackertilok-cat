@@ -527,7 +527,7 @@ export async function updateAttendanceInCloud(examId, candidateIdOrNip, status) 
     try {
         await update(targetRef, {
             kehadiran: status,
-            attendanceTimestamp: new Date().toISOString()
+            attendanceTimestamp: status ? new Date().toISOString() : null
         });
         return true;
     } catch (e) {
