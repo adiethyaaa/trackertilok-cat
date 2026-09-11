@@ -5302,33 +5302,6 @@ function setupFirebaseConfigForm() {
     }
 }
 
-window.requestOpenFirebaseConfig = () => {
-    if (isPinAuthorized || isSuperAdmin) {
-        window.openModalFirebaseConfig();
-    } else {
-        pendingActionAfterPin = 'OPEN_FIREBASE_CONFIG';
-        const modal = document.getElementById('modalPinAccess');
-        const inputPin = document.getElementById('inputAccessPin');
-        const errorMsg = document.getElementById('pinErrorMessage');
-        const titleEl = document.getElementById('modalPinTitle');
-        const descEl = document.getElementById('modalPinDesc');
-
-        if (titleEl) titleEl.textContent = "Pengaturan Database Cloud";
-        if (descEl) descEl.textContent = "Masukkan PIN Otorisasi Administrator untuk membuka pengaturan Database Cloud.";
-
-        if (errorMsg) errorMsg.classList.add('hidden');
-        if (inputPin) {
-            inputPin.value = '';
-            inputPin.classList.remove('border-rose-500');
-        }
-        if (modal) {
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-            setTimeout(() => { if (inputPin) inputPin.focus(); }, 100);
-        }
-        if (window.lucide) window.lucide.createIcons();
-    }
-};
 
 window.openModalFirebaseConfig = () => {
     const modal = document.getElementById('modalFirebaseConfig');
