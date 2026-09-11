@@ -2507,15 +2507,20 @@ function renderCumulativeSessionCards() {
 
     // Update status badge real-time
     if (statusTextEl && statusBadgeEl) {
+        const dotEl = statusBadgeEl.querySelector('.animate-pulse');
         if (userManualFilterApplied) {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200';
+            if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
             statusTextEl.innerHTML = 'Filter Manual Aktif (Klik Reset untuk Auto-Tracking)';
         } else if (schedule.isOutsideSessionHours) {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200';
-            statusTextEl.innerHTML = `Luar Jam Sesi • Default: Semua Sesi (${relevantDate})`;
+            if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse';
+            statusTextEl.innerHTML = `Sedang diluar Jam Sesi • Default: Semua Sesi (${relevantDate})`;
         } else {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200';
-            statusTextEl.innerHTML = `Sesi ${schedule.activeDailySesi} Berjalan • Auto-Tracking Aktif`;
+            if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse';
+            const cumStr = schedule.activeCumNum ? `Sesi ${formatCumulativeSessionNumber(schedule.activeCumNum)}` : '';
+            statusTextEl.innerHTML = `${cumStr} (Sesi ${schedule.activeDailySesi}) • Sedang Berjalan`;
         }
     }
 
@@ -3046,37 +3051,63 @@ function getAttendanceCellContent(cand) {
 
     if (isKelEmpty) {
         return `
-            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none" title="Presensi tidak tersedia karena peserta belum terdaftar di sistem.">
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 select-none">
                 <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M4.93 4.93l14.14 14.14" stroke-width="2"/></svg>
                 <span>Tidak ada</span>
             </span>
         `;
     }
 
+    const isAdmin = isPinAuthorized || isSuperAdmin;
+
+    // 1. Status HADIR
     if (cand.kehadiran === 'HADIR') {
-        return `
-            <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer active:scale-95" title="Status: Hadir. Klik untuk ubah/batal">
-                <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                <span>Hadir</span>
-            </button>
-        `;
+        if (isAdmin) {
+            return `
+                <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition shadow-2xs cursor-pointer active:scale-95">
+                    <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    <span>Hadir</span>
+                </button>
+            `;
+        } else {
+            return `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs select-none">
+                    <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    <span>Hadir</span>
+                </span>
+            `;
+        }
     }
 
+    // 2. Status TIDAK_HADIR (User PIN instansi & Admin diizinkan mengubah/reset)
     if (cand.kehadiran === 'TIDAK_HADIR') {
         return `
-            <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer active:scale-95" title="Status: Tidak Hadir. Klik untuk ubah/batal">
+            <button onclick="toggleAttendance('${candidateKey}', 'RESET')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition shadow-2xs cursor-pointer active:scale-95">
                 <svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                 <span>Tidak Hadir</span>
             </button>
         `;
     }
 
+    // 3. Belum Ditandai (kehadiran null/empty)
+    if (isAdmin) {
+        // User dengan PIN Admin: Ceklis Hadir dan X Tidak Hadir muncul (tanpa pesan hover/title)
+        return `
+            <div class="inline-flex items-center justify-center gap-1">
+                <button onclick="toggleAttendance('${candidateKey}', 'HADIR')" class="p-1 rounded-md bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer active:scale-95">
+                    <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                </button>
+                <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1 rounded-md bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer active:scale-95">
+                    <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+        `;
+    }
+
+    // User dengan PIN Instansi: HANYA muncul X untuk tandai tidak hadir, ceklis hadir di-hide tak terlihat (tanpa pesan hover/title)
     return `
-        <div class="inline-flex items-center justify-center gap-1">
-            <button onclick="toggleAttendance('${candidateKey}', 'HADIR')" class="p-1 rounded-md bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 border border-emerald-300 transition shadow-2xs cursor-pointer active:scale-95" title="Tandai Hadir">
-                <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            </button>
-            <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1 rounded-md bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer active:scale-95" title="Tandai Tidak Hadir">
+        <div class="inline-flex items-center justify-center">
+            <button onclick="toggleAttendance('${candidateKey}', 'TIDAK_HADIR')" class="p-1 rounded-md bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-300 transition shadow-2xs cursor-pointer active:scale-95">
                 <svg class="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
         </div>
@@ -3150,12 +3181,8 @@ function updateVisibleAttendanceCells() {
         const candidateKey = String(cand.nip || cand.id || '').trim();
         const cell = document.getElementById('att-cell-' + candidateKey);
         if (cell) {
-            const currentStatus = cell.getAttribute('data-status');
-            const newStatus = cand.kehadiran || 'NULL';
-            if (currentStatus !== newStatus) {
-                cell.setAttribute('data-status', newStatus);
-                cell.innerHTML = getAttendanceCellContent(cand);
-            }
+            cell.setAttribute('data-status', cand.kehadiran || 'NULL');
+            cell.innerHTML = getAttendanceCellContent(cand);
         }
         const actionCell = document.getElementById('action-cell-' + candidateKey);
         if (actionCell) {
@@ -3163,19 +3190,65 @@ function updateVisibleAttendanceCells() {
         }
     });
 }
+window.updateVisibleAttendanceCells = updateVisibleAttendanceCells;
+
+/**
+ * Meminta PIN Admin untuk memunculkan tombol dan menandai kehadiran peserta
+ */
+window.requestAdminPinForAttendance = (candidateKey, action = 'HADIR') => {
+    if (isPinAuthorized || isSuperAdmin) {
+        window.toggleAttendance(candidateKey, action);
+        return;
+    }
+
+    pendingActionAfterPin = `ATTENDANCE:${candidateKey}:${action}`;
+    const modal = document.getElementById('modalPinAccess');
+    const inputPin = document.getElementById('inputAccessPin');
+    const errorMsg = document.getElementById('pinErrorMessage');
+    const titleEl = document.getElementById('modalPinTitle');
+    const descEl = document.getElementById('modalPinDesc');
+
+    if (titleEl) titleEl.textContent = "Otorisasi Presensi Administrator";
+    if (descEl) descEl.textContent = "Masukkan PIN Admin";
+
+    if (errorMsg) errorMsg.classList.add('hidden');
+    if (inputPin) {
+        inputPin.value = '';
+        inputPin.classList.remove('border-rose-500');
+    }
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => { if (inputPin) inputPin.focus(); }, 100);
+    }
+};
 
 /**
  * Toggle Status Kehadiran Peserta (HADIR, TIDAK_HADIR, RESET) - Ultra-Fast 0ms Latency
+ * - Tombol Hadir & Reset Hadir: Khusus PIN Administrator (1414)
+ * - Tombol Tidak Hadir & Reset Tidak Hadir: Diizinkan untuk User PIN Instansi & Admin
  */
 let rapidAttendanceTimer = null;
 let lastAttendanceToastTime = 0;
 
 window.toggleAttendance = (candidateNipOrId, action) => {
+    const isAdmin = isPinAuthorized || isSuperAdmin;
     const lookup = String(candidateNipOrId || '').trim();
     const cand = currentCandidates.find(c => String(c.nip || '').trim() === lookup || String(c.id || '').trim() === lookup);
     if (!cand) {
         console.warn("Peserta tidak ditemukan untuk presensi:", candidateNipOrId);
         return;
+    }
+
+    // Otorisasi Presensi:
+    // 1. Aksi 'HADIR' WAJIB menggunakan PIN Administrator
+    // 2. Aksi 'RESET' pada peserta yang sudah berstatus 'HADIR' WAJIB menggunakan PIN Administrator
+    // 3. Aksi 'TIDAK_HADIR' dan aksi 'RESET' pada peserta yang berstatus 'TIDAK_HADIR' DIIZINKAN untuk User PIN Instansi
+    if (!isAdmin) {
+        if (action === 'HADIR' || (action === 'RESET' && cand.kehadiran === 'HADIR')) {
+            window.requestAdminPinForAttendance(candidateNipOrId, action);
+            return;
+        }
     }
 
     // 1. UPDATE MEMORI LOKAL INSTAN (0ms)
@@ -3541,11 +3614,12 @@ function updateActiveFilterStyles() {
     const inputSearch = document.getElementById('inputSearchCandidate');
     if (inputSearch) {
         const isSearchActive = !!(currentSearchTerm && currentSearchTerm.trim().length > 0);
+        inputSearch.classList.remove('ring-2', 'ring-blue-100', 'ring-blue-200');
         if (isSearchActive) {
             inputSearch.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
-            inputSearch.classList.add('bg-blue-50', 'border-blue-400', 'text-blue-950', 'font-semibold', 'ring-2', 'ring-blue-100');
+            inputSearch.classList.add('bg-blue-50/60', 'border-blue-400', 'text-blue-950', 'font-semibold');
         } else {
-            inputSearch.classList.remove('bg-blue-50', 'border-blue-400', 'text-blue-950', 'font-semibold', 'ring-2', 'ring-blue-100');
+            inputSearch.classList.remove('bg-blue-50/60', 'border-blue-400', 'text-blue-950', 'font-semibold');
             inputSearch.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
         }
     }
@@ -3556,14 +3630,15 @@ function updateActiveFilterStyles() {
         const isKelActive = currentKelJabatanFilter && currentKelJabatanFilter !== 'ALL';
         selectKel.classList.remove(
             'bg-white', 'border-slate-300', 'text-slate-800',
-            'bg-emerald-50', 'border-emerald-400', 'text-emerald-950', 'ring-2', 'ring-emerald-100',
-            'bg-rose-50', 'border-rose-400', 'text-rose-950', 'ring-rose-100'
+            'bg-emerald-50', 'border-emerald-400', 'text-emerald-950',
+            'bg-rose-50', 'border-rose-400', 'text-rose-950',
+            'ring-2', 'ring-emerald-100', 'ring-rose-100'
         );
         if (isKelActive) {
             if (currentKelJabatanFilter === 'EMPTY') {
-                selectKel.classList.add('bg-rose-50', 'border-rose-400', 'text-rose-950', 'font-bold', 'ring-2', 'ring-rose-100');
+                selectKel.classList.add('bg-rose-50', 'border-rose-400', 'text-rose-950', 'font-bold');
             } else {
-                selectKel.classList.add('bg-emerald-50', 'border-emerald-400', 'text-emerald-950', 'font-bold', 'ring-2', 'ring-emerald-100');
+                selectKel.classList.add('bg-emerald-50', 'border-emerald-400', 'text-emerald-950', 'font-bold');
             }
         } else {
             selectKel.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
@@ -3574,11 +3649,12 @@ function updateActiveFilterStyles() {
     const selectDate = document.getElementById('selectFilterPelaksanaan');
     if (selectDate) {
         const isDateActive = currentDateFilter && currentDateFilter !== 'ALL';
+        selectDate.classList.remove('ring-2', 'ring-indigo-100');
         if (isDateActive) {
             selectDate.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
-            selectDate.classList.add('bg-indigo-50', 'border-indigo-400', 'text-indigo-950', 'font-bold', 'ring-2', 'ring-indigo-100');
+            selectDate.classList.add('bg-indigo-50/70', 'border-indigo-400', 'text-indigo-950', 'font-bold');
         } else {
-            selectDate.classList.remove('bg-indigo-50', 'border-indigo-400', 'text-indigo-950', 'font-bold', 'ring-2', 'ring-indigo-100');
+            selectDate.classList.remove('bg-indigo-50/70', 'border-indigo-400', 'text-indigo-950', 'font-bold');
             selectDate.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
         }
     }
@@ -3591,21 +3667,23 @@ function updateActiveFilterStyles() {
                          (inputSesiTyping && inputSesiTyping.value.trim().length > 0);
 
     if (inputSesiTyping) {
+        inputSesiTyping.classList.remove('ring-2', 'ring-amber-200');
         if (isSesiActive) {
             inputSesiTyping.classList.remove('bg-white', 'border-slate-300', 'text-bkn-900');
-            inputSesiTyping.classList.add('bg-amber-50', 'border-amber-400', 'text-amber-950', 'ring-2', 'ring-amber-200');
+            inputSesiTyping.classList.add('bg-amber-50/70', 'border-amber-400', 'text-amber-950');
         } else {
-            inputSesiTyping.classList.remove('bg-amber-50', 'border-amber-400', 'text-amber-950', 'ring-2', 'ring-amber-200');
+            inputSesiTyping.classList.remove('bg-amber-50/70', 'border-amber-400', 'text-amber-950');
             inputSesiTyping.classList.add('bg-white', 'border-slate-300', 'text-bkn-900');
         }
     }
 
     if (selectSesi) {
+        selectSesi.classList.remove('ring-2', 'ring-amber-200');
         if (isSesiActive) {
             selectSesi.classList.remove('bg-white', 'border-slate-300', 'text-slate-800');
-            selectSesi.classList.add('bg-amber-50', 'border-amber-400', 'text-amber-950', 'font-bold', 'ring-2', 'ring-amber-200');
+            selectSesi.classList.add('bg-amber-50/70', 'border-amber-400', 'text-amber-950', 'font-bold');
         } else {
-            selectSesi.classList.remove('bg-amber-50', 'border-amber-400', 'text-amber-950', 'font-bold', 'ring-2', 'ring-amber-200');
+            selectSesi.classList.remove('bg-amber-50/70', 'border-amber-400', 'text-amber-950', 'font-bold');
             selectSesi.classList.add('bg-white', 'border-slate-300', 'text-slate-800');
         }
     }
@@ -3618,11 +3696,12 @@ function updateActiveFilterStyles() {
         const isDateActive = currentDateFilter && currentDateFilter !== 'ALL';
         const anyActive = isSearchActive || isKelActive || isDateActive || isSesiActive;
 
+        btnReset.classList.remove('ring-2', 'ring-rose-100');
         if (anyActive) {
             btnReset.classList.remove('bg-slate-100', 'border-slate-300', 'text-slate-700', 'hover:bg-slate-200', 'hover:text-slate-900');
-            btnReset.classList.add('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800', 'ring-2', 'ring-rose-100');
+            btnReset.classList.add('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800');
         } else {
-            btnReset.classList.remove('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800', 'ring-2', 'ring-rose-100');
+            btnReset.classList.remove('bg-rose-50', 'border-rose-300', 'text-rose-700', 'hover:bg-rose-100', 'hover:border-rose-400', 'hover:text-rose-800');
             btnReset.classList.add('bg-slate-100', 'border-slate-300', 'text-slate-700', 'hover:bg-slate-200', 'hover:text-slate-900');
         }
     }
@@ -4609,26 +4688,39 @@ function setupTabNavigation() {
         if (pinVal === '1414' || pinVal === '141414') {
             isPinAuthorized = true;
             sessionStorage.setItem('is_admin_pin_authorized', 'true');
-
-            // Simpan aksi dan target tab tertunda sebelum menutup modal
+            // Simpan aksi dan target tab tertunda sebelum modal ditutup & dibersihkan
             const actionToExecute = pendingActionAfterPin;
             const targetTabToSwitch = pendingTargetTab;
 
             window.closeModalPinAccess();
 
-            // 1. Eksekusi Kosongkan Peserta jika aksi tertunda adalah CLEAR_CANDIDATES
+            // Selalu perbarui seluruh sel kehadiran agar tombol tandai hadir langsung muncul seketika
+            updateVisibleAttendanceCells();
+
+            // 1. Eksekusi presensi tertunda jika ada
+            if (actionToExecute && actionToExecute.startsWith('ATTENDANCE:')) {
+                const parts = actionToExecute.split(':');
+                const candidateKey = parts[1];
+                const act = parts[2] || 'HADIR';
+                if (candidateKey) {
+                    window.toggleAttendance(candidateKey, act);
+                }
+                return;
+            }
+
+            // 2. Eksekusi Kosongkan Peserta jika aksi tertunda adalah CLEAR_CANDIDATES
             if (actionToExecute === 'CLEAR_CANDIDATES') {
                 await executeClearCandidates();
                 return;
             }
 
-            // 2. Buka Pengaturan Cloud jika aksi tertunda adalah OPEN_FIREBASE_CONFIG
+            // 3. Buka Pengaturan Cloud jika aksi tertunda adalah OPEN_FIREBASE_CONFIG
             if (actionToExecute === 'OPEN_FIREBASE_CONFIG') {
                 window.openModalFirebaseConfig();
                 return;
             }
 
-            // 3. Pindah ke tab tujuan secara instan
+            // 4. Pindah ke tab tujuan secara instan
             if (targetTabToSwitch) {
                 window.switchTab(targetTabToSwitch);
             }
@@ -4915,6 +5007,7 @@ window.verifySuperAdminPin = async (e) => {
         window.closeSuperAdminPinModal();
         window.closeSelectExamWithPinModal();
         window.closeModalPinAccess();
+        updateVisibleAttendanceCells();
 
         // Aktifkan ujian yang ada jika belum aktif
         if (!currentExam && allExams.length > 0) {

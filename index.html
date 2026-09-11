@@ -325,19 +325,19 @@
                     <!-- Search Box (Ukuran ramping / diperkecil) -->
                     <div class="w-32 sm:w-40 relative flex-shrink-0">
                         <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
-                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-8 pr-2.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white text-slate-800 focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs transition-colors">
+                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-8 pr-2.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white text-slate-800 focus:outline-none focus:border-bkn-600 shadow-2xs transition-colors">
                     </div>
 
                     <!-- Filter Kelompok Jabatan -->
                     <div class="w-36 sm:w-48 flex-shrink-0">
-                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs font-semibold text-slate-800 truncate transition-colors">
+                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs font-semibold text-slate-800 truncate transition-colors">
                             <option value="ALL">-- Kel. Jabatan (0) --</option>
                         </select>
                     </div>
 
                     <!-- Filter Tanggal Pelaksanaan -->
                     <div class="w-36 sm:w-44 flex-shrink-0">
-                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none shadow-2xs truncate transition-colors">
+                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs truncate transition-colors">
                             <option value="ALL">-- Tanggal --</option>
                         </select>
                     </div>
@@ -351,14 +351,14 @@
                                    oninput="onFilterSesiTypeInput(this.value)" 
                                    placeholder="Sesi #" 
                                    maxlength="4" 
-                                   class="w-full px-1.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white font-bold text-center text-bkn-900 focus:ring-1.5 focus:ring-bkn-600 focus:outline-none placeholder:font-normal placeholder:text-slate-400 shadow-2xs transition-colors">
+                                   class="w-full px-1.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white font-bold text-center text-bkn-900 focus:outline-none focus:border-bkn-600 placeholder:font-normal placeholder:text-slate-400 shadow-2xs transition-colors">
                         </div>
 
                         <!-- Dropdown pemilihan sesi kumulatif (menyesuaikan tanggal aktif) -->
                         <div class="flex-1 min-w-0">
                             <select id="selectFilterSesiDropdown" 
                                     onchange="onFilterSesiDropdownChange(this.value)" 
-                                    class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:ring-1.5 focus:ring-bkn-600 focus:outline-none truncate shadow-2xs transition-colors">
+                                    class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 truncate shadow-2xs transition-colors">
                                 <option value="ALL">-- Sesi --</option>
                             </select>
                         </div>
@@ -388,7 +388,7 @@
                         <span class="inline-flex items-center justify-center w-4 h-4 rounded bg-bkn-800 text-white text-[9px] font-black shadow-2xs">
                             <i data-lucide="layers" class="w-2.5 h-2.5"></i>
                         </span>
-                        <span class="text-[11px] font-bold text-slate-800 tracking-tight">Sesi Akumulasi</span>
+                        <span class="text-[11px] font-bold text-slate-800 tracking-tight">Berlangsung</span>
                         <span id="sessionCardsLiveStatus" class="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
                             <span id="sessionCardsLiveStatusText">Auto-Tracking</span>
@@ -453,7 +453,7 @@
                                         <span id="sort-icon-no" class="text-slate-400 text-[9px]">▲</span>
                                     </div>
                                 </th>
-                                <th onclick="sortTable('kehadiran')" class="p-2 text-center cursor-pointer hover:bg-slate-200/70 transition" style="width: 10.5%;" title="Klik untuk mengurutkan Status Kehadiran">
+                                <th onclick="sortTable('kehadiran')" class="p-2 text-center cursor-pointer hover:bg-slate-200/70 transition" style="width: 10.5%;">
                                     <div class="flex items-center justify-center space-x-0.5">
                                         <span>Kehadiran</span>
                                         <span id="sort-icon-kehadiran" class="text-slate-400 text-[9px]">↕</span>
