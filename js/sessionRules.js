@@ -79,6 +79,9 @@ export function parseFlexibleDate(dateInput) {
     // Hapus awalan nama hari jika ada (misal: "Jumat, 11-Sep-26" atau "Jumat 11/09/2026")
     str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|jum'at)[,\s]+/i, '').trim();
 
+    // Hapus komponen jam/waktu jika ada (misal: "08:15:30", "13:00 WIT", dll)
+    str = str.replace(/\s+\d{1,2}:\d{1,2}(?::\d{1,2})?(?:\.\d+)?(?:\s*(?:am|pm|wit|wib|wita))?$/i, '').trim();
+
     const monthMap = {
         'jan': 0, 'januari': 0, 'january': 0,
         'feb': 1, 'februari': 1, 'february': 1,
@@ -237,13 +240,23 @@ export function getMaxSessionsForDate(dateInput) {
  * @returns {number|null} Nomor sesi kumulatif (misal 1..n) atau null jika belum terjadwal
  */
 export function calculateCumulativeSessionNumber(candidate, sortedDates) {
-    if (!candidate || !candidate.pelaksanaan || candidate.pelaksanaan === 'NULL' || candidate.pelaksanaan === '-') return null;
+    if (!candidate) return null;
     const rawSesi = candidate.sesi;
     if (rawSesi === undefined || rawSesi === null || rawSesi === 'NULL' || rawSesi === '00' || rawSesi === 0 || rawSesi === '0') {
         return null;
     }
     const s = Number(rawSesi);
     if (isNaN(s) || s < 1) return null;
+
+    // Jika nomor sesi sudah > 3, maka ini sudah merupakan nomor sesi kumulatif (misal 4..14)
+    if (s > 3) {
+        return s;
+    }
+
+    if (!candidate.pelaksanaan || candidate.pelaksanaan === 'NULL' || candidate.pelaksanaan === '-') {
+        // Jika belum ada tanggal pelaksanaan namun sudah memiliki nomor sesi (misal 1..3)
+        return s;
+    }
 
     if (!Array.isArray(sortedDates) || sortedDates.length === 0) {
         return s;
@@ -397,6 +410,48 @@ export function findRelevantExamDate(sortedDates, witDateNow = null) {
     }
 
     return sortedDates[0];
+}
+
+/**
+ * Mendapatkan tanggal pelaksanaan efektif seorang kandidat
+ * (Mengutamakan candidate.pelaksanaan jika valid, atau konversi nomor sesi kumulatif jika pelaksanaan belum terisi)
+ * @param {Object} candidate 
+ * @param {Array<string>} sortedDates 
+ * @returns {string|null} Tanggal berformat display (misal: "09 Sept 2026") atau null jika belum terjadwal
+ */
+export function getCandidateEffectiveDate(candidate, sortedDates) {
+    if (!candidate) return null;
+    if (candidate.pelaksanaan && candidate.pelaksanaan !== 'NULL' && candidate.pelaksanaan !== '-') {
+        const parsed = parseFlexibleDate(candidate.pelaksanaan);
+        return parsed ? formatDateDisplay(parsed, 'short') : candidate.pelaksanaan;
+    }
+    const raw = Number(candidate.sesi);
+    if (!isNaN(raw) && raw > 0 && Array.isArray(sortedDates) && sortedDates.length > 0) {
+        const conv = convertCumulativeSessionToDaily(raw, sortedDates);
+        return conv.targetPelaksanaan || null;
+    }
+    return null;
+}
+
+/**
+ * Mendapatkan sesi harian (1, 2, atau 3) seorang kandidat
+ * (Mengutamakan candidate.sesi jika tanggal terisi, atau targetDailySesi dari konversi sesi kumulatif jika pelaksanaan NULL)
+ * @param {Object} candidate 
+ * @param {Array<string>} sortedDates 
+ * @returns {number} 1, 2, 3, atau 0 (jika belum terjadwal)
+ */
+export function getCandidateDailySession(candidate, sortedDates) {
+    if (!candidate) return 0;
+    const raw = Number(candidate.sesi);
+    if (isNaN(raw) || raw <= 0) return 0;
+    if (candidate.pelaksanaan && candidate.pelaksanaan !== 'NULL' && candidate.pelaksanaan !== '-') {
+        return raw;
+    }
+    if (Array.isArray(sortedDates) && sortedDates.length > 0) {
+        const conv = convertCumulativeSessionToDaily(raw, sortedDates);
+        return conv.targetDailySesi || raw;
+    }
+    return raw;
 }
 
 

@@ -8,7 +8,15 @@
  * 4. Menyediakan antarmuka komparasi ala Windows dengan checkbox individual (Keep vs Replace) dan Select All.
  */
 
-import { calculateCumulativeSessionNumber, convertCumulativeSessionToDaily } from './sessionRules.js';
+import { 
+    calculateCumulativeSessionNumber, 
+    convertCumulativeSessionToDaily,
+    parseFlexibleDate,
+    formatDateDisplay,
+    getSessionTime,
+    formatCumulativeSessionNumber,
+    getMaxSessionsForDate
+} from './sessionRules.js';
 
 
 // Mapping kolom fleksibel untuk file hasil sistem pasca ujian
@@ -21,8 +29,8 @@ const AUDIT_HEADER_ALIASES = {
     namaInstansi: ['nama instansi', 'nama_instansi', 'instansi', 'pemerintah daerah', 'pemda', 'nama pemerintah daerah'],
     unitKerja: ['unit kerja', 'unit_kerja', 'opd', 'skpd', 'satker', 'bagian', 'bidang', 'dinas', 'badan'],
     jenisTes: ['jenis tes', 'jenis_tes', 'tes', 'jenis ujian'],
-    login: ['login', 'waktu login', 'jam login', 'tgl login', 'login time', 'waktu_login'],
-    selesai: ['selesai', 'waktu selesai', 'jam selesai', 'tgl selesai', 'selesai time', 'waktu_selesai']
+    login: ['login', 'waktu login', 'jam login', 'tgl login', 'login time', 'waktu_login', 'login_time'],
+    selesai: ['selesai', 'waktu selesai', 'jam selesai', 'tgl selesai', 'selesai time', 'waktu_selesai', 'selesai_time']
 };
 
 /**
@@ -229,27 +237,106 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
         matchedCount++;
         const changes = [];
 
-        // 1. Cek Sesi (Membandingkan SESI AKUMULASI / KUMULATIF bukan sesi harian, otomatis deteksi Jumat = 2 sesi)
-        if (row.sesi !== null && row.sesi !== undefined) {
-            const newCumSesi = Number(row.sesi);
-            const curCumSesi = calculateCumulativeSessionNumber(existingCand, sortedDates);
-            
-            if (curCumSesi !== newCumSesi) {
-                // Tentukan target sesi harian (1, 2, atau 3) dan tanggal pelaksanaan jika ada sortedDates
-                const { targetPelaksanaan, targetDailySesi, scheduleDetail } = convertCumulativeSessionToDaily(newCumSesi, sortedDates);
+        // 1. Cek Tanggal Pelaksanaan dari Waktu Login (Login Time)
+        let loginDateFormatted = null;
+        if (row.login && row.login !== '-' && row.login !== 'NULL') {
+            const loginDateObj = parseFlexibleDate(row.login);
+            if (loginDateObj) {
+                loginDateFormatted = formatDateDisplay(loginDateObj, 'short');
+            }
+        }
 
-                changes.push({
-                    field: 'sesi',
-                    label: 'Sesi Akumulasi',
-                    category: 'sesi',
-                    oldValue: curCumSesi !== null ? `Sesi Akumulasi ${curCumSesi}` : 'Belum Terjadwal (Sesi 00)',
-                    newValue: `Sesi Akumulasi ${newCumSesi}`,
-                    rawNewValue: targetDailySesi, // Nilai sesi harian (1, 2, 3) yang aman untuk database
-                    targetPelaksanaan: targetPelaksanaan || existingCand.pelaksanaan, // Tanggal pelaksanaan hasil penyesuaian sesi akumulasi
-                    newCumulativeSesi: newCumSesi,
-                    reason: `Penyesuaian sesi akumulasi pasca ujian: ${scheduleDetail}`
-                });
-                sesiChangedCount++;
+        // Target tanggal pelaksanaan diutamakan dari tanggal pada login time
+        let targetPelaksanaan = loginDateFormatted || (existingCand.pelaksanaan && existingCand.pelaksanaan !== 'NULL' && existingCand.pelaksanaan !== '-' ? existingCand.pelaksanaan : null);
+
+        // Jika ada login time yang valid dan tanggal pelaksanaan di database berbeda / masih NULL, catat perubahan
+        if (loginDateFormatted && existingCand.pelaksanaan !== loginDateFormatted) {
+            changes.push({
+                field: 'pelaksanaan',
+                label: 'Tanggal Pelaksanaan',
+                category: 'sesi',
+                oldValue: existingCand.pelaksanaan || 'NULL',
+                newValue: loginDateFormatted,
+                rawNewValue: loginDateFormatted,
+                reason: `Tanggal pelaksanaan diambil dari waktu login: ${row.login}`
+            });
+        }
+
+        // 2. Cek Sesi dan Waktu Ujian dari Kolom Sesi
+        if (row.sesi !== null && row.sesi !== undefined && String(row.sesi).trim() !== '') {
+            const rawSesiNum = Number(row.sesi);
+            if (!isNaN(rawSesiNum) && rawSesiNum > 0) {
+                // Jika targetPelaksanaan belum ada, coba dapatkan dari konversi sesi akumulasi
+                if (!targetPelaksanaan && Array.isArray(sortedDates) && sortedDates.length > 0) {
+                    const conv = convertCumulativeSessionToDaily(rawSesiNum, sortedDates);
+                    targetPelaksanaan = conv.targetPelaksanaan;
+                }
+
+                let dayIdx = -1;
+                if (targetPelaksanaan && Array.isArray(sortedDates)) {
+                    dayIdx = sortedDates.indexOf(targetPelaksanaan);
+                }
+
+                let preceding = 0;
+                if (dayIdx !== -1) {
+                    for (let i = 0; i < dayIdx; i++) {
+                        preceding += getMaxSessionsForDate(sortedDates[i]);
+                    }
+                }
+
+                let dailySesi = rawSesiNum;
+                let newCumSesi = rawSesiNum;
+
+                if (dayIdx !== -1) {
+                    const maxToday = getMaxSessionsForDate(targetPelaksanaan);
+                    if (rawSesiNum > maxToday) {
+                        // row.sesi adalah nomor sesi akumulasi (misal 4, 5, 6...)
+                        newCumSesi = rawSesiNum;
+                        dailySesi = Math.max(1, Math.min(rawSesiNum - preceding, maxToday));
+                    } else {
+                        // row.sesi adalah nomor sesi harian (1, 2, atau 3)
+                        dailySesi = rawSesiNum;
+                        newCumSesi = preceding + dailySesi;
+                    }
+                } else if (Array.isArray(sortedDates) && sortedDates.length > 0) {
+                    const conv = convertCumulativeSessionToDaily(rawSesiNum, sortedDates);
+                    dailySesi = conv.targetDailySesi;
+                    newCumSesi = rawSesiNum;
+                    targetPelaksanaan = targetPelaksanaan || conv.targetPelaksanaan;
+                }
+
+                const curCumSesi = calculateCumulativeSessionNumber(existingCand, sortedDates);
+                const curDailySesi = Number(existingCand.sesi) || null;
+
+                // Cek perubahan sesi (baik sesi harian, sesi akumulasi, ataupun jika pelaksanaan sebelumnya masih NULL)
+                if (curCumSesi !== newCumSesi || curDailySesi !== dailySesi || !existingCand.pelaksanaan || existingCand.pelaksanaan === 'NULL') {
+                    changes.push({
+                        field: 'sesi',
+                        label: 'Sesi Akumulasi',
+                        category: 'sesi',
+                        oldValue: curCumSesi !== null ? `Sesi ${curDailySesi || curCumSesi} (Akumulasi ${formatCumulativeSessionNumber(curCumSesi)})` : 'Belum Terjadwal (Sesi 00)',
+                        newValue: `Sesi ${dailySesi} (Akumulasi ${formatCumulativeSessionNumber(newCumSesi)})`,
+                        rawNewValue: dailySesi,
+                        targetPelaksanaan: targetPelaksanaan || existingCand.pelaksanaan,
+                        newCumulativeSesi: newCumSesi,
+                        reason: `Penyesuaian sesi dari audit pasca ujian`
+                    });
+                    sesiChangedCount++;
+                }
+
+                // Baris waktu diisikan terbaru dengan mengikuti kolom sesi
+                const standardTime = getSessionTime(dailySesi, targetPelaksanaan || existingCand.pelaksanaan);
+                if (standardTime && standardTime !== '-' && existingCand.waktu !== standardTime) {
+                    changes.push({
+                        field: 'waktu',
+                        label: 'Waktu Ujian',
+                        category: 'waktu',
+                        oldValue: existingCand.waktu || 'NULL',
+                        newValue: standardTime,
+                        rawNewValue: standardTime,
+                        reason: `Waktu pelaksanaan disesuaikan untuk Sesi ${dailySesi}`
+                    });
+                }
             }
         }
 
@@ -368,7 +455,7 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
                 excelRow: row,
                 changes,
                 hasKehadiranChange: changes.some(c => c.field === 'kehadiran'),
-                hasSesiChange: changes.some(c => c.field === 'sesi')
+                hasSesiChange: changes.some(c => c.field === 'sesi' || c.field === 'pelaksanaan' || c.field === 'waktu')
             });
         }
     });

@@ -19,7 +19,9 @@ import {
     getCurrentWitDate,
     determineActiveSessionByTime,
     findRelevantExamDate,
-    getMaxSessionsForDate
+    getMaxSessionsForDate,
+    getCandidateEffectiveDate,
+    getCandidateDailySession
 } from './sessionRules.js';
 import { 
     parseExcelFile, 
@@ -608,7 +610,7 @@ function populateDashboardFilterTanggalDropdown() {
     uniqueDates.forEach(d => {
         const isChecked = selectedDashboardDates.has(d);
         const fri = isFriday(d);
-        const totalPesertaDate = currentCandidates.filter(c => c.pelaksanaan === d).length;
+        const totalPesertaDate = currentCandidates.filter(c => getCandidateEffectiveDate(c, uniqueDates) === d).length;
 
         html += `
             <label class="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer select-none transition border border-transparent hover:border-slate-200">
@@ -767,12 +769,17 @@ function renderDashboardStats() {
     const isAllDatesSelected = uniqueDates.length > 0 && selectedDashboardDates.size === uniqueDates.length;
     const dashboardCandidates = selectedDashboardDates.size === 0
         ? []
-        : (isAllDatesSelected ? currentCandidates : currentCandidates.filter(c => selectedDashboardDates.has(c.pelaksanaan)));
+        : (isAllDatesSelected 
+            ? currentCandidates 
+            : currentCandidates.filter(c => {
+                const effDate = getCandidateEffectiveDate(c, uniqueDates);
+                return effDate && selectedDashboardDates.has(effDate);
+            }));
 
     const total = dashboardCandidates.length;
-    const s1 = dashboardCandidates.filter(c => c.sesi === 1).length;
-    const s2 = dashboardCandidates.filter(c => c.sesi === 2).length;
-    const s3 = dashboardCandidates.filter(c => c.sesi === 3).length;
+    const s1 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 1).length;
+    const s2 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 2).length;
+    const s3 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 3).length;
 
     // Hitung Kehadiran
     const hadir = dashboardCandidates.filter(c => c.kehadiran === 'HADIR').length;
@@ -807,9 +814,9 @@ function renderDashboardStats() {
     // Filter badge counts di Tab Jadwal (selalu mencerminkan total keseluruhan ujian aktif)
     const grandTotal = currentCandidates.length;
     const grandS0 = currentCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0).length;
-    const grandS1 = currentCandidates.filter(c => Number(c.sesi) === 1).length;
-    const grandS2 = currentCandidates.filter(c => Number(c.sesi) === 2).length;
-    const grandS3 = currentCandidates.filter(c => Number(c.sesi) === 3).length;
+    const grandS1 = currentCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 1).length;
+    const grandS2 = currentCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 2).length;
+    const grandS3 = currentCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 3).length;
 
     const cfAll = document.getElementById('countFilterAll');
     const cf0 = document.getElementById('countFilter0');
@@ -2562,7 +2569,7 @@ function renderCumulativeSessionCards() {
             if (cumNum === null) continue;
 
             const cumFormatted = formatCumulativeSessionNumber(cumNum);
-            const candCount = currentCandidates.filter(c => c.pelaksanaan === dateStr && Number(c.sesi) === s).length;
+            const candCount = currentCandidates.filter(c => getCumulativeSessionNumber(c, sortedDates) === cumNum).length;
             const timeStr = getSessionTime(s, dateStr);
 
             // Kondisi aktif:
@@ -2766,6 +2773,8 @@ function autoApplyLiveSessionFilter(showResetToast = false) {
     const inputTyping = document.getElementById('inputFilterSesiTyping');
     const selectSesi = document.getElementById('selectFilterSesiDropdown');
 
+    populatePelaksanaanFilterDropdown();
+
     if (!schedule.isOutsideSessionHours && schedule.activeCumNum) {
         // Sedang dalam jam sesi aktif:
         currentDateFilter = schedule.relevantDate;
@@ -2875,37 +2884,62 @@ function populateSesiFilterDropdown(selectedDate = 'ALL') {
 
     const sortedDates = getSortedExamDates();
 
-    // Saring kandidat sesuai tanggal jika dipilih
-    const poolCandidates = (selectedDate && selectedDate !== 'ALL')
-        ? currentCandidates.filter(c => c.pelaksanaan === selectedDate)
-        : currentCandidates;
-
-    // Kumpulkan peserta yang belum terjadwal (Sesi 00 / NULL)
-    const countSesi00 = poolCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length;
-
-    // Kumpulkan seluruh sesi kumulatif unik pada pool ini
+    // 1. Bangun slot sesi berdasarkan kalender jadwal ujian
     const sessionMap = new Map();
-    poolCandidates.forEach(c => {
-        const cum = getCumulativeSessionNumber(c, sortedDates);
-        if (cum !== null) {
-            if (!sessionMap.has(cum)) {
+
+    const targetDates = (selectedDate && selectedDate !== 'ALL')
+        ? [selectedDate]
+        : sortedDates;
+
+    targetDates.forEach(d => {
+        const dayMax = getMaxSessionsForDate(d);
+        for (let s = 1; s <= dayMax; s++) {
+            const cum = calculateCumulativeSessionNumber({ pelaksanaan: d, sesi: s }, sortedDates);
+            if (cum !== null) {
                 sessionMap.set(cum, {
                     cumNum: cum,
                     formattedCum: formatCumulativeSessionNumber(cum),
-                    dateStr: c.pelaksanaan,
-                    dailySession: c.sesi,
+                    dateStr: d,
+                    dailySession: s,
                     count: 0
                 });
             }
-            sessionMap.get(cum).count++;
         }
     });
+
+    // 2. Hitung jumlah peserta untuk masing-masing sesi
+    let countSesi00 = 0;
+    if (Array.isArray(currentCandidates)) {
+        currentCandidates.forEach(c => {
+            const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
+            if (isSesi00) {
+                countSesi00++;
+                return;
+            }
+
+            const cum = getCumulativeSessionNumber(c, sortedDates);
+            if (cum !== null) {
+                if (sessionMap.has(cum)) {
+                    sessionMap.get(cum).count++;
+                } else if (selectedDate === 'ALL') {
+                    const conv = convertCumulativeSessionToDaily(cum, sortedDates);
+                    sessionMap.set(cum, {
+                        cumNum: cum,
+                        formattedCum: formatCumulativeSessionNumber(cum),
+                        dateStr: conv.targetPelaksanaan || '-',
+                        dailySession: conv.targetDailySesi || c.sesi,
+                        count: 1
+                    });
+                }
+            }
+        });
+    }
 
     const sortedSessions = Array.from(sessionMap.values()).sort((a, b) => a.cumNum - b.cumNum);
 
     let defaultText = selectedDate === 'ALL'
         ? `-- Sesi (${sortedSessions.length > 0 ? `01 s.d. ${formatCumulativeSessionNumber(sortedSessions[sortedSessions.length - 1].cumNum)}` : '0 Sesi'}) --`
-        : `-- Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
+        : `-- Seluruh Sesi di Tanggal Ini (${sortedSessions.length} Sesi) --`;
 
     let html = `<option value="ALL">${defaultText}</option>`;
 
@@ -3022,8 +3056,62 @@ function dateToISOInput(dateInput) {
  * Mendapatkan daftar tanggal pelaksanaan unik yang terurut secara kronologis
  */
 function getSortedExamDates() {
-    const dateStrings = Array.from(new Set(currentCandidates.map(c => c.pelaksanaan).filter(p => p && p !== 'NULL' && p !== '-')));
-    return dateStrings.sort((a, b) => {
+    const dateSet = new Set();
+
+    const activeExam = currentExam || (typeof getSelectedExamId === 'function' && Array.isArray(allExams) ? allExams.find(e => e.id === getSelectedExamId()) : null) || window.currentExam;
+
+    // 1. Ambil tanggal mulai dari Create Ujian (startDate s.d. endDate atau akumulasi sesi yang ada)
+    if (activeExam && activeExam.startDate) {
+        const start = parseFlexibleDate(activeExam.startDate);
+        if (start) {
+            const end = activeExam.endDate ? parseFlexibleDate(activeExam.endDate) : null;
+            const maxCandSesi = Array.isArray(currentCandidates) 
+                ? currentCandidates.reduce((max, c) => Math.max(max, Number(c.sesi) || 0), 0)
+                : 0;
+            
+            let cur = new Date(start.getTime());
+            let cumCap = 0;
+            let limitDays = 0;
+
+            // Loop hari demi hari (lewati hari Minggu) sampai mencakup endDate DAN maxCandSesi (minimal 1 hari)
+            while (limitDays < 60) {
+                if (!isSunday(cur)) {
+                    dateSet.add(formatDateDisplay(cur, 'short'));
+                    const dailyCap = getMaxSessionsForDate(cur);
+                    cumCap += dailyCap;
+                }
+                
+                const reachedEnd = end ? (cur >= end) : false;
+                const reachedSesi = maxCandSesi > 0 ? (cumCap >= maxCandSesi) : true;
+                
+                if (reachedEnd && reachedSesi && limitDays > 0) {
+                    break;
+                }
+                
+                cur.setDate(cur.getDate() + 1);
+                limitDays++;
+
+                if (limitDays >= 1 && (end ? cur > end : true) && (maxCandSesi > 0 ? cumCap >= maxCandSesi : true)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    // 2. Tambahkan tanggal yang ada di data peserta
+    if (Array.isArray(currentCandidates)) {
+        currentCandidates.forEach(c => {
+            if (c.pelaksanaan && c.pelaksanaan !== 'NULL' && c.pelaksanaan !== '-') {
+                const parsed = parseFlexibleDate(c.pelaksanaan);
+                if (parsed && !isSunday(parsed)) {
+                    dateSet.add(formatDateDisplay(parsed, 'short'));
+                }
+            }
+        });
+    }
+
+    // 3. Urutkan secara kronologis
+    return Array.from(dateSet).sort((a, b) => {
         const da = parseFlexibleDate(a);
         const db = parseFlexibleDate(b);
         const ta = da ? da.getTime() : 0;
@@ -3342,23 +3430,27 @@ function applyCandidateFilters(resetPage = true) {
         // Filter Sesi Kumulatif & Harian (Prioritas Tinggi)
         if (currentCumulativeSessionFilter === '00' || currentSessionFilter === '00') {
             if (!isSesi00) return false;
-        } else {
-            // Filter Tanggal (jika bukan filter sesi 00)
-            if (currentDateFilter !== 'ALL' && c.pelaksanaan !== currentDateFilter) {
+        } else if (currentCumulativeSessionFilter !== 'ALL') {
+            // Filter Sesi Kumulatif spesifik (misal Sesi 4)
+            if (isSesi00) return false;
+            const cum = getCumulativeSessionNumber(c, sortedDates);
+            if (cum !== Number(currentCumulativeSessionFilter)) {
                 return false;
             }
-
-            // Filter Sesi Kumulatif (1..36)
-            if (currentCumulativeSessionFilter !== 'ALL') {
-                if (isSesi00) return false;
-                const cum = getCumulativeSessionNumber(c, sortedDates);
-                if (cum !== Number(currentCumulativeSessionFilter)) {
+        } else {
+            // Filter Tanggal (jika Sesi Kumulatif ALL)
+            if (currentDateFilter !== 'ALL') {
+                const candDate = getCandidateEffectiveDate(c, sortedDates);
+                if (candDate !== currentDateFilter) {
                     return false;
                 }
-            } else if (currentSessionFilter !== 'ALL') {
-                // Filter Sesi Harian (1, 2, 3) jika sesi kumulatif ALL
+            }
+
+            // Filter Sesi Harian (1, 2, 3) jika sesi kumulatif ALL
+            if (currentSessionFilter !== 'ALL') {
                 if (isSesi00) return false;
-                if (Number(c.sesi) !== Number(currentSessionFilter)) {
+                const dailyS = getCandidateDailySession(c, sortedDates);
+                if (dailyS !== Number(currentSessionFilter)) {
                     return false;
                 }
             }
@@ -3427,8 +3519,8 @@ function applyCandidateFilters(resetPage = true) {
                 valB = String(b.jabatan || '');
                 break;
             case 'pelaksanaan': {
-                const da = parseFlexibleDate(a.pelaksanaan);
-                const db = parseFlexibleDate(b.pelaksanaan);
+                const da = parseFlexibleDate(getCandidateEffectiveDate(a, sortedDates));
+                const db = parseFlexibleDate(getCandidateEffectiveDate(b, sortedDates));
                 valA = da ? da.getTime() : 0;
                 valB = db ? db.getTime() : 0;
                 break;
@@ -3747,9 +3839,13 @@ function onCandidateVirtualScroll() {
 
 function renderCandidateRowHtml(c, globalIdx, sortedDates) {
     const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
-    const isNullDate = !c.pelaksanaan || c.pelaksanaan === 'NULL' || c.pelaksanaan === '-';
+    const effDate = getCandidateEffectiveDate(c, sortedDates);
+    const isNullDate = !effDate || effDate === 'NULL' || effDate === '-' || effDate === 'Belum Terjadwal';
     const isNullSchedule = isNullDate || isSesi00;
-    const isFriSession2 = !isNullSchedule && c.isFriday && Number(c.sesi) === 2;
+    const dailySesi = getCandidateDailySession(c, sortedDates);
+    const parsedDate = effDate ? parseFlexibleDate(effDate) : null;
+    const isFri = parsedDate ? isFriday(parsedDate) : false;
+    const isFriSession2 = !isNullSchedule && isFri && dailySesi === 2;
     const cumSesi = isNullSchedule ? null : getCumulativeSessionNumber(c, sortedDates);
     const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
     const isNullUnit = !c.unitKerja || c.unitKerja === 'NULL' || c.unitKerja === '-';
@@ -3757,9 +3853,9 @@ function renderCandidateRowHtml(c, globalIdx, sortedDates) {
     const rawKel = String(c.kelJabatan || '').trim();
     const isKelEmpty = !rawKel || rawKel === '-' || rawKel === 'NULL';
 
-    const sesiColorBadge = Number(c.sesi) === 1 
+    const sesiColorBadge = dailySesi === 1 
         ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-        : (Number(c.sesi) === 2 
+        : (dailySesi === 2 
             ? 'bg-amber-100 text-amber-800 border border-amber-200' 
             : 'bg-emerald-100 text-emerald-800 border border-emerald-200');
 
@@ -3791,8 +3887,8 @@ function renderCandidateRowHtml(c, globalIdx, sortedDates) {
                 ${isNullDate ? `
                     <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">NULL</span>
                 ` : `
-                    <span class="font-semibold text-slate-800 text-[11px]">${c.pelaksanaan}</span>
-                    ${c.isFriday ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-0.5">Jumat</span>' : ''}
+                    <span class="font-semibold text-slate-800 text-[11px]">${effDate}</span>
+                    ${isFri ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded ml-0.5">Jumat</span>' : ''}
                 `}
             </td>
             <td class="p-2 text-center whitespace-nowrap">
@@ -3808,7 +3904,7 @@ function renderCandidateRowHtml(c, globalIdx, sortedDates) {
                 ` : `
                     <div class="inline-flex items-center justify-center gap-1">
                         <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${sesiColorBadge}">
-                            S${c.sesi}
+                            S${dailySesi}
                         </span>
                         <span class="px-1 py-0.5 rounded text-[10px] font-extrabold bg-slate-800 text-white shadow-xs border border-slate-700" title="Sesi Kumulatif: ${cumSesiFormatted}">
                             ${cumSesiFormatted}
@@ -4237,40 +4333,7 @@ function setupManualCandidateForm() {
  * Mendapatkan daftar tanggal riil pelaksanaan ujian yang tersedia (startDate s.d. endDate & data peserta)
  */
 function getAvailableExamDates() {
-    const dateSet = new Set();
-
-    // 1. Dari jadwal create ujian pertama kali (startDate s.d. endDate)
-    if (currentExam && currentExam.startDate) {
-        const start = parseFlexibleDate(currentExam.startDate);
-        const end = currentExam.endDate ? parseFlexibleDate(currentExam.endDate) : start;
-        if (start && end) {
-            const cur = new Date(start.getTime());
-            let limit = 0;
-            while (cur <= end && limit < 60) {
-                dateSet.add(formatDateDisplay(cur, 'short'));
-                cur.setDate(cur.getDate() + 1);
-                limit++;
-            }
-        } else if (start) {
-            dateSet.add(formatDateDisplay(start, 'short'));
-        }
-    }
-
-    // 2. Tambahkan tanggal yang sudah ada di data peserta
-    currentCandidates.forEach(c => {
-        if (c.pelaksanaan && c.pelaksanaan !== 'NULL' && c.pelaksanaan !== '-') {
-            dateSet.add(c.pelaksanaan);
-        }
-    });
-
-    // 3. Urutkan secara kronologis
-    const sorted = Array.from(dateSet).sort((a, b) => {
-        const da = parseFlexibleDate(a);
-        const db = parseFlexibleDate(b);
-        return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
-    });
-
-    return sorted;
+    return getSortedExamDates();
 }
 
 /**
@@ -4293,7 +4356,7 @@ function populateManualCandidateDateOptions(selectedDate = '') {
     let html = `<option value="">-- Pilih Tanggal Pelaksanaan --</option>`;
     dates.forEach(d => {
         const fri = isFriday(d);
-        const count = currentCandidates.filter(c => c.pelaksanaan === d).length;
+        const count = currentCandidates.filter(c => getCandidateEffectiveDate(c, dates) === d).length;
         const countBadge = count > 0 ? `${count} Peserta` : '0 Peserta (Tersedia)';
         const label = `${d}${fri ? ' (Jumat)' : ''} — [${countBadge}]`;
         html += `<option value="${d}">${label}</option>`;
@@ -4314,7 +4377,7 @@ function populateManualCandidateDateOptions(selectedDate = '') {
         if (matched) {
             select.value = matched;
         } else {
-            const count = currentCandidates.filter(c => c.pelaksanaan === selectedDate).length;
+            const count = currentCandidates.filter(c => getCandidateEffectiveDate(c, dates) === selectedDate).length;
             const countBadge = count > 0 ? `${count} Peserta` : '0 Peserta (Tersedia)';
             const newOpt = document.createElement('option');
             newOpt.value = selectedDate;
@@ -4337,12 +4400,13 @@ function populateManualCandidateSessionOptions(selectedSesi = 1, targetDate = ''
 
     const curDate = targetDate || (document.getElementById('inputManualPelaksanaan') ? document.getElementById('inputManualPelaksanaan').value.trim() : '');
     const fri = isFriday(curDate);
+    const allExamDates = getSortedExamDates();
 
     // Hitung peserta existing di tanggal ini per sesi
-    const candsOnDate = currentCandidates.filter(c => c.pelaksanaan === curDate);
-    const countS1 = candsOnDate.filter(c => Number(c.sesi) === 1).length;
-    const countS2 = candsOnDate.filter(c => Number(c.sesi) === 2).length;
-    const countS3 = candsOnDate.filter(c => Number(c.sesi) === 3).length;
+    const candsOnDate = currentCandidates.filter(c => getCandidateEffectiveDate(c, allExamDates) === curDate);
+    const countS1 = candsOnDate.filter(c => getCandidateDailySession(c, allExamDates) === 1).length;
+    const countS2 = candsOnDate.filter(c => getCandidateDailySession(c, allExamDates) === 2).length;
+    const countS3 = candsOnDate.filter(c => getCandidateDailySession(c, allExamDates) === 3).length;
     const countS0 = candsOnDate.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length;
 
     const sessions = [
@@ -4437,10 +4501,14 @@ window.editCandidate = (candidateIdOrNip) => {
     document.getElementById('inputManualUnitKerja').value = cand.unitKerja || '';
     document.getElementById('inputManualJabatan').value = cand.jabatan || '';
 
-    populateManualCandidateDateOptions(cand.pelaksanaan);
-    const curDate = document.getElementById('inputManualPelaksanaan').value || cand.pelaksanaan;
-    populateManualCandidateSessionOptions(cand.sesi || 1, curDate);
-    document.getElementById('inputManualWaktu').value = cand.waktu || getSessionTime(cand.sesi || 1, curDate);
+    const sortedDates = getSortedExamDates();
+    const effDate = getCandidateEffectiveDate(cand, sortedDates);
+    const dailyS = getCandidateDailySession(cand, sortedDates);
+
+    populateManualCandidateDateOptions(effDate);
+    const curDate = document.getElementById('inputManualPelaksanaan').value || effDate;
+    populateManualCandidateSessionOptions(dailyS || 1, curDate);
+    document.getElementById('inputManualWaktu').value = cand.waktu || getSessionTime(dailyS || 1, curDate);
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -4495,15 +4563,17 @@ window.printOfficialSchedule = () => {
     const sessionsMap = new Map();
     presensiCandidates.forEach(c => {
         const cum = getCumulativeSessionNumber(c, sortedDates) || 0;
-        const key = `${c.pelaksanaan || 'Tanpa Tanggal'}___${c.sesi || 0}`;
+        const effDate = getCandidateEffectiveDate(c, sortedDates) || 'Tanpa Tanggal';
+        const dailyS = getCandidateDailySession(c, sortedDates) || c.sesi || '-';
+        const key = `${effDate}___${dailyS}`;
         if (!sessionsMap.has(key)) {
             sessionsMap.set(key, {
                 key: key,
                 cumNum: cum,
                 cumFormatted: formatCumulativeSessionNumber(cum),
-                dailySession: c.sesi || '-',
-                date: c.pelaksanaan || '-',
-                waktu: c.waktu || '-',
+                dailySession: dailyS,
+                date: effDate,
+                waktu: c.waktu || getSessionTime(dailyS, effDate) || '-',
                 candidates: []
             });
         }
@@ -5437,9 +5507,12 @@ function renderRekapModalTables() {
 
     const candidatesToRekap = isAllDates
         ? currentCandidates
-        : currentCandidates.filter(c => selectedDashboardDates.has(c.pelaksanaan));
+        : currentCandidates.filter(c => {
+            const effDate = getCandidateEffectiveDate(c, uniqueDates);
+            return effDate && selectedDashboardDates.has(effDate);
+        });
 
-    if (candidatesToRekap.length === 0 || activeDates.length === 0) {
+    if (candidatesToRekap.length === 0 || (activeDates.length === 0 && !isAllDates)) {
         const emptyMsg = `<div class="p-8 text-center text-slate-400 text-xs italic">Belum ada data peserta untuk tanggal yang dipilih.</div>`;
         if (tableKelContainer) tableKelContainer.innerHTML = emptyMsg;
         if (tableSesiContainer) tableSesiContainer.innerHTML = emptyMsg;
@@ -5465,7 +5538,7 @@ function renderRekapModalTables() {
     let hasAnyKosong = false;
 
     activeDates.forEach(dateStr => {
-        const candsDate = candidatesToRekap.filter(c => c.pelaksanaan === dateStr);
+        const candsDate = candidatesToRekap.filter(c => getCandidateEffectiveDate(c, uniqueDates) === dateStr);
         const dayIdx = Math.max(0, uniqueDates.indexOf(dateStr));
         const rowData = {
             date: dateStr,
@@ -5509,26 +5582,20 @@ function renderRekapModalTables() {
         });
 
         // Rincian Akumulasi Sesi per Tanggal (Jumat otomatis 2 sesi)
-        const sessions = isFriday(dateStr) ? [1, 2] : [1, 2, 3];
-        const hasSession0 = candsDate.some(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0);
-        if (hasSession0) sessions.unshift(0);
-        if (isFriday(dateStr) && candsDate.some(c => Number(c.sesi) === 3)) {
-            sessions.push(3);
-        }
+        const dayMax = getMaxSessionsForDate(dateStr);
+        const sessions = [];
+        for (let s = 1; s <= dayMax; s++) sessions.push(s);
 
         sessions.forEach(s => {
-            const candsSession = candsDate.filter(c => {
-                if (s === 0) return !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0;
-                return Number(c.sesi) === s;
-            });
+            const candsSession = candsDate.filter(c => getCandidateDailySession(c, uniqueDates) === s);
 
-            if (candsSession.length > 0 || (s >= 1 && s <= (isFriday(dateStr) ? 2 : 3))) {
+            if (candsSession.length > 0 || (s >= 1 && s <= dayMax)) {
                 const cumSesiNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, uniqueDates) || ((dayIdx * 3) + s);
-                const label = s === 0 ? 'Belum Terjadwal (00)' : `Sesi ${s} [${cumSesiNum}]`;
+                const label = `Sesi ${s} [Akumulasi ${formatCumulativeSessionNumber(cumSesiNum)}]`;
 
                 const sessData = {
                     sesiNum: s,
-                    cumNum: s === 0 ? 0 : cumSesiNum,
+                    cumNum: cumSesiNum,
                     label: label,
                     hadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
                     tidakHadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
@@ -5570,6 +5637,44 @@ function renderRekapModalTables() {
 
         tab1Rows.push(rowData);
     });
+
+    // Tambahkan baris Belum Terjadwal (Sesi 00) jika Semua Tanggal dipilih dan ada peserta belum terjadwal
+    if (isAllDates) {
+        const candsBelum = candidatesToRekap.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0);
+        if (candsBelum.length > 0) {
+            const rowBelum = {
+                date: 'Belum Terjadwal (Sesi 00)',
+                dayIdx: 999,
+                hadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+                tidakHadir: { jpt: 0, admin: 0, pengawas: 0, jf: 0, pelaksana: 0, kosong: 0 },
+                total: candsBelum.length,
+                sessionBreakdown: []
+            };
+            candsBelum.forEach(c => {
+                const cls = classifyCandidateKelompok(c);
+                const isHadir = c.kehadiran === 'HADIR';
+                const isTidakHadir = c.kehadiran === 'TIDAK_HADIR';
+                const targetObj = isHadir ? rowBelum.hadir : (isTidakHadir ? rowBelum.tidakHadir : null);
+                let pilar = 'pelaksana';
+                if (cls.category === 'JPT_PRATAMA') pilar = 'jpt';
+                else if (cls.category === 'ADMINISTRATOR') pilar = 'admin';
+                else if (cls.category === 'PENGAWAS' || cls.category === 'ESELON_V') pilar = 'pengawas';
+                else if (cls.category === 'FUNGSIONAL') pilar = 'jf';
+                else if (cls.category === 'PELAKSANA') pilar = 'pelaksana';
+                else if (cls.category === 'KOSONG') {
+                    pilar = 'kosong';
+                    hasAnyKosong = true;
+                }
+                if (targetObj) targetObj[pilar]++;
+            });
+            ['jpt', 'admin', 'pengawas', 'jf', 'pelaksana', 'kosong'].forEach(k => {
+                grandTab1.hadir[k] += rowBelum.hadir[k];
+                grandTab1.tidakHadir[k] += rowBelum.tidakHadir[k];
+            });
+            grandTab1.total += rowBelum.total;
+            tab1Rows.push(rowBelum);
+        }
+    }
 
     currentRekapData.tab1Rows = tab1Rows;
     currentRekapData.grandTab1 = grandTab1;
@@ -5781,39 +5886,59 @@ function renderRekapModalTables() {
     let grandTotalSesi = 0;
 
     activeDates.forEach(dateStr => {
-        const candsDate = candidatesToRekap.filter(c => c.pelaksanaan === dateStr);
-        // Sesi yang ada di hari ini: 1, 2, 3 (dan bila ada null/00)
-        const sessions = [1, 2, 3];
-        const hasSession0 = candsDate.some(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0);
-        if (hasSession0) sessions.unshift(0);
+        const candsDate = candidatesToRekap.filter(c => getCandidateEffectiveDate(c, uniqueDates) === dateStr);
+        const dayMax = getMaxSessionsForDate(dateStr);
 
-        sessions.forEach(s => {
-            const candsSession = candsDate.filter(c => {
-                if (s === 0) return !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0;
-                return Number(c.sesi) === s;
+        for (let s = 1; s <= dayMax; s++) {
+            const candsSession = candsDate.filter(c => getCandidateDailySession(c, uniqueDates) === s);
+            const h = candsSession.filter(c => c.kehadiran === 'HADIR').length;
+            const th = candsSession.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+            const tot = candsSession.length;
+
+            const cumSesiNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, uniqueDates);
+            const cumLabel = cumSesiNum ? ` (Akumulasi ${formatCumulativeSessionNumber(cumSesiNum)})` : '';
+            const label = `Sesi ${s}${cumLabel}`;
+
+            tab2Rows.push({
+                date: dateStr,
+                sesi: label,
+                sesiNum: s,
+                hadir: h,
+                tidakHadir: th,
+                total: tot
             });
 
-            // Hanya tampilkan sesi jika ada pesertanya atau jika s in 1..3
-            if (candsSession.length > 0 || (s >= 1 && s <= 3)) {
-                const h = candsSession.filter(c => c.kehadiran === 'HADIR').length;
-                const th = candsSession.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
-                const tot = candsSession.length;
-
-                tab2Rows.push({
-                    date: dateStr,
-                    sesi: s === 0 ? 'Belum Terjadwal (00)' : `Sesi ${s}`,
-                    sesiNum: s,
-                    hadir: h,
-                    tidakHadir: th,
-                    total: tot
-                });
-
-                grandHadirSesi += h;
-                grandTidakHadirSesi += th;
-                grandTotalSesi += tot;
-            }
-        });
+            grandHadirSesi += h;
+            grandTidakHadirSesi += th;
+            grandTotalSesi += tot;
+        }
     });
+
+    // Jika filter mencakup semua tanggal dan ada peserta Belum Terjadwal
+    if (isAllDates) {
+        const candsBelum = candidatesToRekap.filter(c => {
+            const eff = getCandidateEffectiveDate(c, uniqueDates);
+            return !eff || eff === 'NULL' || eff === 'Belum Terjadwal';
+        });
+        if (candsBelum.length > 0) {
+            const h = candsBelum.filter(c => c.kehadiran === 'HADIR').length;
+            const th = candsBelum.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+            const tot = candsBelum.length;
+
+            tab2Rows.push({
+                date: 'Belum Terjadwal',
+                sesi: 'Belum Terjadwal (00)',
+                sesiNum: 0,
+                hadir: h,
+                tidakHadir: th,
+                total: tot
+            });
+
+            grandHadirSesi += h;
+            grandTidakHadirSesi += th;
+            grandTotalSesi += tot;
+        }
+    }
 
     currentRekapData.tab2Rows = tab2Rows;
     currentRekapData.grandTab2 = {
@@ -6220,6 +6345,7 @@ window.renderDetailKelJabatanTable = () => {
         return;
     }
 
+    const sortedDates = getSortedExamDates();
     tbody.innerHTML = list.map((c, idx) => {
         const isHadir = c.kehadiran === 'HADIR';
         const isTidakHadir = c.kehadiran === 'TIDAK_HADIR';
@@ -6233,8 +6359,14 @@ window.renderDetailKelJabatanTable = () => {
             badgeStatus = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>BELUM</span>`;
         }
 
-        const sesiText = (c.sesi !== undefined && c.sesi !== null && c.sesi !== 'NULL') ? `Sesi ${c.sesi}` : '-';
-        const tglText = c.pelaksanaan || '-';
+        const effDate = getCandidateEffectiveDate(c, sortedDates);
+        const dailyS = getCandidateDailySession(c, sortedDates);
+        const cumSesi = getCumulativeSessionNumber(c, sortedDates);
+        const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
+        const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
+
+        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Akumulasi ${cumSesiFormatted})` : (c.sesi ? `Sesi ${c.sesi}` : '-'));
+        const tglText = (effDate && effDate !== 'NULL' && effDate !== '-') ? effDate : '-';
 
         return `
             <tr class="hover:bg-slate-50 transition">
@@ -6259,17 +6391,26 @@ window.copyDetailKelJabatanToClipboard = () => {
         return;
     }
 
+    const sortedDates = getSortedExamDates();
     const header = ["No", "Status", "NIP", "Nama", "Jabatan", "Unit Kerja", "Tanggal", "Sesi"].join('\t');
-    const rows = currentDetailKelJabatanList.map((c, i) => [
-        i + 1,
-        c.kehadiran || 'BELUM PRESENSI',
-        `'${c.nip || ''}`,
-        c.nama || '',
-        c.jabatan || '',
-        c.unitKerja || '',
-        c.pelaksanaan || '',
-        c.sesi || ''
-    ].join('\t'));
+    const rows = currentDetailKelJabatanList.map((c, i) => {
+        const effDate = getCandidateEffectiveDate(c, sortedDates) || c.pelaksanaan || '';
+        const dailyS = getCandidateDailySession(c, sortedDates);
+        const cumSesi = getCumulativeSessionNumber(c, sortedDates);
+        const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
+        const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
+        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Akumulasi ${cumSesiFormatted})` : (c.sesi || ''));
+        return [
+            i + 1,
+            c.kehadiran || 'BELUM PRESENSI',
+            `'${c.nip || ''}`,
+            c.nama || '',
+            c.jabatan || '',
+            c.unitKerja || '',
+            effDate,
+            sesiText
+        ].join('\t');
+    });
 
     const text = [header, ...rows].join('\n');
     copyTextToClipboard(text, `Data ${currentDetailKelJabatanTitle} (${currentDetailKelJabatanList.length} peserta) berhasil disalin ke clipboard!`);
@@ -6581,7 +6722,7 @@ function setupAuditUI() {
             // Build change summary rows
             const changeRowsHtml = item.changes.map(ch => {
                 const isHadir = ch.field === 'kehadiran';
-                const isSesi = ch.field === 'sesi';
+                const isSesi = ch.field === 'sesi' || ch.field === 'pelaksanaan' || ch.field === 'waktu';
 
                 return `
                     <div class="py-1.5 border-b border-slate-100 last:border-0 grid grid-cols-12 gap-2 items-center text-xs">
@@ -6704,6 +6845,18 @@ function setupAuditUI() {
                         }
                     }
 
+                    if (ch.field === 'pelaksanaan') {
+                        countSesiUpdated++;
+                        const d = parseFlexibleDate(rawVal);
+                        const isFri = d ? isFriday(d) : false;
+                        updates[pathPrefix + 'isFriday'] = isFri;
+                        if (candInMem) candInMem.isFriday = isFri;
+                    }
+
+                    if (ch.field === 'waktu') {
+                        countSesiUpdated++;
+                    }
+
                     if (ch.field === 'kehadiran') {
                         countKehadiranUpdated++;
                         updates[pathPrefix + 'attendanceTimestamp'] = nowIso;
@@ -6711,8 +6864,8 @@ function setupAuditUI() {
                     }
                 });
 
-                // Set status Terjadwal jika sesi valid
-                if (item.changes.some(c => c.field === 'sesi')) {
+                // Set status Terjadwal jika sesi valid atau pelaksanaan terisi
+                if (item.changes.some(c => c.field === 'sesi' || c.field === 'pelaksanaan')) {
                     updates[pathPrefix + 'status'] = 'Terjadwal';
                     if (candInMem) candInMem.status = 'Terjadwal';
                 }
