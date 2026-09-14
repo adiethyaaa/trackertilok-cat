@@ -223,43 +223,12 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
         rowObj.no = parsedCandidates.length + 1;
         rowObj.kelJabatan = rowObj.kelJabatan && rowObj.kelJabatan !== '' ? rowObj.kelJabatan : '-';
         rowObj.jabatan = rowObj.jabatan && rowObj.jabatan !== '' ? rowObj.jabatan : '-';
-        if (effectiveMode === 'SYSTEM') {
-            // Pada file sistem: unit kerja dibiarkan 'NULL' (tidak mengambil nama instansi/template)
-            rowObj.unitKerja = 'NULL';
-            rowObj.pelaksanaan = 'NULL';
-            rowObj.sesi = '00'; // Diberikan nilai 00 agar bisa dipilih dan dipanggil di filter
-            rowObj.waktu = 'NULL';
-            rowObj.status = 'Belum Terjadwal';
-            rowObj.isFriday = false;
-        } else {
-            rowObj.unitKerja = rowObj.unitKerja && rowObj.unitKerja !== '' ? rowObj.unitKerja : (options.defaultInstansi || '-');
-            // Mode SCHEDULE (Jadwal)
-            let sesiNum = parseInt(rowObj.sesi, 10);
-            if (isNaN(sesiNum) || sesiNum < 1 || sesiNum > 3) {
-                sesiNum = 1;
-            }
-            rowObj.sesi = sesiNum;
-
-            if (!rowObj.pelaksanaan && options.defaultPelaksanaan) {
-                rowObj.pelaksanaan = options.defaultPelaksanaan;
-            }
-
-            if (rowObj.pelaksanaan && rowObj.pelaksanaan !== 'NULL') {
-                const parsedDate = parseFlexibleDate(rowObj.pelaksanaan);
-                if (parsedDate) {
-                    rowObj.pelaksanaan = formatDateDisplay(parsedDate, 'short');
-                    rowObj.isFriday = isFriday(parsedDate);
-                } else {
-                    rowObj.isFriday = false;
-                }
-            }
-
-            const standardTime = getSessionTime(rowObj.sesi, rowObj.pelaksanaan);
-            if (options.autoStandardizeTime || !rowObj.waktu || rowObj.waktu === '-' || rowObj.waktu.trim() === '') {
-                rowObj.waktu = standardTime;
-            }
-            rowObj.status = 'Terjadwal';
-        }
+        rowObj.unitKerja = rowObj.unitKerja && rowObj.unitKerja !== '' && rowObj.unitKerja !== 'NULL' ? rowObj.unitKerja : '-';
+        rowObj.pelaksanaan = 'NULL';
+        rowObj.sesi = '00';
+        rowObj.waktu = 'NULL';
+        rowObj.status = 'Belum Terjadwal';
+        rowObj.isFriday = false;
 
         parsedCandidates.push(rowObj);
     }
@@ -436,39 +405,160 @@ export function mergeScheduleWithExisting(incomingCandidates, existingCandidates
 }
 
 /**
- * Unduh template Excel Opsi 1: Data Master Peserta dari Sistem
- * Struktur kolom: NIP, Nama, Sesi, Jabatan, Kel Jabatan, Nama Instansi, Jenis Tes
+ * Memproses file Excel untuk melengkapi data Unit Kerja dan Jabatan peserta:
+ * 1. Membandingkan peserta semata-mata berdasarkan NIP.
+ * 2. Untuk kolom Unit Kerja dan Jabatan: jika di database peserta sudah memilikinya (tidak kosong/NULL),
+ *    maka JANGAN diabaikan dan JANGAN diubah (pertahankan nilai database).
+ * 3. Jika NIP tidak ditemukan di database, buat data peserta baru dengan status 'Belum Terjadwal' (sesi 00).
+ * 
+ * @param {Array} incomingCandidates Data peserta dari file Excel
+ * @param {Array} existingCandidates Data peserta yang ada di database
+ * @returns {Object}
  */
-export function downloadSystemTemplate() {
+export function processLengkapiDataExcel(incomingCandidates, existingCandidates = []) {
+    const existingMap = new Map();
+    existingCandidates.forEach(c => {
+        const clean = String(c.nip || '').trim();
+        if (clean) existingMap.set(clean, { ...c });
+    });
+
+    const updatedCandidates = [];
+    const newCandidates = [];
+    const unchangedCandidates = [];
+    const matchedNips = new Set();
+
+    incomingCandidates.forEach((cand) => {
+        const nip = String(cand.nip || '').trim();
+        if (!nip) return;
+
+        if (existingMap.has(nip)) {
+            matchedNips.add(nip);
+            const ex = existingMap.get(nip);
+
+            // ATURAN PROTEKSI INTEGRITAS DATA:
+            // Jika dalam database peserta sudah memilikinya, pertahankan nilai database!
+            const dbHasUnitKerja = ex.unitKerja && ex.unitKerja !== '-' && ex.unitKerja !== 'NULL' && ex.unitKerja.trim() !== '';
+            const dbHasJabatan = ex.jabatan && ex.jabatan !== '-' && ex.jabatan !== 'NULL' && ex.jabatan.trim() !== '';
+
+            const excelUnitKerja = (cand.unitKerja && cand.unitKerja !== '-' && cand.unitKerja !== 'NULL' && cand.unitKerja.trim() !== '')
+                ? cand.unitKerja.trim()
+                : null;
+            const excelJabatan = (cand.jabatan && cand.jabatan !== '-' && cand.jabatan !== 'NULL' && cand.jabatan.trim() !== '')
+                ? cand.jabatan.trim()
+                : null;
+
+            let wasModified = false;
+            let finalUnitKerja = ex.unitKerja || '-';
+            let finalJabatan = ex.jabatan || '-';
+
+            if (dbHasUnitKerja) {
+                finalUnitKerja = ex.unitKerja;
+            } else if (excelUnitKerja) {
+                finalUnitKerja = excelUnitKerja;
+                wasModified = true;
+            }
+
+            if (dbHasJabatan) {
+                finalJabatan = ex.jabatan;
+            } else if (excelJabatan) {
+                finalJabatan = excelJabatan;
+                wasModified = true;
+            }
+
+            const merged = {
+                ...ex,
+                unitKerja: finalUnitKerja,
+                jabatan: finalJabatan,
+                actionStatus: wasModified ? 'UPDATED' : 'PRESERVED'
+            };
+
+            if (wasModified) {
+                updatedCandidates.push(merged);
+            } else {
+                unchangedCandidates.push(merged);
+            }
+            existingMap.set(nip, merged);
+        } else {
+            // NIP tidak ditemukan di database -> BUAT DATA PESERTA BARU!
+            const cleanNama = String(cand.nama || 'Peserta Baru').trim();
+            const cleanUnitKerja = (cand.unitKerja && cand.unitKerja !== 'NULL') ? cand.unitKerja.trim() : '-';
+            const cleanJabatan = (cand.jabatan && cand.jabatan !== 'NULL') ? cand.jabatan.trim() : '-';
+
+            const newCand = {
+                id: cand.id || `cand_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`,
+                no: existingCandidates.length + newCandidates.length + 1,
+                nip: nip,
+                nama: cleanNama,
+                kelJabatan: cand.kelJabatan || '-',
+                unitKerja: cleanUnitKerja,
+                jabatan: cleanJabatan,
+                waktu: 'NULL',
+                pelaksanaan: 'NULL',
+                sesi: '00',
+                isFriday: false,
+                status: 'Belum Terjadwal',
+                kehadiran: 'BELUM',
+                actionStatus: 'NEW',
+                isNewCandidate: true
+            };
+            newCandidates.push(newCand);
+        }
+    });
+
+    const untouchedExisting = existingCandidates.filter(c => !matchedNips.has(String(c.nip || '').trim()));
+    const allMerged = [...Array.from(existingMap.values()), ...newCandidates];
+    allMerged.forEach((c, i) => { c.no = i + 1; });
+
+    return {
+        updatedCandidates,
+        newCandidates,
+        unchangedCandidates,
+        untouchedExisting,
+        allMerged,
+        matchedCount: matchedNips.size,
+        updatedCount: updatedCandidates.length,
+        preservedCount: unchangedCandidates.length,
+        newCount: newCandidates.length
+    };
+}
+
+/**
+ * Unduh template Excel: Lengkapi Data Peserta (NIP, Nama, Unit Kerja, Jabatan)
+ */
+export function downloadLengkapiDataTemplate() {
     if (typeof XLSX === 'undefined') {
         alert("Library Excel belum selesai dimuat.");
         return;
     }
 
-    const headers = ["NIP", "Nama", "Sesi", "Jabatan", "Kel Jabatan", "Nama Instansi", "Jenis Tes"];
-    
+    const headers = ["No", "NIP", "NAMA", "UNIT KERJA", "JABATAN"];
     const sampleData = [
-        ["197504202009041002", "DANIAL", "", "PENGADMINISTRASI PERKANTORAN", "Pelaksana", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"],
-        ["197608022005021003", "ROBBY LAHUMETEN", "", "Kepala BIDANG MUTASI", "Administrator", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"],
-        ["197702272009092001", "IVONE", "", "Kepala BIDANG INFORMASI DAN FORMASI", "Administrator", "Pemerintah Kab. Teluk Wondama", "Profiling Talenta ASN 2026"]
+        [1, "197809092014091001", "GARDEN SEMUEL KARUBUY", "DINAS KEPENDUDUKAN DAN PENCATATAN SIPIL", "ANALIS PENAGIHAN DAN PENGEMBALIAN"],
+        [2, "197812052014091002", "DARIUS AKWAN", "SUB BAGIAN UMUM DAN KEPEGAWAIAN - DINAS LINGKUNGAN HIDUP", "PENGADMINISTRASI UMUM"],
+        [3, "197902132015121001", "PIET ALFONS SPENNER WAROPEN", "BIDANG PERDAGANGAN - DINAS PERINDUSTRIAN, PERDAGANGAN DAN KOPERASI", "PENGADMINISTRASI UMUM"]
     ];
 
     const wsData = [headers, ...sampleData];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
     ws['!cols'] = [
+        { wch: 6 },  // No
         { wch: 24 }, // NIP
-        { wch: 35 }, // Nama
-        { wch: 8 },  // Sesi
-        { wch: 35 }, // Jabatan
-        { wch: 20 }, // Kel Jabatan
-        { wch: 35 }, // Nama Instansi
-        { wch: 30 }  // Jenis Tes
+        { wch: 35 }, // NAMA
+        { wch: 45 }, // UNIT KERJA
+        { wch: 35 }  // JABATAN
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Data Peserta Sistem");
-    XLSX.writeFile(wb, "Template_Data_Sistem_Profiling_ASN.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Lengkapi Data Peserta");
+    XLSX.writeFile(wb, "Template_Lengkapi_Data_Peserta.xlsx");
+}
+
+/**
+ * Unduh template Excel Opsi 1: Data Master Peserta dari Sistem (Legacy)
+ */
+export function downloadSystemTemplate() {
+    downloadLengkapiDataTemplate();
 }
 
 /**

@@ -393,7 +393,8 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
         }
 
         const key = rawNip.replace(/[.#$[\]/]/g, '_');
-        const hasValidSesi = c.sesi !== undefined && c.sesi !== null && c.sesi !== '' && c.sesi !== 'NULL' && !isNaN(Number(c.sesi));
+        const isSesi00 = c.sesi === '00' || c.sesi === 0 || c.sesi === '0' || String(c.sesi).trim() === '00' || c.status === 'Belum Terjadwal' || !c.pelaksanaan || c.pelaksanaan === 'NULL';
+        const hasValidSesi = !isSesi00 && c.sesi !== undefined && c.sesi !== null && c.sesi !== '' && c.sesi !== 'NULL' && !isNaN(Number(c.sesi)) && Number(c.sesi) > 0;
         updates['candidates/' + examId + '/' + key] = {
             examId: examId,
             no: c.no || (validCount + 1),
@@ -402,11 +403,11 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
             kelJabatan: String(c.kelJabatan || '-').trim(),
             unitKerja: String(c.unitKerja || '-').trim(),
             jabatan: String(c.jabatan || '-').trim(),
-            waktu: String(c.waktu || 'NULL').trim(),
-            pelaksanaan: String(c.pelaksanaan || 'NULL').trim(),
-            sesi: hasValidSesi ? Number(c.sesi) : 'NULL',
-            isFriday: Boolean(c.isFriday),
-            status: c.status || (hasValidSesi ? 'Terjadwal' : 'Belum Terjadwal'),
+            waktu: hasValidSesi ? String(c.waktu || 'NULL').trim() : 'NULL',
+            pelaksanaan: hasValidSesi ? String(c.pelaksanaan || 'NULL').trim() : 'NULL',
+            sesi: hasValidSesi ? Number(c.sesi) : '00',
+            isFriday: hasValidSesi ? Boolean(c.isFriday) : false,
+            status: hasValidSesi ? (c.status || 'Terjadwal') : 'Belum Terjadwal',
             kehadiran: c.kehadiran || 'BELUM',
             jenisTes: String(c.jenisTes || '').trim(),
             updatedAt: new Date().toISOString()
@@ -437,7 +438,8 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
     const key = rawNip.replace(/[.#$[\]/]/g, '_');
     const targetRef = ref(db, 'candidates/' + cExamId + '/' + key);
 
-    const hasValidSesi = candidate.sesi !== undefined && candidate.sesi !== null && candidate.sesi !== '' && candidate.sesi !== 'NULL' && !isNaN(Number(candidate.sesi));
+    const isSesi00 = candidate.sesi === '00' || candidate.sesi === 0 || candidate.sesi === '0' || String(candidate.sesi).trim() === '00' || candidate.status === 'Belum Terjadwal' || !candidate.pelaksanaan || candidate.pelaksanaan === 'NULL';
+    const hasValidSesi = !isSesi00 && candidate.sesi !== undefined && candidate.sesi !== null && candidate.sesi !== '' && candidate.sesi !== 'NULL' && !isNaN(Number(candidate.sesi)) && Number(candidate.sesi) > 0;
 
     const data = {
         examId: cExamId,
@@ -447,11 +449,11 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
         kelJabatan: String(candidate.kelJabatan || '-').trim(),
         unitKerja: String(candidate.unitKerja || '-').trim(),
         jabatan: String(candidate.jabatan || '-').trim(),
-        waktu: String(candidate.waktu || 'NULL').trim(),
-        pelaksanaan: String(candidate.pelaksanaan || 'NULL').trim(),
-        sesi: hasValidSesi ? Number(candidate.sesi) : 'NULL',
-        isFriday: Boolean(candidate.isFriday),
-        status: candidate.status || (hasValidSesi ? 'Terjadwal' : 'Belum Terjadwal'),
+        waktu: hasValidSesi ? String(candidate.waktu || 'NULL').trim() : 'NULL',
+        pelaksanaan: hasValidSesi ? String(candidate.pelaksanaan || 'NULL').trim() : 'NULL',
+        sesi: hasValidSesi ? Number(candidate.sesi) : '00',
+        isFriday: hasValidSesi ? Boolean(candidate.isFriday) : false,
+        status: hasValidSesi ? (candidate.status || 'Terjadwal') : 'Belum Terjadwal',
         kehadiran: candidate.kehadiran || 'BELUM',
         jenisTes: String(candidate.jenisTes || '').trim(),
         updatedAt: new Date().toISOString()

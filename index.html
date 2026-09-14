@@ -886,167 +886,67 @@
                     <div>
                         <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
                             <i data-lucide="file-spreadsheet" class="w-6 h-6 text-emerald-600"></i>
-                            <span>Upload File Excel Peserta & Jadwal Ujian</span>
+                            <span>Upload File Excel Peserta (Lengkapi Unit Kerja & Jabatan)</span>
                         </h2>
-                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Dukung 2 alur: Upload data master peserta dari sistem (jadwal NULL) dan Upload jadwal peserta (melengkapi sesi & tanggal tanpa menimpa nama/jabatan asli sistem).</p>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Upload file Excel untuk melengkapi data Unit Kerja & Jabatan peserta via pencocokan NIP. Data yang sudah ada di database tetap diproteksi (tidak diubah). NIP baru otomatis didaftarkan sebagai peserta baru.</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <button onclick="triggerDownloadSystemTemplate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
+                        <button onclick="triggerDownloadLengkapiDataTemplate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition cursor-pointer">
                             <i data-lucide="download" class="w-4 h-4"></i>
-                            <span>Template Master Sistem (.xlsx)</span>
-                        </button>
-                        <button onclick="triggerDownloadScheduleTemplate()" class="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
-                            <i data-lucide="download" class="w-4 h-4"></i>
-                            <span>Template Jadwal Ujian (.xlsx)</span>
+                            <span>Template Lengkapi Data Peserta (.xlsx)</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- Pilihan Mode Upload File -->
+                <!-- Petunjuk Format Kolom Standar -->
+                <div class="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1">
+                            <i data-lucide="table" class="w-3.5 h-3.5 text-emerald-600"></i>
+                            <span>Format Standar Kolom File Excel (Pencocokan NIP):</span>
+                        </span>
+                        <span class="text-[11px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">4 Kolom Acuan</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
+                            <thead class="bg-emerald-50 text-emerald-900 font-bold uppercase">
+                                <tr>
+                                    <th class="p-2 border text-center" style="width: 50px;">No</th>
+                                    <th class="p-2 border" style="width: 190px;">NIP</th>
+                                    <th class="p-2 border">NAMA</th>
+                                    <th class="p-2 border">UNIT KERJA</th>
+                                    <th class="p-2 border">JABATAN</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="text-slate-600">
+                                    <td class="p-2 border text-center font-bold text-slate-400">1</td>
+                                    <td class="p-2 border font-mono font-semibold text-slate-800">197809092014091001</td>
+                                    <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
+                                    <td class="p-2 border">DINAS KEPENDUDUKAN DAN PENCATATAN SIPIL</td>
+                                    <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
+                                </tr>
+                                <tr class="text-slate-600">
+                                    <td class="p-2 border text-center font-bold text-slate-400">2</td>
+                                    <td class="p-2 border font-mono font-semibold text-slate-800">197812052014091002</td>
+                                    <td class="p-2 border font-semibold text-slate-800">DARIUS AKWAN</td>
+                                    <td class="p-2 border">SUB BAGIAN UMUM DAN KEPEGAWAIAN - DINAS LINGKUNGAN HIDUP</td>
+                                    <td class="p-2 border">PENGADMINISTRASI UMUM</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-[11px] text-slate-500 italic mt-2">
+                        * Catatan: Jika peserta di database sudah memiliki Unit Kerja atau Jabatan, data database tetap dipertahankan. Jika NIP belum terdaftar di database, peserta akan otomatis didaftarkan sebagai peserta baru (status Belum Terjadwal / Sesi 00).
+                    </p>
+                </div>
+
+                <!-- Konfigurasi Target Instansi -->
                 <div class="mt-6">
-                    <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Pilih Jenis File Excel Yang Diunggah *</label>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition border-bkn-600 bg-blue-50/50 has-[:checked]:border-bkn-600 has-[:checked]:bg-blue-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
-                                    <i data-lucide="sparkles" class="w-4 h-4 text-bkn-600"></i>
-                                    <span>Deteksi Otomatis (Auto)</span>
-                                </span>
-                                <input type="radio" name="uploadModeChoice" value="AUTO" checked class="w-4 h-4 text-bkn-600 focus:ring-bkn-500">
-                            </div>
-                            <p class="text-[11px] text-slate-500">Sistem otomatis mengenali apakah file berisi data sistem master atau file jadwal ujian.</p>
-                        </label>
-
-                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
-                                    <i data-lucide="users" class="w-4 h-4 text-blue-600"></i>
-                                    <span>1. Data Master Sistem</span>
-                                </span>
-                                <input type="radio" name="uploadModeChoice" value="SYSTEM" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
-                            </div>
-                            <p class="text-[11px] text-slate-500">Kolom: NIP, Nama, Sesi, Jabatan, Kel Jabatan, Nama Instansi, Jenis Tes. Kolom jadwal diset NULL.</p>
-                        </label>
-
-                        <label class="relative flex flex-col p-3.5 border-2 rounded-xl cursor-pointer transition has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/50 has-[:not(:checked)]:border-slate-200 has-[:not(:checked)]:bg-white hover:border-slate-300">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
-                                    <i data-lucide="calendar-check" class="w-4 h-4 text-emerald-600"></i>
-                                    <span>2. Jadwal & Sesi Ujian</span>
-                                </span>
-                                <input type="radio" name="uploadModeChoice" value="SCHEDULE" class="w-4 h-4 text-emerald-600 focus:ring-emerald-500">
-                            </div>
-                            <p class="text-[11px] text-slate-500">Lengkapi jadwal, sesi, & waktu via NIP. Nama dan Jabatan asli sistem terlindungi (tidak tertimpa).</p>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Petunjuk Format Kolom Sesuai Permintaan User (2 Format) -->
-                <div class="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-4">
-                    <!-- Format 1: Data Sistem -->
-                    <div>
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1">
-                                <i data-lucide="database" class="w-3.5 h-3.5 text-blue-600"></i>
-                                <span>Format 1: File Master Peserta Sistem (Status Jadwal Otomatis NULL):</span>
-                            </span>
-                            <span class="text-[11px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded">7 Kolom Standar</span>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
-                                <thead class="bg-blue-50 text-blue-900 font-bold uppercase">
-                                    <tr>
-                                        <th class="p-2 border">NIP</th>
-                                        <th class="p-2 border">Nama</th>
-                                        <th class="p-2 border">Sesi</th>
-                                        <th class="p-2 border">Jabatan</th>
-                                        <th class="p-2 border">Kel Jabatan</th>
-                                        <th class="p-2 border">Nama Instansi</th>
-                                        <th class="p-2 border">Jenis Tes</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr class="text-slate-600">
-                                        <td class="p-2 border font-mono">197504202009041002</td>
-                                        <td class="p-2 border font-semibold text-slate-800">DANIAL</td>
-                                        <td class="p-2 border text-slate-400 italic">(kosong)</td>
-                                        <td class="p-2 border">PENGADMINISTRASI PERKANTORAN</td>
-                                        <td class="p-2 border font-medium text-blue-700">Pelaksana</td>
-                                        <td class="p-2 border">Pemerintah Kab. Teluk Wondama</td>
-                                        <td class="p-2 border">Profiling Talenta ASN 2026</td>
-                                    </tr>
-                                    <tr class="text-slate-600">
-                                        <td class="p-2 border font-mono">197608022005021003</td>
-                                        <td class="p-2 border font-semibold text-slate-800">ROBBY LAHUMETEN</td>
-                                        <td class="p-2 border text-slate-400 italic">(kosong)</td>
-                                        <td class="p-2 border">Kepala BIDANG MUTASI</td>
-                                        <td class="p-2 border font-medium text-blue-700">Administrator</td>
-                                        <td class="p-2 border">Pemerintah Kab. Teluk Wondama</td>
-                                        <td class="p-2 border">Profiling Talenta ASN 2026</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Format 2: Jadwal Ujian -->
-                    <div class="pt-3 border-t border-slate-200">
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1">
-                                <i data-lucide="calendar" class="w-3.5 h-3.5 text-emerald-600"></i>
-                                <span>Format 2: File Jadwal & Sesi Ujian (Melengkapi Tanggal & Jam):</span>
-                            </span>
-                            <span class="text-[11px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">8 Kolom Standar</span>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-xs text-left text-slate-600 border border-slate-200 bg-white">
-                                <thead class="bg-emerald-50 text-emerald-900 font-bold uppercase">
-                                    <tr>
-                                        <th class="p-2 border">No</th>
-                                        <th class="p-2 border">NIP</th>
-                                        <th class="p-2 border">NAMA</th>
-                                        <th class="p-2 border">UNIT KERJA</th>
-                                        <th class="p-2 border">JABATAN</th>
-                                        <th class="p-2 border">WAKTU</th>
-                                        <th class="p-2 border">PELAKSANAAN</th>
-                                        <th class="p-2 border">SESI</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr class="text-slate-600">
-                                        <td class="p-2 border">1</td>
-                                        <td class="p-2 border font-mono">197809092014091001</td>
-                                        <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
-                                        <td class="p-2 border">-</td>
-                                        <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
-                                        <td class="p-2 border text-blue-700 font-semibold">08.00 - 11.00 WIT</td>
-                                        <td class="p-2 border">11-Sep-26</td>
-                                        <td class="p-2 border text-center font-bold">1</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Konfigurasi Target Instansi & Opsi Waktu -->
-                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Target Instansi Penerima Data *</label>
-                        <select id="selectUploadTargetExam" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                            <option value="">-- Pilih Instansi Terlebih Dahulu --</option>
-                        </select>
-                    </div>
-
-                    <div class="flex flex-col justify-end">
-                        <label class="flex items-center space-x-2 text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg p-2.5 cursor-pointer">
-                            <input type="checkbox" id="checkAutoStandardize" checked class="w-4 h-4 text-bkn-600 rounded focus:ring-bkn-500">
-                            <div>
-                                <span class="font-semibold text-slate-800 text-xs">Sinkronkan Jam Sesi Otomatis (Direkomendasikan)</span>
-                                <p class="text-[11px] text-slate-500">Otomatis ubah Sesi 2 hari Jumat menjadi 13.00 - 16.00 WIT & sesi lainnya sesuai standar BKN.</p>
-                            </div>
-                        </label>
-                    </div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Target Instansi Penerima Data *</label>
+                    <select id="selectUploadTargetExam" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        <option value="">-- Pilih Instansi Terlebih Dahulu --</option>
+                    </select>
                 </div>
 
                 <!-- Dropzone Upload Area -->
@@ -1203,8 +1103,75 @@
             </div>
         </section>
 
-        <!-- ==================== TAB 6: AUDIT PASCA UJIAN ==================== -->
+        <!-- ==================== TAB 6: AUDIT PASCA UJIAN & DISTRIBUSI SESI ==================== -->
         <section id="pane-audit" class="tab-pane hidden space-y-6 fade-in">
+            <!-- Bagian 1: Manajemen Distribusi Sesi (Smart Shuffle & Reset) -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                            <i data-lucide="shuffle" class="w-6 h-6 text-amber-600"></i>
+                            <span>Manajemen Distribusi Sesi Peserta</span>
+                        </h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+                            Atur pembagian kuota sesi peserta secara cerdas (Smart Shuffle) atau kembalikan jadwal peserta ke status Sesi 00.
+                        </p>
+                    </div>
+                    <div class="px-3.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 flex items-center gap-1.5 shadow-2xs">
+                        <i data-lucide="building-2" class="w-4 h-4 text-amber-500"></i>
+                        <span class="audit-active-exam-title">Instansi Ujian Aktif: -</span>
+                    </div>
+                </div>
+
+                <!-- 2 Tombol Lebar Berisi Keterangan: Acak Jadwal & Reset Acak Jadwal -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                    <!-- Tombol Lebar 1: Acak Jadwal (Smart Shuffle) -->
+                    <button type="button" 
+                            onclick="openModalShuffleSchedule()" 
+                            class="p-4 sm:p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/70 hover:bg-amber-100/90 hover:border-amber-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
+                        <div class="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                            <i data-lucide="shuffle" class="w-6 h-6"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <h4 class="text-sm sm:text-base font-bold text-amber-950">Acak Jadwal Peserta (Smart Shuffle)</h4>
+                                <span class="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Kuota PC</span>
+                            </div>
+                            <p class="text-xs text-amber-900/80 mt-1.5 leading-relaxed">
+                                Mendistribusikan peserta secara cerdas untuk memenuhi kuota kursi per sesi. Peserta <strong>HADIR terkunci aman</strong>, peserta <strong>TIDAK HADIR</strong> hanya disebar ke sesi hari ini/lampau, dan yang tidak kebagian kursi otomatis berstatus <strong>Sesi 00 (Belum Terjadwal)</strong>.
+                            </p>
+                            <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 group-hover:text-amber-950">
+                                <span>Buka Pengaturan Acak Jadwal</span>
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
+                            </div>
+                        </div>
+                    </button>
+
+                    <!-- Tombol Lebar 2: Reset Acak Jadwal -->
+                    <button type="button" 
+                            onclick="openModalConfirmResetShuffle()" 
+                            class="p-4 sm:p-5 rounded-2xl border-2 border-rose-300 bg-rose-50/70 hover:bg-rose-100/90 hover:border-rose-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
+                        <div class="w-12 h-12 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                            <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <h4 class="text-sm sm:text-base font-bold text-rose-950">Reset Acak Jadwal (Kembali ke Sesi 00)</h4>
+                                <span class="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Aman</span>
+                            </div>
+                            <p class="text-xs text-rose-900/80 mt-1.5 leading-relaxed">
+                                Mengembalikan jadwal seluruh peserta yang Belum Presensi (<code>BELUM</code>) menjadi <strong>Sesi 00 (Belum Terjadwal)</strong>. Seluruh peserta yang sudah ditandai <strong>HADIR</strong> maupun <strong>TIDAK HADIR</strong> tetap <strong>dilindungi 100% (tidak direset)</strong>.
+                            </p>
+                            <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 group-hover:text-rose-950">
+                                <span>Reset Jadwal ke Sesi 00</span>
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bagian 2: Audit & Sinkronisasi Pasca Ujian -->
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
                 <!-- Header Audit -->
                 <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
@@ -1219,7 +1186,7 @@
                     </div>
                     <div id="auditActiveExamBadge" class="px-3.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 flex items-center gap-1.5 shadow-2xs">
                         <i data-lucide="building-2" class="w-4 h-4 text-amber-500"></i>
-                        <span id="auditActiveExamName">Instansi Ujian Aktif: -</span>
+                        <span id="auditActiveExamName" class="audit-active-exam-title">Instansi Ujian Aktif: -</span>
                     </div>
                 </div>
 
@@ -2185,6 +2152,185 @@
                         onclick="closeModalAuditSuccess(false)" 
                         class="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer">
                     Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL ACAK JADWAL (SMART SHUFFLE) ==================== -->
+    <div id="modalShuffleSchedule" class="fixed inset-0 bg-slate-950/75 backdrop-blur-md z-50 hidden items-center justify-center p-3 sm:p-5">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full p-5 sm:p-6 overflow-hidden animate-scale-up">
+            <!-- Header Modal -->
+            <div class="flex items-center justify-between pb-3.5 border-b border-slate-100">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shadow-xs">
+                        <i data-lucide="shuffle" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-slate-900 leading-snug">Acak Jadwal Peserta</h3>
+                        <p class="text-xs text-slate-500">Mendistribusikan peserta secara cerdas sesuai kuota per sesi</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModalShuffleSchedule()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Body Modal -->
+            <div class="py-4 space-y-4 text-xs">
+                <!-- Info Instansi & Kuota Input -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 border border-slate-200/80 rounded-xl p-3.5">
+                    <div>
+                        <span class="text-[10.5px] font-semibold text-slate-500 uppercase block">Instansi Terpilih</span>
+                        <strong id="shuffleModalInstansiTitle" class="text-xs font-bold text-slate-900 block truncate">-</strong>
+                        <span id="shuffleModalDateRange" class="text-[10px] text-slate-500 block mt-0.5">-</span>
+                    </div>
+                    <div>
+                        <label for="inputShuffleQuota" class="text-[10.5px] font-bold text-slate-700 uppercase block mb-1">
+                            Kuota Maksimal Per Sesi (PC) *
+                        </label>
+                        <div class="relative">
+                            <input type="number" 
+                                   id="inputShuffleQuota" 
+                                   min="1" 
+                                   max="500" 
+                                   value="50" 
+                                   onchange="recalcShufflePreviewStats()"
+                                   oninput="recalcShufflePreviewStats()"
+                                   class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                            <span class="absolute right-2.5 top-1.5 text-[11px] text-slate-400 font-semibold">Kursi</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3 Stat Badges Grid -->
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-emerald-800 uppercase block">Peserta Hadir</span>
+                        <span id="shuffleStatHadir" class="text-base sm:text-lg font-extrabold text-emerald-700 block">0</span>
+                        <span class="text-[9.5px] text-emerald-600 font-semibold bg-emerald-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Terkunci (Aman)</span>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-blue-800 uppercase block">Belum Presensi</span>
+                        <span id="shuffleStatBelum" class="text-base sm:text-lg font-extrabold text-blue-700 block">0</span>
+                        <span class="text-[9.5px] text-blue-600 font-semibold bg-blue-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Semua Sesi Kosong</span>
+                    </div>
+                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-rose-800 uppercase block">Tidak Hadir</span>
+                        <span id="shuffleStatTidakHadir" class="text-base sm:text-lg font-extrabold text-rose-700 block">0</span>
+                        <span class="text-[9.5px] text-rose-600 font-semibold bg-rose-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Hari Ini/Lampau</span>
+                    </div>
+                </div>
+
+                <!-- Callout Aturan Ketat -->
+                <div class="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 text-[11px] space-y-1 text-amber-900">
+                    <div class="font-bold flex items-center gap-1.5 text-amber-950">
+                        <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-700 flex-shrink-0"></i>
+                        <span>Aturan Ketat Algoritma Acak:</span>
+                    </div>
+                    <ul class="list-disc list-inside space-y-0.5 text-amber-900/90 pl-1 text-[10.5px]">
+                        <li><strong>Peserta Hadir:</strong> 100% terkunci permanen di sesinya, kursinya dihitung terisi.</li>
+                        <li><strong>Peserta Tidak Hadir:</strong> Hanya disebar ke sesi kosong pada tanggal hari ini atau hari yang telah lewat (dilarang masuk ke hari besok).</li>
+                        <li><strong>Peserta Belum Presensi:</strong> Didistribusikan secara acak merata untuk memenuhi kuota per sesi.</li>
+                    </ul>
+                </div>
+
+                <!-- Ringkasan Ketersediaan Sesi -->
+                <div id="shuffleCapacitySummary" class="text-[11px] text-slate-600 bg-slate-100/80 rounded-lg p-2.5 flex items-center justify-between">
+                    <span>Total Kapasitas Kursi Ujian: <strong id="shuffleTotalCapacityText" class="text-slate-900">0</strong></span>
+                    <span>Status: <strong id="shuffleCapacityStatusText" class="text-emerald-700 font-bold">Cukup</strong></span>
+                </div>
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button type="button" 
+                        onclick="closeModalShuffleSchedule()" 
+                        class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer">
+                    Batal
+                </button>
+                <button type="button" 
+                        id="btnExecuteShuffle" 
+                        onclick="executeShuffleSchedule()" 
+                        class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer">
+                    <i data-lucide="shuffle" class="w-3.5 h-3.5"></i>
+                    <span>Mulai Acak Jadwal</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL KONFIRMASI RESET ACAK JADWAL ==================== -->
+    <div id="modalConfirmResetShuffle" class="fixed inset-0 bg-slate-950/75 backdrop-blur-md z-50 hidden items-center justify-center p-3 sm:p-5">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-5 sm:p-6 overflow-hidden animate-scale-up">
+            <!-- Header Modal -->
+            <div class="flex items-center justify-between pb-3.5 border-b border-slate-100">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shadow-xs">
+                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-slate-900 leading-snug">Konfirmasi Reset Acak Jadwal</h3>
+                        <p class="text-xs text-slate-500">Kembalikan sesi peserta belum presensi ke Sesi 00</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModalConfirmResetShuffle()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Body Modal -->
+            <div class="py-4 space-y-4 text-xs">
+                <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5">
+                    <span class="text-[10.5px] font-semibold text-slate-500 uppercase block">Instansi Terpilih</span>
+                    <strong id="resetShuffleInstansiTitle" class="text-xs font-bold text-slate-900 block truncate">-</strong>
+                </div>
+
+                <!-- 3 Stat Badges Grid -->
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-emerald-800 uppercase block">Peserta Hadir</span>
+                        <span id="resetStatHadir" class="text-base sm:text-lg font-extrabold text-emerald-700 block">0</span>
+                        <span class="text-[9.5px] text-emerald-600 font-semibold bg-emerald-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Tetap Aman</span>
+                    </div>
+                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-rose-800 uppercase block">Tidak Hadir</span>
+                        <span id="resetStatTidakHadir" class="text-base sm:text-lg font-extrabold text-rose-700 block">0</span>
+                        <span class="text-[9.5px] text-rose-600 font-semibold bg-rose-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Tetap Aman</span>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-blue-800 uppercase block">Belum Presensi</span>
+                        <span id="resetStatBelum" class="text-base sm:text-lg font-extrabold text-blue-700 block">0</span>
+                        <span class="text-[9.5px] text-blue-600 font-semibold bg-blue-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">&rarr; Sesi 00</span>
+                    </div>
+                </div>
+
+                <!-- Notice Callout -->
+                <div class="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 text-[11px] space-y-1 text-amber-900">
+                    <div class="font-bold flex items-center gap-1.5 text-amber-950">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600 flex-shrink-0"></i>
+                        <span>Ketentuan Ketat Reset Jadwal:</span>
+                    </div>
+                    <ul class="list-disc list-inside space-y-0.5 text-amber-900/90 pl-1 text-[10.5px]">
+                        <li>Peserta yang sudah ditandai <strong>HADIR</strong> dan <strong>TIDAK HADIR</strong> terlindungi 100% dan tetap berada pada sesinya masing-masing.</li>
+                        <li>Hanya peserta yang <strong>Belum Presensi</strong> yang akan dikembalikan jadwalnya ke <strong>Sesi 00 (Belum Terjadwal)</strong>.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button type="button" 
+                        onclick="closeModalConfirmResetShuffle()" 
+                        class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer">
+                    Batal
+                </button>
+                <button type="button" 
+                        id="btnExecuteResetShuffle" 
+                        onclick="executeResetShuffleSchedule()" 
+                        class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                    <span>Ya, Reset ke Sesi 00</span>
                 </button>
             </div>
         </div>

@@ -28,9 +28,11 @@ import {
     downloadExcelTemplate, 
     downloadSystemTemplate, 
     downloadScheduleTemplate, 
+    downloadLengkapiDataTemplate,
     exportCandidatesToExcel, 
     analyzeDuplicates, 
-    mergeScheduleWithExisting 
+    mergeScheduleWithExisting,
+    processLengkapiDataExcel
 } from './excelHandler.js';
 import { populateInstansiDropdown, getSelectedExamId, setSelectedExamId, createNewExam } from './examManager.js';
 import {
@@ -1384,15 +1386,12 @@ async function handleSelectedExcelFile(file) {
         nameBadge.classList.remove('hidden');
     }
 
-    const autoTime = document.getElementById('checkAutoStandardize')?.checked ?? true;
-    const selectedMode = document.querySelector('input[name="uploadModeChoice"]:checked')?.value || 'AUTO';
-
     try {
         showToast("Sedang memproses & membaca file Excel...", "info");
         const parseResult = await parseExcelFile(file, { 
-            autoStandardizeTime: autoTime,
+            autoStandardizeTime: true,
             defaultPelaksanaan: currentExam?.startDate || '',
-            uploadMode: selectedMode,
+            uploadMode: 'LENGKAPI_DATA',
             defaultInstansi: currentExam?.instansi || ''
         });
 
@@ -1403,35 +1402,6 @@ async function handleSelectedExcelFile(file) {
 
         // Ambil data database yang sudah ada untuk instansi ini
         const existingCandidates = await db.getCandidatesByExam(targetExamId);
-
-        // JIKA INI ADALAH FILE JADWAL (SCHEDULE) DAN DATABASE SUDAH MEMILIKI DATA PESERTA (MISAL DARI FILE SISTEM):
-        // Lakukan penggabungan jadwal berdasarkan kecocokan NIP tanpa menimpa nama dan jabatan asli sistem
-        if (parseResult.mode === 'SCHEDULE' && existingCandidates && existingCandidates.length > 0) {
-            const mergeResult = mergeScheduleWithExisting(parseResult.candidates, existingCandidates);
-
-            previewParsedData = {
-                examId: targetExamId,
-                candidates: mergeResult.allMerged,
-                summary: {
-                    totalRows: mergeResult.allMerged.length,
-                    skippedRows: parseResult.summary.skippedRows,
-                    sesi1: mergeResult.allMerged.filter(c => Number(c.sesi) === 1).length,
-                    sesi2: mergeResult.allMerged.filter(c => Number(c.sesi) === 2).length,
-                    sesi3: mergeResult.allMerged.filter(c => Number(c.sesi) === 3).length,
-                    nullScheduleRows: mergeResult.allMerged.filter(c => !c.sesi || c.sesi === 'NULL').length,
-                    fridayRows: mergeResult.allMerged.filter(c => c.isFriday).length
-                },
-                isMergedUpdate: true,
-                mergeInfo: {
-                    matchedCount: mergeResult.matchedCount,
-                    newCount: mergeResult.newCount
-                }
-            };
-
-            renderExcelPreview(previewParsedData);
-            showToast(`Berhasil mencocokkan jadwal ${mergeResult.matchedCount} peserta. Nama & jabatan asli sistem diproteksi!`, "success");
-            return;
-        }
 
         // De-duplikasi internal file Excel (jika ada NIP yang berulang dalam file Excel yang diunggah)
         const seenNipsInExcel = new Set();
@@ -1444,98 +1414,29 @@ async function handleSelectedExcelFile(file) {
             }
         });
 
-        // JIKA DATABASE SUDAH MEMILIKI DATA PESERTA:
-        // Otomatis pisahkan peserta baru dan peserta yang sudah terdaftar
-        if (existingCandidates && existingCandidates.length > 0) {
-            const existingNipSet = new Set(
-                existingCandidates.map(c => String(c.nip || '').replace(/['"`\s]/g, '').trim())
-            );
-
-            const newCandidates = [];
-            const alreadyExistingCandidates = [];
-
-            distinctExcelCandidates.forEach(c => {
-                const cleanNip = String(c.nip || '').replace(/['"`\s]/g, '').trim();
-                if (existingNipSet.has(cleanNip)) {
-                    alreadyExistingCandidates.push(c);
-                } else {
-                    newCandidates.push(c);
-                }
-            });
-
-            // Beri nomor urut ulang dan penanda peserta baru
-            newCandidates.forEach((c, idx) => {
-                c.no = idx + 1;
-                c.isNewCandidate = true;
-            });
-
-            alreadyExistingCandidates.forEach((c, idx) => {
-                c.no = idx + 1;
-                c.isNewCandidate = false;
-            });
-
-            previewParsedData = {
-                examId: targetExamId,
-                candidates: newCandidates, // Tampilkan HANYA peserta baru sesuai permintaan user!
-                newCandidates: newCandidates,
-                alreadyExistingCandidates: alreadyExistingCandidates,
-                allExcelCandidates: distinctExcelCandidates,
-                isOnlyNewParticipants: true,
-                existingCount: alreadyExistingCandidates.length,
-                totalExcelRows: distinctExcelCandidates.length,
-                summary: {
-                    totalRows: newCandidates.length,
-                    newCount: newCandidates.length,
-                    existingCount: alreadyExistingCandidates.length,
-                    skippedRows: parseResult.summary.skippedRows,
-                    sesi1: newCandidates.filter(c => Number(c.sesi) === 1).length,
-                    sesi2: newCandidates.filter(c => Number(c.sesi) === 2).length,
-                    sesi3: newCandidates.filter(c => Number(c.sesi) === 3).length,
-                    nullScheduleRows: newCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
-                    fridayRows: newCandidates.filter(c => c.isFriday).length
-                }
-            };
-
-            renderExcelPreview(previewParsedData);
-
-            if (newCandidates.length > 0) {
-                showToast(`Ditemukan ${newCandidates.length} peserta baru (${alreadyExistingCandidates.length} peserta lama di database otomatis dilewati).`, "success");
-            } else {
-                showToast(`Tidak ada peserta baru. Seluruh ${alreadyExistingCandidates.length} peserta di file Excel ini sudah terdaftar di database.`, "info");
-            }
-            return;
-        }
-
-        // JIKA DATABASE MASIH KOSONG (Upload awal):
-        distinctExcelCandidates.forEach((c, idx) => {
-            c.no = idx + 1;
-            c.isNewCandidate = true;
-        });
+        // Proses Lengkapi Data Peserta (Unit Kerja & Jabatan) berdasarkan NIP
+        const processResult = processLengkapiDataExcel(distinctExcelCandidates, existingCandidates || []);
 
         previewParsedData = {
             examId: targetExamId,
-            candidates: distinctExcelCandidates,
-            allExcelCandidates: distinctExcelCandidates,
-            newCandidates: distinctExcelCandidates,
-            alreadyExistingCandidates: [],
-            isOnlyNewParticipants: false,
-            existingCount: 0,
+            candidates: processResult.allMerged,
+            updatedCandidates: processResult.updatedCandidates,
+            newCandidates: processResult.newCandidates,
+            unchangedCandidates: processResult.unchangedCandidates,
+            isLengkapiData: true,
             totalExcelRows: distinctExcelCandidates.length,
             summary: {
                 totalRows: distinctExcelCandidates.length,
-                newCount: distinctExcelCandidates.length,
-                existingCount: 0,
-                skippedRows: parseResult.summary.skippedRows,
-                sesi1: distinctExcelCandidates.filter(c => Number(c.sesi) === 1).length,
-                sesi2: distinctExcelCandidates.filter(c => Number(c.sesi) === 2).length,
-                sesi3: distinctExcelCandidates.filter(c => Number(c.sesi) === 3).length,
-                nullScheduleRows: distinctExcelCandidates.filter(c => !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0').length,
-                fridayRows: distinctExcelCandidates.filter(c => c.isFriday).length
+                matchedCount: processResult.matchedCount,
+                updatedCount: processResult.updatedCount,
+                preservedCount: processResult.preservedCount,
+                newCount: processResult.newCount,
+                skippedRows: parseResult.summary.skippedRows
             }
         };
 
         renderExcelPreview(previewParsedData);
-        showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta baru!`, "success");
+        showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta dari Excel!`, "success");
 
     } catch (err) {
         console.error("Gagal membaca Excel:", err);
@@ -1938,7 +1839,26 @@ function renderExcelPreview(result) {
 
     // 1. Render Summary Badges
     if (summaryContainer) {
-        if (result.isOnlyNewParticipants) {
+        if (result.isLengkapiData) {
+            summaryContainer.innerHTML = `
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <div class="text-[10px] uppercase font-bold text-blue-700">Total Baris Excel</div>
+                    <div class="text-xl font-bold text-blue-900 mt-0.5">${s.totalRows} Baris</div>
+                </div>
+                <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                    <div class="text-[10px] uppercase font-bold text-indigo-700">Data Dilengkapi</div>
+                    <div class="text-xl font-bold text-indigo-900 mt-0.5">${s.updatedCount} Peserta</div>
+                </div>
+                <div class="bg-slate-100 p-3 rounded-lg border border-slate-200">
+                    <div class="text-[10px] uppercase font-bold text-slate-600">Tetap (Terproteksi)</div>
+                    <div class="text-xl font-bold text-slate-800 mt-0.5">${s.preservedCount} Peserta</div>
+                </div>
+                <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                    <div class="text-[10px] uppercase font-bold text-emerald-700">Peserta Baru Dibuat</div>
+                    <div class="text-xl font-bold text-emerald-900 mt-0.5">${s.newCount} Peserta</div>
+                </div>
+            `;
+        } else if (result.isOnlyNewParticipants) {
             summaryContainer.innerHTML = `
                 <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
                     <div class="text-[10px] uppercase font-bold text-emerald-700">Peserta Baru Ditemukan</div>
@@ -1989,7 +1909,25 @@ function renderExcelPreview(result) {
 
     // 2. Render Notice Banner & Toggle Buttons
     if (noticeContainer) {
-        if (result.isOnlyNewParticipants) {
+        if (result.isLengkapiData) {
+            noticeContainer.innerHTML = `
+                <div class="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-950">
+                    <div class="flex items-start sm:items-center space-x-2.5">
+                        <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
+                            <i data-lucide="info" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <span class="font-bold text-sm block sm:inline">Hasil Komparasi NIP:</span>
+                            <span class="text-blue-800 ml-0 sm:ml-1">
+                                <strong>${s.updatedCount}</strong> peserta dilengkapi data Unit Kerja/Jabatan, 
+                                <strong>${s.preservedCount}</strong> peserta di database tetap dipertahankan datanya, dan 
+                                <strong>${s.newCount}</strong> peserta baru akan didaftarkan ke database (status Belum Terjadwal).
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (result.isOnlyNewParticipants) {
             const newCount = result.newCandidates ? result.newCandidates.length : 0;
             if (newCount > 0) {
                 noticeContainer.innerHTML = `
@@ -2036,7 +1974,18 @@ function renderExcelPreview(result) {
 
     // 4. Update Tombol Simpan
     if (btnSave) {
-        if (result.isOnlyNewParticipants) {
+        if (result.isLengkapiData) {
+            const totalChanges = (result.summary?.updatedCount || 0) + (result.summary?.newCount || 0);
+            if (totalChanges > 0) {
+                btnSave.disabled = false;
+                btnSave.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnSave.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 mr-1 inline"></i><span>Simpan Perubahan (${result.summary.updatedCount} Dilengkapi, ${result.summary.newCount} Baru)</span>`;
+            } else {
+                btnSave.disabled = true;
+                btnSave.classList.add('opacity-50', 'cursor-not-allowed');
+                btnSave.innerHTML = `<i data-lucide="check" class="w-4 h-4 mr-1 inline"></i><span>Data Peserta Sudah Lengkap</span>`;
+            }
+        } else if (result.isOnlyNewParticipants) {
             const newCount = result.newCandidates ? result.newCandidates.length : 0;
             if (newCount > 0) {
                 btnSave.disabled = false;
@@ -2087,11 +2036,15 @@ function renderPreviewTableRows(list, isShowingAll = false) {
                 <td class="p-2.5 font-semibold text-slate-900">
                     <div class="flex items-center space-x-1.5">
                         <span>${c.nama}</span>
-                        ${c.isNewCandidate ? `
+                        ${c.actionStatus === 'UPDATED' ? `
+                            <span class="inline-flex items-center px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded border border-blue-200">DILENGKAPI</span>
+                        ` : (c.actionStatus === 'PRESERVED' ? `
+                            <span class="inline-flex items-center px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] font-medium rounded border border-slate-200">TETAP</span>
+                        ` : (c.actionStatus === 'NEW' || c.isNewCandidate ? `
                             <span class="inline-flex items-center px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded border border-emerald-200">BARU</span>
                         ` : (isShowingAll ? `
                             <span class="inline-flex items-center px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] font-medium rounded border border-slate-200">SUDAH ADA</span>
-                        ` : '')}
+                        ` : '')))}
                     </div>
                 </td>
                 <td class="p-2.5 truncate max-w-[170px]">${getCandidateKelJabatanBadge(c)}</td>
@@ -2192,7 +2145,25 @@ window.savePreviewDataToDatabase = async () => {
     }
 
     try {
-        if (previewParsedData.isMergedUpdate) {
+        if (previewParsedData.isLengkapiData) {
+            const toSave = [
+                ...(previewParsedData.updatedCandidates || []),
+                ...(previewParsedData.newCandidates || [])
+            ];
+            if (toSave.length > 0) {
+                const count = await db.bulkAddCandidates(previewParsedData.examId, toSave);
+                if (isCloudActive()) {
+                    await bulkAddCandidatesToCloud(previewParsedData.examId, toSave);
+                }
+                showToast(`Sukses! ${previewParsedData.summary.updatedCount} peserta dilengkapi & ${previewParsedData.summary.newCount} peserta baru berhasil disimpan.`, "success");
+            } else {
+                showToast(`Tidak ada perubahan data. Seluruh peserta sudah lengkap.`, "info");
+            }
+            await setActiveExam(previewParsedData.examId);
+            window.cancelUploadPreview();
+            switchTab('daftar-peserta');
+            return;
+        } else if (previewParsedData.isMergedUpdate) {
             // Update gabungan jadwal: ganti seluruh dataset instansi dengan dataset yang sudah di-merge
             await db.deleteCandidatesByExam(previewParsedData.examId);
             const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
@@ -2270,6 +2241,405 @@ window.triggerDownloadScheduleTemplate = () => {
 window.triggerDownloadTemplate = () => {
     downloadScheduleTemplate();
     showToast("Template Excel berhasil diunduh!", "info");
+};
+
+/**
+ * Download Template Excel Lengkapi Data Peserta (NIP, Nama, Unit Kerja, Jabatan)
+ */
+window.triggerDownloadLengkapiDataTemplate = () => {
+    downloadLengkapiDataTemplate();
+    showToast("Template Lengkapi Data Peserta berhasil diunduh!", "info");
+};
+
+/**
+ * =========================================================
+ * FITUR SMART SHUFFLE (ACAK JADWAL PESERTA SESUAI KUOTA)
+ * =========================================================
+ */
+
+/**
+ * Buka Modal Acak Jadwal
+ */
+window.openModalShuffleSchedule = () => {
+    if (!currentExam) {
+        showToast("Pilih instansi ujian terlebih dahulu sebelum mengacak jadwal!", "warning");
+        return;
+    }
+    if (!currentCandidates || currentCandidates.length === 0) {
+        showToast("Belum ada data peserta untuk diacak!", "warning");
+        return;
+    }
+
+    const modal = document.getElementById('modalShuffleSchedule');
+    if (!modal) return;
+
+    // Set kuota default dari data ujian atau 50
+    const inputQuota = document.getElementById('inputShuffleQuota');
+    if (inputQuota) {
+        inputQuota.value = Number(currentExam.quotaPerSession) || 50;
+    }
+
+    // Set judul instansi & rentang tanggal
+    const titleEl = document.getElementById('shuffleModalInstansiTitle');
+    if (titleEl) titleEl.textContent = currentExam.instansi || '-';
+
+    const sortedDates = getSortedExamDates();
+    const dateRangeEl = document.getElementById('shuffleModalDateRange');
+    if (dateRangeEl) {
+        if (sortedDates.length > 0) {
+            dateRangeEl.textContent = `${sortedDates[0]} s.d. ${sortedDates[sortedDates.length - 1]} (${sortedDates.length} Hari Ujian)`;
+        } else {
+            dateRangeEl.textContent = "Rentang tanggal ujian belum diatur";
+        }
+    }
+
+    window.recalcShufflePreviewStats();
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
+ * Tutup Modal Acak Jadwal
+ */
+window.closeModalShuffleSchedule = () => {
+    const modal = document.getElementById('modalShuffleSchedule');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Hitung Ulang Statistik Ringkasan pada Modal Acak Jadwal
+ */
+window.recalcShufflePreviewStats = () => {
+    const statHadir = document.getElementById('shuffleStatHadir');
+    const statBelum = document.getElementById('shuffleStatBelum');
+    const statTidakHadir = document.getElementById('shuffleStatTidakHadir');
+    const totalCapText = document.getElementById('shuffleTotalCapacityText');
+    const capStatusText = document.getElementById('shuffleCapacityStatusText');
+    const inputQuota = document.getElementById('inputShuffleQuota');
+
+    const quota = Math.max(1, parseInt(inputQuota?.value, 10) || 50);
+
+    const cands = currentCandidates || [];
+    const hadirCount = cands.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadirCount = cands.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const belumCount = Math.max(0, cands.length - hadirCount - tidakHadirCount);
+
+    if (statHadir) statHadir.textContent = hadirCount;
+    if (statBelum) statBelum.textContent = belumCount;
+    if (statTidakHadir) statTidakHadir.textContent = tidakHadirCount;
+
+    const sortedDates = getSortedExamDates();
+    let totalSlots = 0;
+    sortedDates.forEach(d => {
+        totalSlots += getMaxSessionsForDate(d);
+    });
+
+    const totalCapacity = totalSlots * quota;
+    if (totalCapText) {
+        totalCapText.textContent = `${totalCapacity} Kursi (${totalSlots} Sesi)`;
+    }
+
+    if (capStatusText) {
+        if (sortedDates.length === 0) {
+            capStatusText.className = "text-rose-700 font-bold";
+            capStatusText.textContent = "Tanggal Ujian Belum Dibuat!";
+        } else if (totalCapacity >= cands.length) {
+            capStatusText.className = "text-emerald-700 font-bold";
+            capStatusText.textContent = `Cukup (${totalCapacity} kursi untuk ${cands.length} peserta)`;
+        } else {
+            capStatusText.className = "text-amber-700 font-bold";
+            capStatusText.textContent = `Kurang (${totalCapacity} kursi untuk ${cands.length} peserta - sisa ${cands.length - totalCapacity} akan Belum Terjadwal)`;
+        }
+    }
+};
+
+/**
+ * Eksekusi Acak Jadwal Peserta (Smart Shuffle)
+ */
+window.executeShuffleSchedule = async () => {
+    if (!currentExam || !currentCandidates || currentCandidates.length === 0) {
+        showToast("Data ujian atau peserta tidak valid!", "warning");
+        return;
+    }
+
+    const inputQuota = document.getElementById('inputShuffleQuota');
+    const quotaPerSession = Math.max(1, parseInt(inputQuota?.value, 10) || Number(currentExam.quotaPerSession) || 50);
+
+    const sortedDates = getSortedExamDates();
+    if (sortedDates.length === 0) {
+        showToast("Tidak dapat mengacak jadwal karena rentang tanggal ujian belum diatur!", "error");
+        return;
+    }
+
+    const btn = document.getElementById('btnExecuteShuffle');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Mengacak & Menyimpan...</span>`;
+        if (window.lucide) window.lucide.createIcons();
+    }
+
+    try {
+        // Ambil waktu WIT hari ini sampai jam 23:59:59 untuk perbandingan tanggal lampau / hari ini
+        const nowWit = getCurrentWitDate();
+        const todayEnd = new Date(nowWit.getFullYear(), nowWit.getMonth(), nowWit.getDate(), 23, 59, 59, 999);
+
+        // 1. Buat daftar slot sesi ujian secara berurutan
+        const slots = [];
+        let cumCounter = 1;
+        for (const dateStr of sortedDates) {
+            const dObj = parseFlexibleDate(dateStr);
+            const isPastOrToday = dObj ? (dObj.getTime() <= todayEnd.getTime()) : false;
+            const isFri = isFriday(dateStr);
+            const maxSesi = getMaxSessionsForDate(dateStr);
+
+            for (let s = 1; s <= maxSesi; s++) {
+                slots.push({
+                    dateStr,
+                    sesi: s,
+                    cumSession: cumCounter++,
+                    isFriday: isFri,
+                    isPastOrToday,
+                    capacity: quotaPerSession,
+                    assignedCandidates: []
+                });
+            }
+        }
+
+        // 2. Pisahkan kandidat menjadi 3 grup: HADIR (kunci mati), TIDAK_HADIR, dan BELUM
+        const candsHadir = [];
+        const candsTidakHadir = [];
+        const candsBelum = [];
+
+        currentCandidates.forEach(c => {
+            if (c.kehadiran === 'HADIR') {
+                candsHadir.push(c);
+            } else if (c.kehadiran === 'TIDAK_HADIR') {
+                candsTidakHadir.push(c);
+            } else {
+                candsBelum.push(c);
+            }
+        });
+
+        // 3. Kunci peserta HADIR pada slot masing-masing (Aturan Ketat: tidak boleh bergeser)
+        candsHadir.forEach(c => {
+            const candDate = getCandidateEffectiveDate(c, sortedDates);
+            const candDailySesi = getCandidateDailySession(c, sortedDates);
+            const slot = slots.find(s => s.dateStr === candDate && s.sesi === candDailySesi);
+            if (slot) {
+                slot.assignedCandidates.push(c);
+            }
+        });
+
+        // Algoritma Fisher-Yates Shuffle
+        function shuffle(array) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        // 4. Acak peserta TIDAK_HADIR
+        // Aturan Keras: HANYA boleh dipindahkan ke sesi yang masih kosong pada hari ini atau hari yang telah lewat (dilarang ke hari esok/berikutnya)
+        const shuffledTidakHadir = shuffle(candsTidakHadir);
+        let unplacedTidakHadirCount = 0;
+
+        shuffledTidakHadir.forEach(c => {
+            // Cari slot lampau atau hari ini yang belum penuh (kursi terisi < kapasitas kuota)
+            const availableSlot = slots.find(s => s.isPastOrToday && s.assignedCandidates.length < s.capacity);
+            if (availableSlot) {
+                availableSlot.assignedCandidates.push(c);
+                c.pelaksanaan = availableSlot.dateStr;
+                c.sesi = availableSlot.sesi;
+                c.waktu = getSessionTime(availableSlot.sesi, availableSlot.dateStr);
+                c.isFriday = availableSlot.isFriday;
+                c.status = 'Terjadwal';
+            } else {
+                // Kursi tiap sesi penuh: yang tidak kebagian akan tetap memiliki sesi 00 yaitu sesi belum terjadwal
+                c.pelaksanaan = 'NULL';
+                c.sesi = '00';
+                c.waktu = 'NULL';
+                c.isFriday = false;
+                c.status = 'Belum Terjadwal';
+                unplacedTidakHadirCount++;
+            }
+        });
+
+        // 5. Acak peserta BELUM PRESENSI untuk memenuhi sisa kapasitas seluruh sesi
+        const shuffledBelum = shuffle(candsBelum);
+        let unplacedBelumCount = 0;
+
+        shuffledBelum.forEach(c => {
+            // Cari slot sesi ujian yang masih memiliki kursi kosong
+            const availableSlot = slots.find(s => s.assignedCandidates.length < s.capacity);
+            if (availableSlot) {
+                availableSlot.assignedCandidates.push(c);
+                c.pelaksanaan = availableSlot.dateStr;
+                c.sesi = availableSlot.sesi;
+                c.waktu = getSessionTime(availableSlot.sesi, availableSlot.dateStr);
+                c.isFriday = availableSlot.isFriday;
+                c.status = 'Terjadwal';
+            } else {
+                // Kursi tiap sesi telah penuh: yang tidak kebagian akan tetap memiliki sesi 00 yaitu sesi belum terjadwal
+                c.pelaksanaan = 'NULL';
+                c.sesi = '00';
+                c.waktu = 'NULL';
+                c.isFriday = false;
+                c.status = 'Belum Terjadwal';
+                unplacedBelumCount++;
+            }
+        });
+
+        // 6. Simpan kuota per sesi ke exam jika berubah
+        if (Number(currentExam.quotaPerSession) !== quotaPerSession) {
+            currentExam.quotaPerSession = quotaPerSession;
+            await db.updateExam(currentExam);
+            if (isCloudActive()) {
+                await saveExamToCloud(currentExam);
+            }
+        }
+
+        // 7. Simpan seluruh kandidat yang telah diacak ke Realtime Database
+        await db.bulkAddCandidates(currentExam.id, currentCandidates);
+        if (isCloudActive()) {
+            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
+        }
+
+        // 8. Refresh data ujian aktif & UI
+        await setActiveExam(currentExam.id);
+        window.closeModalShuffleSchedule();
+
+        const totalUnplaced = unplacedTidakHadirCount + unplacedBelumCount;
+        const unplacedMsg = totalUnplaced > 0 
+            ? ` (${totalUnplaced} peserta tidak kebagian kursi dan ditetapkan pada Sesi 00 / Belum Terjadwal)` 
+            : '';
+        showToast(`Sukses! Jadwal ${currentCandidates.length} peserta berhasil diacak merata (Peserta Hadir terlindungi 100%).${unplacedMsg}`, "success");
+
+    } catch (err) {
+        console.error("Gagal mengacak jadwal:", err);
+        showToast("Gagal mengacak jadwal: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="shuffle" class="w-3.5 h-3.5"></i><span>Mulai Acak Jadwal</span>`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
+
+/**
+ * =========================================================================
+ * FITUR RESET ACAK JADWAL (KEMBALIKAN KE SESI 00 KECUALI HADIR & TIDAK HADIR)
+ * =========================================================================
+ */
+
+/**
+ * Buka Modal Konfirmasi Reset Acak Jadwal
+ */
+window.openModalConfirmResetShuffle = () => {
+    if (!currentExam) {
+        showToast("Pilih instansi ujian terlebih dahulu sebelum mereset jadwal!", "warning");
+        return;
+    }
+    if (!currentCandidates || currentCandidates.length === 0) {
+        showToast("Belum ada data peserta untuk direset!", "warning");
+        return;
+    }
+
+    const modal = document.getElementById('modalConfirmResetShuffle');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('resetShuffleInstansiTitle');
+    if (titleEl) titleEl.textContent = currentExam.instansi || '-';
+
+    const hadirCount = currentCandidates.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadirCount = currentCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const belumCount = Math.max(0, currentCandidates.length - hadirCount - tidakHadirCount);
+
+    const statHadir = document.getElementById('resetStatHadir');
+    const statTidakHadir = document.getElementById('resetStatTidakHadir');
+    const statBelum = document.getElementById('resetStatBelum');
+
+    if (statHadir) statHadir.textContent = hadirCount;
+    if (statTidakHadir) statTidakHadir.textContent = tidakHadirCount;
+    if (statBelum) statBelum.textContent = belumCount;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
+ * Tutup Modal Konfirmasi Reset Acak Jadwal
+ */
+window.closeModalConfirmResetShuffle = () => {
+    const modal = document.getElementById('modalConfirmResetShuffle');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Eksekusi Reset Acak Jadwal:
+ * Mengembalikan jadwal seluruh peserta yang Belum Presensi ke Sesi 00 (Belum Terjadwal).
+ * Peserta HADIR dan TIDAK_HADIR terlindungi 100% (tidak disentuh/tidak diubah).
+ */
+window.executeResetShuffleSchedule = async () => {
+    if (!currentExam || !currentCandidates || currentCandidates.length === 0) {
+        showToast("Data ujian atau peserta tidak valid!", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnExecuteResetShuffle');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Mereset Jadwal...</span>`;
+        if (window.lucide) window.lucide.createIcons();
+    }
+
+    try {
+        let resetCount = 0;
+        currentCandidates.forEach(c => {
+            // Aturan Keras: HANYA ubah jika belum presensi!
+            // Peserta HADIR dan TIDAK_HADIR dilarang keras diubah.
+            if (c.kehadiran !== 'HADIR' && c.kehadiran !== 'TIDAK_HADIR') {
+                c.pelaksanaan = 'NULL';
+                c.sesi = '00';
+                c.waktu = 'NULL';
+                c.isFriday = false;
+                c.status = 'Belum Terjadwal';
+                resetCount++;
+            }
+        });
+
+        // Simpan ke database
+        await db.bulkAddCandidates(currentExam.id, currentCandidates);
+        if (isCloudActive()) {
+            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
+        }
+
+        await setActiveExam(currentExam.id);
+        window.closeModalConfirmResetShuffle();
+
+        showToast(`Sukses! ${resetCount} peserta dikembalikan ke Sesi 00 (Belum Terjadwal). Peserta Hadir & Tidak Hadir tetap terlindungi.`, "success");
+
+    } catch (err) {
+        console.error("Gagal reset acak jadwal:", err);
+        showToast("Gagal mereset jadwal: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i><span>Ya, Reset ke Sesi 00</span>`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
 };
 
 /**
@@ -6426,14 +6796,17 @@ let auditCompareCategoryFilter = 'ALL';
 
 function setupAuditUI() {
     window.updateAuditTabExamInfo = () => {
+        const examTitle = currentExam 
+            ? `Instansi Ujian Aktif: ${currentExam.instansi || currentExam.title}` 
+            : `Instansi Ujian: Belum Ada Ujian Aktif`;
+
         const badge = document.getElementById('auditActiveExamName');
         if (badge) {
-            if (currentExam) {
-                badge.textContent = `Instansi Ujian Aktif: ${currentExam.instansi || currentExam.title}`;
-            } else {
-                badge.textContent = `Instansi Ujian: Belum Ada Ujian Aktif`;
-            }
+            badge.textContent = examTitle;
         }
+        document.querySelectorAll('.audit-active-exam-title').forEach(el => {
+            el.textContent = examTitle;
+        });
     };
 
     window.handleAuditDrop = (e) => {
