@@ -4,7 +4,7 @@
  * Mengintegrasikan IndexedDB, Excel Handler, Session Rules, dan Manajemen Wilayah Papua Barat & PB Daya
  */
 
-import { masterInstansiData, toTitleCase, getInstansiPin } from '../masterInstansi.js';
+import { masterInstansiData, toTitleCase, getInstansiPin, DEFAULT_MASTER_INSTANSI, syncMasterInstansiFromDatabase } from '../masterInstansi.js';
 import * as db from './db.js';
 import { 
     parseFlexibleDate, 
@@ -86,8 +86,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupScrollToTopButton();
     setupAuditUI();
 
-    // Isi dropdown instansi
+    // Inisialisasi Master Instansi & Keamanan di Database
+    await db.initMasterSecurityInDb(DEFAULT_MASTER_INSTANSI);
+    await syncMasterInstansiFromDatabase();
+
+    // Isi dropdown instansi & render tabel
     populateInstansiDropdown('selectExamInstansi');
+    renderMasterInstansiTableFull();
 
     // Cek otorisasi PIN yang tersimpan di sesi browser
     if (sessionStorage.getItem('is_admin_pin_authorized') === 'true') {
@@ -5160,7 +5165,10 @@ function setupTabNavigation() {
         const errorMsg = document.getElementById('pinErrorMessage');
         const pinVal = inputPin ? inputPin.value.trim() : '';
 
-        if (pinVal === '1414' || pinVal === '141414') {
+        // Validasi PIN langsung ke Database (Bebas Hardcode)
+        const isAuthorized = await db.verifyAdminPin(pinVal);
+
+        if (isAuthorized) {
             isPinAuthorized = true;
             sessionStorage.setItem('is_admin_pin_authorized', 'true');
             // Simpan aksi dan target tab tertunda sebelum modal ditutup & dibersihkan
@@ -5189,13 +5197,7 @@ function setupTabNavigation() {
                 return;
             }
 
-            // 3. Buka Pengaturan Cloud jika aksi tertunda adalah OPEN_FIREBASE_CONFIG
-            if (actionToExecute === 'OPEN_FIREBASE_CONFIG') {
-                window.openModalFirebaseConfig();
-                return;
-            }
-
-            // 4. Pindah ke tab tujuan secara instan
+            // 3. Pindah ke tab tujuan secara instan
             if (targetTabToSwitch) {
                 window.switchTab(targetTabToSwitch);
             }
@@ -5422,9 +5424,10 @@ window.verifyExamPinAndUnlock = async (e) => {
         return;
     }
 
-    const correctPin = getInstansiPin(targetExam.instansi);
+    const dbPin = await db.getInstansiPinFromDb(targetExam.instansi);
+    const correctPin = dbPin || getInstansiPin(targetExam.instansi);
 
-    if (enteredPin.toLowerCase() === correctPin.toLowerCase()) {
+    if (correctPin && enteredPin.toLowerCase() === correctPin.toLowerCase()) {
         // PIN BENAR!
         saveActiveExamSession(targetExam.id, targetExam.instansi);
         window.closeSelectExamWithPinModal();
@@ -5444,7 +5447,7 @@ window.verifyExamPinAndUnlock = async (e) => {
     }
 };
 
-// ---------------------- MODAL PIN SUPER ADMIN ("141414") ----------------------
+// ---------------------- MODAL PIN SUPER ADMIN (DATABASE-DRIVEN) ----------------------
 
 window.openSuperAdminPinPrompt = () => {
     const modal = document.getElementById('modalSuperAdminPin');
@@ -5477,7 +5480,10 @@ window.verifySuperAdminPin = async (e) => {
     const err = document.getElementById('superAdminPinError');
     const val = input ? input.value.trim() : '';
 
-    if (val === '141414') {
+    // Validasi PIN Super Admin langsung ke Database (Bebas Hardcode)
+    const isSuper = await db.verifySuperAdminPin(val);
+
+    if (isSuper) {
         setSuperAdminSession(true);
         window.closeSuperAdminPinModal();
         window.closeSelectExamWithPinModal();
@@ -5505,21 +5511,31 @@ window.verifySuperAdminPin = async (e) => {
 /**
  * Setup Master Instansi UI
  */
+/**
+ * Setup Master Instansi UI
+ */
 function setupMasterInstansiUI() {
     const formCustom = document.getElementById('formAddMasterInstansiCustom');
     if (formCustom) {
-        formCustom.addEventListener('submit', (e) => {
+        formCustom.addEventListener('submit', async (e) => {
             e.preventDefault();
             const inputName = document.getElementById('newMasterInstansiNameCustom');
             const selectWilker = document.getElementById('newMasterInstansiWilkerCustom');
+            const inputPin = document.getElementById('newMasterInstansiPinCustom');
 
             if (!inputName || !selectWilker) return;
 
             const nameValue = toTitleCase(inputName.value.trim());
             const wilkerValue = selectWilker.value;
+            const pinValue = inputPin ? inputPin.value.trim() : '';
 
             if (!nameValue) {
                 showToast("Nama instansi tidak boleh kosong!", "warning");
+                return;
+            }
+
+            if (!pinValue) {
+                showToast("PIN Akses Instansi wajib diisi!", "warning");
                 return;
             }
 
@@ -5529,14 +5545,21 @@ function setupMasterInstansiUI() {
                 return;
             }
 
-            masterInstansiData.push({ name: nameValue, wilker: wilkerValue });
+            const newInstansi = { 
+                name: nameValue, 
+                wilker: wilkerValue, 
+                pin: pinValue 
+            };
+            masterInstansiData.push(newInstansi);
             localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+            await db.saveMasterInstansiToDb(masterInstansiData);
 
             inputName.value = '';
+            if (inputPin) inputPin.value = '';
             populateInstansiDropdown('selectExamInstansi');
             renderMasterInstansiTableFull();
             closeModalAddMasterInstansi();
-            showToast(`Instansi "${nameValue}" berhasil ditambahkan!`, "success");
+            showToast(`Instansi "${nameValue}" berhasil ditambahkan ke database!`, "success");
         });
     }
 }
@@ -5558,12 +5581,24 @@ function renderMasterInstansiTableFull() {
     if (!tbody) return;
 
     tbody.innerHTML = masterInstansiData.map((item, idx) => `
-        <tr class="hover:bg-slate-50">
+        <tr class="hover:bg-slate-50 transition-colors">
             <td class="p-3 font-semibold text-slate-900">${item.name}</td>
             <td class="p-3">
                 <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full ${item.wilker === 'Papua Barat Daya' ? 'bg-emerald-100 text-emerald-800' : (item.wilker === 'Instansi Vertikal' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800')}">
                     ${item.wilker}
                 </span>
+            </td>
+            <td class="p-3 text-center">
+                <div class="inline-flex items-center justify-center gap-1.5 font-mono">
+                    <span id="pin-mask-${idx}" class="font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-[11px] tracking-widest select-none">••••••</span>
+                    <span id="pin-text-${idx}" class="hidden font-bold text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px] tracking-wider select-all">${item.pin || '-'}</span>
+                    <button type="button" onclick="toggleInstansiPinVisibility(${idx})" class="p-1 text-slate-400 hover:text-bkn-700 hover:bg-slate-100 rounded transition cursor-pointer" title="Lihat/Sembunyikan PIN">
+                        <i data-lucide="eye" id="pin-icon-${idx}" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button type="button" onclick="promptEditInstansiPin(${idx})" class="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer" title="Ubah PIN Instansi">
+                        <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
             </td>
             <td class="p-3 text-center">
                 <button onclick="deleteMasterItem(${idx}, '${item.name}')" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] rounded transition">
@@ -5572,15 +5607,64 @@ function renderMasterInstansiTableFull() {
             </td>
         </tr>
     `).join('');
+
+    if (window.lucide) window.lucide.createIcons();
 }
 
-window.deleteMasterItem = (index, name) => {
+window.toggleInstansiPinVisibility = (idx) => {
+    const mask = document.getElementById(`pin-mask-${idx}`);
+    const text = document.getElementById(`pin-text-${idx}`);
+    const icon = document.getElementById(`pin-icon-${idx}`);
+    if (!mask || !text) return;
+
+    if (text.classList.contains('hidden')) {
+        // Buka PIN (Unhide)
+        text.classList.remove('hidden');
+        mask.classList.add('hidden');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'eye-off');
+            if (window.lucide) window.lucide.createIcons();
+        }
+    } else {
+        // Sembunyikan kembali (Mask)
+        text.classList.add('hidden');
+        mask.classList.remove('hidden');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'eye');
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
+
+window.promptEditInstansiPin = async (idx) => {
+    const item = masterInstansiData[idx];
+    if (!item) return;
+
+    const currentPin = item.pin || '';
+    const newPin = prompt(`Masukkan PIN Akses Ujian baru untuk "${item.name}":`, currentPin);
+    if (newPin === null) return; // Dibatalkan
+
+    const trimmed = String(newPin).trim();
+    if (!trimmed) {
+        showToast("PIN tidak boleh kosong!", "warning");
+        return;
+    }
+
+    item.pin = trimmed;
+    localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+    await db.updateInstansiPinInDb(item.name, trimmed);
+    renderMasterInstansiTableFull();
+    showToast(`PIN untuk "${item.name}" berhasil diperbarui ke database!`, "success");
+};
+
+window.deleteMasterItem = async (index, name) => {
     if (confirm(`Hapus "${name}" dari master instansi?`)) {
         masterInstansiData.splice(index, 1);
         localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+        await db.saveMasterInstansiToDb(masterInstansiData);
         populateInstansiDropdown('selectExamInstansi');
         renderMasterInstansiTableFull();
-        showToast(`"${name}" telah dihapus.`, "info");
+        showToast(`"${name}" telah dihapus dari database.`, "info");
     }
 };
 
@@ -5632,11 +5716,10 @@ function showToast(message, type = 'info') {
     }, 4000);
 }
 
-// ---------------------- FIREBASE REALTIME CLOUD INTEGRATION ----------------------
+// ---------------------- DATABASE REALTIME SYNCHRONIZATION ----------------------
 
 function setupFirebaseIntegration() {
     onConnectionStatusChange((online) => {
-        updateCloudStatusUI(online);
         if (online) {
             // Pasang realtime listener untuk ujian secara global
             listenExamsCloud((cloudExams) => {
@@ -5688,129 +5771,9 @@ function setupFirebaseIntegration() {
         }
     });
 
-    // Inisialisasi service dengan config yang tersimpan atau di-inject
-    const initialized = initFirebaseService();
-    updateCloudStatusUI(initialized);
-
-    setupFirebaseConfigForm();
+    // Inisialisasi service database
+    initFirebaseService();
 }
-
-function updateCloudStatusUI(online) {
-    const isOnline = Boolean(online && isCloudActive());
-
-    // 1. Badge di Header Navbar (Hanya muncul jika Online / terhubung)
-    const badge = document.getElementById('cloudStatusBadge');
-    if (badge) {
-        if (isOnline) {
-            badge.classList.remove('hidden');
-            badge.classList.add('flex');
-        } else {
-            badge.classList.add('hidden');
-            badge.classList.remove('flex');
-        }
-    }
-
-    // 2. Badge di Modal Pengaturan Cloud
-    const mDot = document.getElementById('modalCloudStatusDot');
-    const mTitle = document.getElementById('modalCloudStatusTitle');
-    const mDesc = document.getElementById('modalCloudStatusDesc');
-    const btnDisc = document.getElementById('btnDisconnectCloud');
-
-    if (mDot) {
-        mDot.className = `w-3 h-3 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-slate-400'}`;
-    }
-    if (mTitle) {
-        mTitle.textContent = isOnline ? 'Terhubung ke Firebase Realtime Database' : 'Menunggu Konfigurasi Cloud';
-        mTitle.className = `text-xs font-bold ${isOnline ? 'text-emerald-800' : 'text-slate-800'}`;
-    }
-    if (mDesc) {
-        const config = getFirebaseConfig();
-        mDesc.textContent = isOnline 
-            ? `Proyek: ${config?.projectId || 'Aktif'} (Sinkronisasi Realtime Aktif)`
-            : 'Belum terhubung ke database online.';
-    }
-    if (btnDisc) {
-        if (isOnline) {
-            btnDisc.classList.remove('hidden');
-        } else {
-            btnDisc.classList.add('hidden');
-        }
-    }
-}
-
-function setupFirebaseConfigForm() {
-    const form = document.getElementById('formFirebaseConfig');
-    if (form) {
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const textarea = document.getElementById('inputFirebaseConfigJson');
-            const inputVal = textarea ? textarea.value.trim() : '';
-            if (!inputVal) {
-                showToast("Silakan masukkan konfigurasi Firebase!", "warning");
-                return;
-            }
-
-            try {
-                let cleaned = inputVal.trim();
-                const match = cleaned.match(/\{[\s\S]*\}/);
-                if (match) {
-                    cleaned = match[0];
-                }
-                const parsed = (new Function(`return ${cleaned};`))();
-
-                if (!parsed || !parsed.apiKey || !parsed.databaseURL) {
-                    showToast("Konfigurasi wajib memiliki 'apiKey' dan 'databaseURL'!", "error");
-                    return;
-                }
-
-                saveFirebaseConfig(parsed);
-                showToast("Konfigurasi Firebase berhasil disimpan dan terhubung!", "success");
-                window.closeModalFirebaseConfig();
-
-                // Refresh data ujian aktif
-                loadInitialData();
-            } catch (err) {
-                console.error("Gagal parsing konfigurasi Firebase:", err);
-                showToast("Format konfigurasi tidak valid! Pastikan format JSON atau objek JS benar.", "error");
-            }
-        });
-    }
-}
-
-
-window.openModalFirebaseConfig = () => {
-    const modal = document.getElementById('modalFirebaseConfig');
-    const textarea = document.getElementById('inputFirebaseConfigJson');
-    const currentConf = getFirebaseConfig();
-
-    if (textarea && currentConf) {
-        textarea.value = JSON.stringify(currentConf, null, 2);
-    }
-
-    if (modal) {
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-    }
-    if (window.lucide) window.lucide.createIcons();
-};
-
-window.closeModalFirebaseConfig = () => {
-    const modal = document.getElementById('modalFirebaseConfig');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
-};
-
-window.disconnectCloudFirebase = () => {
-    if (confirm("Yakin ingin memutuskan koneksi Firebase Cloud?")) {
-        removeFirebaseConfig();
-        const textarea = document.getElementById('inputFirebaseConfigJson');
-        if (textarea) textarea.value = '';
-        updateCloudStatusUI(false);
-        showToast("Koneksi Firebase diputuskan.", "info");
-    }
-};
 
 // ==================== REKAPITULASI LAPORAN KEHADIRAN (MODAL 2 TAB & COPY) ====================
 

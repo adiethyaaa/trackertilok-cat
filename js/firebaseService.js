@@ -593,3 +593,68 @@ export async function bulkUpdatePathsInCloud(updates) {
     }
     return keys.length;
 }
+
+// ---------------------- MASTER INSTANSI & SECURITY OPERATIONS (DATABASE-DRIVEN) ----------------------
+
+/**
+ * Mengambil daftar master instansi lengkap dengan PIN dari database
+ */
+export async function getMasterInstansiCloud() {
+    const db = ensureDb();
+    const instansiRef = ref(db, 'master_instansi');
+    const snapshot = await get(instansiRef);
+    if (!snapshot.exists()) return null;
+    const val = snapshot.val();
+    if (Array.isArray(val)) return val.filter(Boolean);
+    return Object.keys(val).map(key => val[key]);
+}
+
+/**
+ * Menyimpan seluruh daftar master instansi ke database
+ */
+export async function saveMasterInstansiCloud(list) {
+    if (!Array.isArray(list)) return;
+    const db = ensureDb();
+    const instansiRef = ref(db, 'master_instansi');
+    await set(instansiRef, list);
+    return list;
+}
+
+/**
+ * Memperbarui PIN instansi tertentu di database
+ */
+export async function updateInstansiPinCloud(instansiName, newPin) {
+    if (!instansiName) return;
+    const list = (await getMasterInstansiCloud()) || [];
+    const cleanName = String(instansiName).trim().toLowerCase();
+    const idx = list.findIndex(i => String(i.name || '').trim().toLowerCase() === cleanName);
+    if (idx !== -1) {
+        list[idx].pin = String(newPin).trim();
+    } else {
+        list.push({ name: instansiName, wilker: 'Papua Barat', pin: String(newPin).trim() });
+    }
+    await saveMasterInstansiCloud(list);
+    return list;
+}
+
+/**
+ * Mengambil konfigurasi keamanan (PIN Admin & PIN Super Admin) dari database
+ */
+export async function getSecurityConfigCloud() {
+    const db = ensureDb();
+    const secRef = ref(db, 'security');
+    const snapshot = await get(secRef);
+    if (!snapshot.exists()) return null;
+    return snapshot.val();
+}
+
+/**
+ * Menyimpan konfigurasi keamanan ke database
+ */
+export async function saveSecurityConfigCloud(secObj) {
+    const db = ensureDb();
+    const secRef = ref(db, 'security');
+    await set(secRef, secObj);
+    return secObj;
+}
+

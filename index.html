@@ -208,16 +208,6 @@
                         <span id="liveDateWIT" class="text-xs text-blue-200">Memuat tanggal...</span>
                     </div>
 
-                    <!-- Indikator Status Database Online (Hanya muncul saat database berhasil ditarik) -->
-                    <div id="cloudStatusBadge" class="hidden items-center space-x-1.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs px-2.5 py-1.5 rounded-lg font-medium shadow-sm transition-all" title="Database Online Terhubung (Firebase Realtime)">
-                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span class="font-bold text-[11px] sm:text-xs text-emerald-300">Online</span>
-                    </div>
-
-                    <button type="button" class="p-2 bg-bkn-800/90 border border-blue-400/30 rounded-lg hover:bg-bkn-700/80 text-blue-300 hover:text-white transition shadow-inner" title="Saved on Cloud">
-                        <i data-lucide="cloud-cog" class="w-4 h-4"></i>
-                    </button>
-
                     <!-- Active Exam Badge / Switcher (Hanya menampilkan Nama Instansi yang sudah di-create) -->
                     <div class="bg-bkn-800/90 border border-blue-400/30 rounded-lg px-3 py-1.5 flex items-center space-x-2 shadow-inner">
                         <i data-lucide="building-2" class="w-4 h-4 text-amber-400"></i>
@@ -921,17 +911,17 @@
                             <tbody>
                                 <tr class="text-slate-600">
                                     <td class="p-2 border text-center font-bold text-slate-400">1</td>
-                                    <td class="p-2 border font-mono font-semibold text-slate-800">197809092014091001</td>
-                                    <td class="p-2 border font-semibold text-slate-800">GARDEN SEMUEL KARUBUY</td>
-                                    <td class="p-2 border">DINAS KEPENDUDUKAN DAN PENCATATAN SIPIL</td>
-                                    <td class="p-2 border">ANALIS PENAGIHAN DAN PENGEMBALIAN</td>
+                                    <td class="p-2 border font-mono font-semibold text-slate-800">199515282020011002</td>
+                                    <td class="p-2 border font-semibold text-slate-800">ADIETHYA FATHI ARPUJIONO</td>
+                                    <td class="p-2 border">BADAN KEPEGAWAIAN NEGARA</td>
+                                    <td class="p-2 border">KEPALA BADAN KEPEGAWAIAN NEGARA REGIONAL III BANDUNG</td>
                                 </tr>
                                 <tr class="text-slate-600">
                                     <td class="p-2 border text-center font-bold text-slate-400">2</td>
-                                    <td class="p-2 border font-mono font-semibold text-slate-800">197812052014091002</td>
-                                    <td class="p-2 border font-semibold text-slate-800">DARIUS AKWAN</td>
-                                    <td class="p-2 border">SUB BAGIAN UMUM DAN KEPEGAWAIAN - DINAS LINGKUNGAN HIDUP</td>
-                                    <td class="p-2 border">PENGADMINISTRASI UMUM</td>
+                                    <td class="p-2 border font-mono font-semibold text-slate-800">197815222015091002</td>
+                                    <td class="p-2 border font-semibold text-slate-800">ERWIN AUMA SANTIAWAN</td>
+                                    <td class="p-2 border">BADAN KEPEGAWAIAN NEGARA</td>
+                                    <td class="p-2 border">KEPALA BADAN KEPEGAWAIAN NEGARA REGIONAL VII PALEMBANG</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1059,39 +1049,21 @@
                     </div>
                 </div>
 
-                <!-- Kartu Integrasi Cloud Realtime Database & Migrasi -->
-                <div class="mt-6 bg-gradient-to-r from-blue-900 to-bkn-950 text-white rounded-xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div class="flex items-center space-x-3.5">
-                        <div class="p-3 bg-white/10 rounded-xl border border-white/15">
-                            <i data-lucide="cloud" class="w-6 h-6 text-amber-400"></i>
-                        </div>
-                        <div>
-                            <div class="flex items-center space-x-2">
-                                <h3 class="font-bold text-sm text-white">Sinkronisasi Cloud Realtime (Firebase)</h3>
-                                <span id="badgeCloudWilayahStatus" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">Offline</span>
-                            </div>
-                            <p class="text-xs text-blue-200 mt-0.5">Memungkinkan multi-perangkat panitia mencatat presensi & jadwal ujian secara realtime.</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center space-x-2 w-full md:w-auto">
-                        <button type="button" class="flex-1 md:flex-none px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-medium text-xs rounded-lg transition flex items-center justify-center space-x-1.5">
-                            <i data-lucide="settings" class="w-3.5 h-3.5"></i>
-                            <span>Pengaturan Cloud</span>
-                        </button>
-                        <button type="button" onclick="triggerMigrateIndexedDBToCloud()" class="flex-1 md:flex-none px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg shadow transition flex items-center justify-center space-x-1.5">
-                            <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i>
-                            <span>Migrasi ke Cloud</span>
-                        </button>
-                    </div>
-                </div>
-
                 <!-- Tabel Master Instansi -->
-                <div class="mt-6 border border-slate-200 rounded-xl overflow-hidden">
+                <div class="mt-6 border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
+                    <div class="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="building-2" class="w-4 h-4 text-bkn-700"></i>
+                            <h3 class="font-bold text-xs sm:text-sm text-slate-800">Daftar Master Instansi & PIN Akses Ujian</h3>
+                        </div>
+                        <span class="text-[11px] text-slate-500 italic">* PIN disembunyikan secara default. Klik ikon mata untuk melihat PIN.</span>
+                    </div>
                     <table class="w-full text-xs text-left text-slate-700">
                         <thead class="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
                             <tr>
                                 <th class="p-3">Nama Instansi / Pemerintah Daerah</th>
                                 <th class="p-3">Wilayah</th>
+                                <th class="p-3 text-center w-48">PIN Akses Ujian</th>
                                 <th class="p-3 text-center w-28">Aksi</th>
                             </tr>
                         </thead>
@@ -1407,6 +1379,11 @@
                         <option value="Papua Barat Daya">Papua Barat Daya</option>
                         <option value="Instansi Vertikal">Instansi Vertikal</option>
                     </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">PIN Akses Instansi *</label>
+                    <input type="text" id="newMasterInstansiPinCustom" required placeholder="Contoh: 1414 / bintuni" class="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-bkn-600 focus:outline-none font-mono">
+                    <p class="text-[10.5px] text-slate-500 mt-1">PIN ini disimpan ke database dan digunakan panitia saat membuka ujian instansi ini.</p>
                 </div>
 
                 <div class="pt-3 flex items-center justify-end space-x-2">
@@ -1786,67 +1763,6 @@
                 <div class="pt-3 flex items-center justify-end space-x-2 border-t border-slate-100">
                     <button type="button" onclick="closeModalEditExam()" class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50">Batal</button>
                     <button type="submit" class="px-5 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-semibold rounded-lg shadow">Simpan Perubahan</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- ==================== MODAL PENGATURAN CLOUD FIREBASE ==================== -->
-    <div id="modalFirebaseConfig" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full p-6 space-y-4 fade-in max-h-[90vh] flex flex-col">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div class="flex items-center space-x-3">
-                    <div class="p-2.5 bg-amber-50 text-amber-600 rounded-xl">
-                        <i data-lucide="cloud-cog" class="w-6 h-6"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-base sm:text-lg font-bold text-slate-900">Pengaturan Cloud Realtime Database</h3>
-                        <p class="text-xs text-slate-500">Sinkronisasi jadwal & presensi ujian secara realtime antar panitia.</p>
-                    </div>
-                </div>
-                <button type="button" onclick="closeModalFirebaseConfig()" class="text-slate-400 hover:text-slate-600">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-
-            <!-- Status Banner -->
-            <div id="modalCloudStatusBanner" class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                <div class="flex items-center space-x-2.5">
-                    <span id="modalCloudStatusDot" class="w-3 h-3 rounded-full bg-slate-400"></span>
-                    <div>
-                        <div class="text-xs font-bold text-slate-800" id="modalCloudStatusTitle">Menunggu Konfigurasi Cloud</div>
-                        <div class="text-[11px] text-slate-500" id="modalCloudStatusDesc">Database online Firebase Realtime Database.</div>
-                    </div>
-                </div>
-                <button type="button" id="btnDisconnectCloud" onclick="disconnectCloudFirebase()" class="hidden px-2.5 py-1 text-xs text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg font-semibold transition">
-                    Putuskan
-                </button>
-            </div>
-
-            <form id="formFirebaseConfig" class="flex-1 overflow-y-auto space-y-3.5 pr-1">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Konfigurasi Firebase Realtime (JSON atau Objek JS) *
-                    </label>
-                    <textarea id="inputFirebaseConfigJson" rows="6" placeholder='Contoh:
-{
-  "apiKey": "AIzaSy...",
-  "authDomain": "trackertilok-cat.firebaseapp.com",
-  "databaseURL": "https://trackertilok-cat-default-rtdb.asia-southeast1.firebasedatabase.app",
-  "projectId": "trackertilok-cat",
-  "storageBucket": "trackertilok-cat.firebasestorage.app",
-  "messagingSenderId": "651774366498",
-  "appId": "1:651774366498:web:..."
-}' class="w-full font-mono text-xs p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-bkn-600 focus:outline-none bg-slate-50/50"></textarea>
-                    <p class="text-[11px] text-slate-500 mt-1">Dapatkan kode ini dari Firebase Console > Project Settings > General (Web app).</p>
-                </div>
-
-                <!-- Tombol Aksi Form -->
-                <div class="flex items-center space-x-2 pt-2">
-                    <button type="submit" id="btnSaveFirebaseConfig" class="flex-1 py-2.5 bg-bkn-800 hover:bg-bkn-900 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center space-x-1.5">
-                        <i data-lucide="cloud-lightning" class="w-4 h-4 text-amber-400"></i>
-                        <span>Simpan & Hubungkan ke Cloud</span>
-                    </button>
                 </div>
             </form>
         </div>

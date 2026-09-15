@@ -1,3 +1,5 @@
+import * as db from './js/db.js';
+
 export function toTitleCase(str) {
     if (!str) return '';
     return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
@@ -40,14 +42,7 @@ export let masterInstansiData = (() => {
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // Pastikan PIN terisi dari default jika belum ada
-                return parsed.map(item => {
-                    if (!item.pin) {
-                        const def = DEFAULT_MASTER_INSTANSI.find(d => d.name.toLowerCase() === item.name.toLowerCase());
-                        return { ...item, pin: def ? def.pin : '1414' };
-                    }
-                    return item;
-                });
+                return parsed;
             }
         }
     } catch (e) {
@@ -57,71 +52,34 @@ export let masterInstansiData = (() => {
 })();
 
 /**
- * Helper untuk mendapatkan PIN resmi dari nama instansi
+ * Sinkronisasi data master instansi dari Database
+ */
+export async function syncMasterInstansiFromDatabase() {
+    try {
+        const dbList = await db.getMasterInstansiFromDb();
+        if (dbList && Array.isArray(dbList) && dbList.length > 0) {
+            masterInstansiData.length = 0;
+            dbList.forEach(item => masterInstansiData.push(item));
+            localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+        }
+    } catch (e) {
+        console.warn("Gagal sync master instansi dari database:", e);
+    }
+    return masterInstansiData;
+}
+
+/**
+ * Helper untuk mendapatkan PIN resmi dari nama instansi (Database Driven)
  */
 export function getInstansiPin(instansiName) {
-    if (!instansiName) return '1414';
+    if (!instansiName) return '';
     const clean = String(instansiName).trim().toLowerCase();
 
-    // 1. Cek dari masterInstansiData
-    const found = masterInstansiData.find(i => i.name.trim().toLowerCase() === clean);
-    if (found && found.pin) return found.pin;
+    // 1. Cek dari masterInstansiData di memori
+    const found = masterInstansiData.find(i => String(i.name || '').trim().toLowerCase() === clean);
+    if (found && found.pin) return String(found.pin).trim();
 
-    // 2. Mapping spesifik untuk ejaan dan variasi
-    const pinMap = {
-        "prov. papua barat": "papuabarat",
-        "provinsi papua barat": "papuabarat",
-        "papua barat": "papuabarat",
-        "kab. manokwari": "manokwari",
-        "kabupaten manokwari": "manokwari",
-        "manokwari": "manokwari",
-        "kab. manokwari selatan": "mansel",
-        "kabupaten manokwari selatan": "mansel",
-        "manokwari selatan": "mansel",
-        "kab. pegunungan arfak": "arfak",
-        "kabupaten pegunungan arfak": "arfak",
-        "pegunungan arfak": "arfak",
-        "kab. teluk bintuni": "bintuni",
-        "kabupaten teluk bintuni": "bintuni",
-        "teluk bintuni": "bintuni",
-        "bintuni": "bintuni",
-        "kab. teluk wondama": "wondama",
-        "kabupaten teluk wondama": "wondama",
-        "teluk wondama": "wondama",
-        "wondama": "wondama",
-        "kab. kaimana": "kaimana",
-        "kabupaten kaimana": "kaimana",
-        "kaimana": "kaimana",
-        "kab. fak-fak": "fakfak",
-        "kab. fakfak": "fakfak",
-        "kabupaten fak-fak": "fakfak",
-        "kabupaten fakfak": "fakfak",
-        "fak-fak": "fakfak",
-        "fakfak": "fakfak",
-
-        "prov. papua barat daya": "pbd",
-        "provinsi papua barat daya": "pbd",
-        "papua barat daya": "pbd",
-        "kota sorong": "kota",
-        "sorong kota": "kota",
-        "kab. sorong": "kabsor",
-        "kabupaten sorong": "kabsor",
-        "kab. sorong selatan": "sorsel",
-        "kabupaten sorong selatan": "sorsel",
-        "sorong selatan": "sorsel",
-        "kab. raja ampat": "raja4",
-        "kabupaten raja ampat": "raja4",
-        "raja ampat": "raja4",
-        "kab. tambrauw": "tambrauw",
-        "kabupaten tambrauw": "tambrauw",
-        "tambrauw": "tambrauw",
-        "kab. maybrat": "maybrat",
-        "kabupaten maybrat": "maybrat",
-        "maybrat": "maybrat"
-    };
-
-    if (pinMap[clean]) return pinMap[clean];
-    return '1414';
+    return '';
 }
 
 export function renderMasterInstansiTable() {
@@ -186,10 +144,11 @@ export function closeModalMasterInstansi() {
     }
 }
 
-export function deleteMasterInstansi(index) {
+export async function deleteMasterInstansi(index) {
     if (confirm(`Hapus "${masterInstansiData[index].name}" dari master data?`)) {
         masterInstansiData.splice(index, 1);
         localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+        await db.saveMasterInstansiToDb(masterInstansiData);
         renderMasterInstansiTable();
         if (typeof window.renderInstansiDatalist === 'function') {
             window.renderInstansiDatalist();
@@ -209,15 +168,17 @@ export function setupMasterInstansiForm() {
 
     const formAddMaster = document.getElementById('formAddMasterInstansi');
     if (formAddMaster) {
-        formAddMaster.addEventListener('submit', function(e) {
+        formAddMaster.addEventListener('submit', async function(e) {
             e.preventDefault();
             const inputName = document.getElementById('newMasterInstansiName');
             const selectWilker = document.getElementById('newMasterInstansiWilker');
+            const inputPin = document.getElementById('newMasterInstansiPin');
 
             if (!inputName || !selectWilker) return;
 
             const nameValue = toTitleCase(inputName.value.trim());
             const wilkerValue = selectWilker.value;
+            const pinValue = inputPin ? inputPin.value.trim() : '';
 
             if (!nameValue) {
                 alert("Harap masukkan nama instansi!");
@@ -230,10 +191,16 @@ export function setupMasterInstansiForm() {
                 return;
             }
 
-            masterInstansiData.push({ name: nameValue, wilker: wilkerValue });
+            masterInstansiData.push({ 
+                name: nameValue, 
+                wilker: wilkerValue,
+                pin: pinValue || nameValue.toLowerCase().replace(/[^a-z0-9]/g, '')
+            });
             localStorage.setItem('master_instansi_pi', JSON.stringify(masterInstansiData));
+            await db.saveMasterInstansiToDb(masterInstansiData);
 
             inputName.value = '';
+            if (inputPin) inputPin.value = '';
             renderMasterInstansiTable();
             if (typeof window.renderInstansiDatalist === 'function') {
                 window.renderInstansiDatalist();
