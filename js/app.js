@@ -651,11 +651,24 @@ document.addEventListener('click', (e) => {
 });
 
 /**
+ * Mengecek apakah Kelompok Jabatan kandidat kosong atau Belum Terdaftar
+ */
+function isCandidateKelJabatanEmpty(c) {
+    if (!c) return true;
+    const rawK = String(c.kelJabatan || '').trim();
+    if (!rawK || rawK === '-' || rawK.toUpperCase() === 'NULL') return true;
+    const lower = rawK.toLowerCase();
+    return lower === 'belum terdata' || 
+           lower.includes('belum terdaftar') || 
+           lower.includes('tidak terdata') || 
+           lower.includes('tidak terdaftar');
+}
+
+/**
  * Mengklasifikasikan kandidat ke dalam kategori kelompok jabatan yang baku
  */
 function classifyCandidateKelompok(c) {
-    const rawK = String(c.kelJabatan || '').trim();
-    if (!rawK || rawK === '-' || rawK.toUpperCase() === 'NULL' || rawK.toLowerCase() === 'belum terdata' || rawK.toLowerCase().includes('belum terdaftar')) {
+    if (isCandidateKelJabatanEmpty(c)) {
         return {
             category: 'KOSONG',
             label: 'Belum Terdata / Kosong',
@@ -663,6 +676,7 @@ function classifyCandidateKelompok(c) {
             isWarning: true
         };
     }
+    const rawK = String(c.kelJabatan || '').trim();
     const kLower = rawK.toLowerCase();
     const jLower = String(c.jabatan || '').toLowerCase();
     const combined = `${kLower} ${jLower}`;
@@ -710,8 +724,7 @@ function classifyCandidateKelompok(c) {
 /**
  * Menghasilkan HTML badge berwarna khas untuk kolom Kel. Jabatan peserta */
 function getCandidateKelJabatanBadge(c) {
-    const rawKel = String(c.kelJabatan || '').trim();
-    const isKelEmpty = !rawKel || rawKel === '-' || rawKel.toUpperCase() === 'NULL' || rawKel.toLowerCase() === 'belum terdata' || rawKel.toLowerCase().includes('belum terdaftar');
+    const isKelEmpty = isCandidateKelJabatanEmpty(c);
 
     if (isKelEmpty) {
         return `
@@ -2447,7 +2460,12 @@ window.executeShuffleSchedule = async () => {
 
         // 4. Acak peserta TIDAK_HADIR
         // Aturan Keras: HANYA boleh dipindahkan ke sesi yang masih kosong pada hari ini atau hari yang telah lewat (dilarang ke hari esok/berikutnya)
-        const shuffledTidakHadir = shuffle(candsTidakHadir);
+        const candsTidakHadirNormal = candsTidakHadir.filter(c => !isCandidateKelJabatanEmpty(c));
+        const candsTidakHadirEmptyKel = candsTidakHadir.filter(c => isCandidateKelJabatanEmpty(c));
+        const shuffledTidakHadir = [
+            ...shuffle(candsTidakHadirNormal),
+            ...shuffle(candsTidakHadirEmptyKel)
+        ];
         let unplacedTidakHadirCount = 0;
 
         shuffledTidakHadir.forEach(c => {
@@ -2472,7 +2490,14 @@ window.executeShuffleSchedule = async () => {
         });
 
         // 5. Acak peserta BELUM PRESENSI untuk memenuhi sisa kapasitas seluruh sesi
-        const shuffledBelum = shuffle(candsBelum);
+        // Aturan Khusus: Peserta dengan Kel. Jabatan belum terdaftar dan masih kosong TIDAK disebar ke berbagai sesi,
+        // melainkan ditaruh seluruhnya di urutan paling akhir pengacakan, sehingga terkelompok menjadi 1 sesi.
+        const candsBelumNormal = candsBelum.filter(c => !isCandidateKelJabatanEmpty(c));
+        const candsBelumEmptyKel = candsBelum.filter(c => isCandidateKelJabatanEmpty(c));
+        const shuffledBelum = [
+            ...shuffle(candsBelumNormal),
+            ...shuffle(candsBelumEmptyKel)
+        ];
         let unplacedBelumCount = 0;
 
         shuffledBelum.forEach(c => {
@@ -2514,6 +2539,11 @@ window.executeShuffleSchedule = async () => {
         // 8. Refresh data ujian aktif & UI
         await setActiveExam(currentExam.id);
         window.closeModalShuffleSchedule();
+
+        // 9. Otomatis pindah ke tab Jadwal & Peserta (Daftar Peserta) setelah pengacakan berhasil
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('daftar-peserta');
+        }
 
         const totalUnplaced = unplacedTidakHadirCount + unplacedBelumCount;
         const unplacedMsg = totalUnplaced > 0 
@@ -2627,6 +2657,11 @@ window.executeResetShuffleSchedule = async () => {
 
         await setActiveExam(currentExam.id);
         window.closeModalConfirmResetShuffle();
+
+        // Otomatis pindah ke tab Jadwal & Peserta (Daftar Peserta) setelah reset berhasil
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('daftar-peserta');
+        }
 
         showToast(`Sukses! ${resetCount} peserta dikembalikan ke Sesi 00 (Belum Terjadwal). Peserta Hadir & Tidak Hadir tetap terlindungi.`, "success");
 
