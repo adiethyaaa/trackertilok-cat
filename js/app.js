@@ -307,6 +307,9 @@ async function setActiveExam(examId) {
     currentExam = allExams.find(e => e.id === examId) || null;
     window.currentExam = currentExam;
     selectedDashboardDates.clear();
+    isDashboardDatesInitialized = false;
+    userManuallyClearedDashboardDates = false;
+    currentDashboardDatesExamId = examId;
 
     // Perbarui dropdown navbar & upload
     const selectNav = document.getElementById('selectActiveExamNavbar');
@@ -507,6 +510,8 @@ window.toggleDashboardDateDropdown = () => {
 };
 
 let isDashboardDatesInitialized = false;
+let currentDashboardDatesExamId = null;
+let userManuallyClearedDashboardDates = false;
 
 /**
  * Handler saat checkbox master "Ceklis Semua Tanggal" diubah
@@ -515,8 +520,10 @@ window.onToggleAllDashboardDates = (isChecked) => {
     const uniqueDates = getSortedExamDates();
     if (isChecked) {
         selectedDashboardDates = new Set(uniqueDates);
+        userManuallyClearedDashboardDates = false;
     } else {
         selectedDashboardDates.clear();
+        userManuallyClearedDashboardDates = true;
     }
     updateDashboardDateFilterUI();
     renderDashboardStats();
@@ -528,6 +535,7 @@ window.onToggleAllDashboardDates = (isChecked) => {
 window.resetDashboardDateFilter = () => {
     const uniqueDates = getSortedExamDates();
     selectedDashboardDates = new Set(uniqueDates);
+    userManuallyClearedDashboardDates = false;
     updateDashboardDateFilterUI();
     renderDashboardStats();
     showToast("Filter tanggal dashboard berhasil di-reset ke semua tanggal.", "info");
@@ -539,8 +547,12 @@ window.resetDashboardDateFilter = () => {
 window.onToggleSingleDashboardDate = (dateVal, isChecked) => {
     if (isChecked) {
         selectedDashboardDates.add(dateVal);
+        userManuallyClearedDashboardDates = false;
     } else {
         selectedDashboardDates.delete(dateVal);
+        if (selectedDashboardDates.size === 0) {
+            userManuallyClearedDashboardDates = true;
+        }
     }
 
     updateDashboardDateFilterUI();
@@ -593,9 +605,20 @@ function populateDashboardFilterTanggalDropdown() {
     if (!listContainer) return;
 
     const uniqueDates = getSortedExamDates();
+    const currentExamId = currentExam ? currentExam.id : null;
 
-    // Inisialisasi awal jika belum pernah di-set
+    // Reset jika beralih ujian
+    if (currentDashboardDatesExamId !== currentExamId) {
+        currentDashboardDatesExamId = currentExamId;
+        isDashboardDatesInitialized = false;
+        userManuallyClearedDashboardDates = false;
+    }
+
+    // Default ceklis all jika belum diinisialisasi atau belum ada tanggal yang dipilih secara manual
     if (!isDashboardDatesInitialized && uniqueDates.length > 0) {
+        selectedDashboardDates = new Set(uniqueDates);
+        isDashboardDatesInitialized = true;
+    } else if (uniqueDates.length > 0 && selectedDashboardDates.size === 0 && !userManuallyClearedDashboardDates) {
         selectedDashboardDates = new Set(uniqueDates);
         isDashboardDatesInitialized = true;
     } else {
@@ -604,7 +627,12 @@ function populateDashboardFilterTanggalDropdown() {
         selectedDashboardDates.forEach(d => {
             if (uniqueDates.includes(d)) validSelected.add(d);
         });
-        selectedDashboardDates = validSelected;
+
+        if (validSelected.size === 0 && !userManuallyClearedDashboardDates && uniqueDates.length > 0) {
+            selectedDashboardDates = new Set(uniqueDates);
+        } else {
+            selectedDashboardDates = validSelected;
+        }
     }
 
     if (uniqueDates.length === 0) {
@@ -2928,7 +2956,7 @@ function renderCumulativeSessionCards() {
         if (userManualFilterApplied) {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200';
             if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
-            statusTextEl.innerHTML = 'Filter Manual Aktif (Klik Reset untuk Auto-Tracking)';
+            statusTextEl.innerHTML = 'Filter Manual Aktif (Reset untuk Tracking Otomatis)';
         } else if (schedule.isOutsideSessionHours) {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200';
             if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse';
@@ -5094,18 +5122,18 @@ window.printOfficialSchedule = () => {
                 <!-- RINGKASAN PRESENSI & TANDA TANGAN PENANGGUNG JAWAB -->
                 <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: flex-start; page-break-inside: avoid;">
                     <div style="font-size: 8pt; color: #333; padding: 4px 8px; border: 1px dashed #999; border-radius: 4px; max-width: 320px;">
-                        <div style="font-weight: bold; margin-bottom: 2px;">Rekapitulasi Sesi Ini:</div>
+                        <div style="font-weight: bold; margin-bottom: 2px;">Rekapitulasi Sesi:</div>
                         <div>Peserta Hadir: <strong>${countHadir} Orang</strong></div>
                         <div>Peserta Tidak Hadir: <strong>${countTidakHadir} Orang</strong></div>
                         <div>Total Peserta: <strong>${totalPesertaSesi} Orang</strong></div>
                     </div>
 
                     <div style="width: 240px; text-align: center; font-size: 8.5pt;">
-                        <div>Manokwari, ${todayStr}</div>
-                        <div style="margin-top: 4px; font-weight: bold;">Koordinator Tim Pelaksana CAT BKN,</div>
-                        <div style="height: 44px;"></div>
-                        <div style="border-bottom: 1px solid #000; font-weight: bold;">( ..................................................... )</div>
-                        <div style="font-size: 7.5pt; color: #555; margin-top: 2px;">NIP. .................................................</div>
+                        <div>${todayStr}</div>
+                        <div style="margin-top: 4px; font-weight: bold;">Koordinator</div>
+                        <div style="height: 74px;"></div>
+                        <div style="border-bottom: 1px solid #000; font-weight: bold;"></div>
+                        
                     </div>
                 </div>
             </div>
@@ -5959,7 +5987,7 @@ function renderRekapModalTables() {
 
             if (candsSession.length > 0 || (s >= 1 && s <= dayMax)) {
                 const cumSesiNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, uniqueDates) || ((dayIdx * 3) + s);
-                const label = `Sesi ${s} [Akumulasi ${formatCumulativeSessionNumber(cumSesiNum)}]`;
+                const label = `Sesi ${s} [${formatCumulativeSessionNumber(cumSesiNum)}]`;
 
                 const sessData = {
                     sesiNum: s,
