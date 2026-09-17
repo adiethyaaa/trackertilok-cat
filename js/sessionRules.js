@@ -376,6 +376,30 @@ export function determineActiveSessionByTime(dateInput, witDateNow = null) {
 }
 
 /**
+ * Mencari apakah hari ini (berdasarkan jam WIT) tepat berada di dalam jadwal ujian
+ * Mengembalikan string tanggal (misal: "09 Sept 2026") jika cocok dan BUKAN hari Minggu.
+ * Mengembalikan null jika hari ini hari Minggu atau di luar jadwal ujian.
+ * @param {Array<string>} sortedDates 
+ * @param {Date} [witDateNow=null] 
+ * @returns {string|null}
+ */
+export function findExactExamDateToday(sortedDates, witDateNow = null) {
+    if (!Array.isArray(sortedDates) || sortedDates.length === 0) return null;
+    const now = witDateNow || getCurrentWitDate();
+    if (isSunday(now)) return null; // Hari Minggu tidak pernah ada ujian
+
+    for (const dStr of sortedDates) {
+        const dObj = parseFlexibleDate(dStr);
+        if (dObj && dObj.getDate() === now.getDate() && 
+            dObj.getMonth() === now.getMonth() && 
+            dObj.getFullYear() === now.getFullYear()) {
+            return dStr;
+        }
+    }
+    return null;
+}
+
+/**
  * Mencari tanggal ujian yang relevan saat ini dari daftar sortedDates
  * Jika tanggal hari ini ada di daftar sortedDates, gunakan tanggal tersebut.
  * Jika hari ini sebelum tanggal pertama, gunakan tanggal pertama.

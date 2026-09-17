@@ -19,6 +19,7 @@ import {
     getCurrentWitDate,
     determineActiveSessionByTime,
     findRelevantExamDate,
+    findExactExamDateToday,
     getMaxSessionsForDate,
     getCandidateEffectiveDate,
     getCandidateDailySession
@@ -2875,6 +2876,8 @@ function evaluateCurrentSessionSchedule() {
         return {
             hasDates: false,
             sortedDates: [],
+            isExamDay: false,
+            isSundayToday: false,
             relevantDate: null,
             activeDailySesi: null,
             isOutsideSessionHours: true,
@@ -2883,8 +2886,28 @@ function evaluateCurrentSessionSchedule() {
         };
     }
 
-    const relevantDate = findRelevantExamDate(sortedDates);
-    const timeInfo = determineActiveSessionByTime(relevantDate);
+    const nowWit = getCurrentWitDate();
+    const isSundayToday = isSunday(nowWit);
+    const exactTodayExamDate = findExactExamDateToday(sortedDates, nowWit);
+    const isExamDay = Boolean(exactTodayExamDate);
+
+    if (!isExamDay) {
+        return {
+            hasDates: true,
+            sortedDates,
+            isExamDay: false,
+            isSundayToday,
+            relevantDate: null,
+            activeDailySesi: null,
+            isOutsideSessionHours: true,
+            currentMinutes: (nowWit.getHours() * 60) + nowWit.getMinutes(),
+            activeCumNum: null,
+            daySessions: []
+        };
+    }
+
+    const relevantDate = exactTodayExamDate;
+    const timeInfo = determineActiveSessionByTime(relevantDate, nowWit);
     const maxS = getMaxSessionsForDate(relevantDate);
 
     const daySessions = [];
@@ -2906,6 +2929,8 @@ function evaluateCurrentSessionSchedule() {
     return {
         hasDates: true,
         sortedDates,
+        isExamDay: true,
+        isSundayToday: false,
         relevantDate,
         activeDailySesi: timeInfo.activeDailySesi,
         isOutsideSessionHours: timeInfo.isOutsideSessionHours,
@@ -2946,8 +2971,16 @@ function renderCumulativeSessionCards() {
 
     // Update label tanggal aktif di kanan
     if (dateLabelEl) {
-        const isFri = isFriday(relevantDate);
-        dateLabelEl.innerHTML = `Hari Ini: <strong class="text-slate-800">${relevantDate}</strong> ${isFri ? '<span class="text-rose-600 font-bold">(Jumat)</span>' : ''}`;
+        if (!schedule.isExamDay) {
+            if (schedule.isSundayToday) {
+                dateLabelEl.innerHTML = `<span class="text-rose-600 font-bold">Hari Minggu (Libur Ujian)</span>`;
+            } else {
+                dateLabelEl.innerHTML = `<span class="text-slate-500 font-medium">Di Luar Jadwal Pelaksanaan Ujian</span>`;
+            }
+        } else {
+            const isFri = isFriday(relevantDate);
+            dateLabelEl.innerHTML = `Hari Ini: <strong class="text-slate-800">${relevantDate}</strong> ${isFri ? '<span class="text-rose-600 font-bold">(Jumat)</span>' : ''}`;
+        }
     }
 
     // Update status badge real-time
@@ -2957,6 +2990,14 @@ function renderCumulativeSessionCards() {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200';
             if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
             statusTextEl.innerHTML = 'Filter Manual Aktif (Reset untuk Tracking Otomatis)';
+        } else if (!schedule.isExamDay) {
+            statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300';
+            if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-slate-400';
+            if (schedule.isSundayToday) {
+                statusTextEl.innerHTML = 'Hari Minggu (Libur) • Tidak Ada Sesi Ujian Aktif';
+            } else {
+                statusTextEl.innerHTML = 'Di Luar Jadwal Pelaksanaan Ujian • Menampilkan Semua Peserta';
+            }
         } else if (schedule.isOutsideSessionHours) {
             statusBadgeEl.className = 'inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200';
             if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse';
@@ -3014,7 +3055,7 @@ function renderCumulativeSessionCards() {
             // 1. Single Active:
             //    - Waktu sesi sedang berjalan di jam ini (dan user tidak sedang filter manual)
             //    - ATAU user secara manual mengklik sesi kumulatif ini
-            const isRunningNow = !schedule.isOutsideSessionHours && (dateStr === relevantDate && schedule.activeDailySesi === s);
+            const isRunningNow = schedule.isExamDay && !schedule.isOutsideSessionHours && (dateStr === relevantDate && schedule.activeDailySesi === s);
             const isManualSelected = currentCumulativeSessionFilter !== 'ALL' && Number(currentCumulativeSessionFilter) === cumNum;
             const isSingleActive = (!userManualFilterApplied && isRunningNow) || isManualSelected;
 
@@ -3022,7 +3063,7 @@ function renderCumulativeSessionCards() {
             //    - Saat di luar jam sesi, semua card sesi pada tanggal relevan (misal 10 Sep sesi 4,5,6) aktif bersamaan
             //    - ATAU filter tanggal = dateStr dan currentCumulativeSessionFilter === 'ALL'
             const isDayMatch = (dateStr === relevantDate);
-            const isOutsideMultiActive = !userManualFilterApplied && schedule.isOutsideSessionHours && isDayMatch && currentCumulativeSessionFilter === 'ALL';
+            const isOutsideMultiActive = !userManualFilterApplied && schedule.isExamDay && schedule.isOutsideSessionHours && isDayMatch && currentCumulativeSessionFilter === 'ALL';
             const isDateFilterMatch = userManualFilterApplied && currentDateFilter === dateStr && currentCumulativeSessionFilter === 'ALL';
             const isMultiActive = !isSingleActive && (isOutsideMultiActive || isDateFilterMatch);
 
@@ -3197,13 +3238,36 @@ function autoApplyLiveSessionFilter(showResetToast = false) {
     userManualFilterApplied = false;
     const schedule = evaluateCurrentSessionSchedule();
 
-    if (!schedule.hasDates) {
+    if (!schedule.hasDates || !schedule.isExamDay) {
         currentDateFilter = 'ALL';
         currentCumulativeSessionFilter = 'ALL';
         currentSessionFilter = 'ALL';
         populatePelaksanaanFilterDropdown();
         populateSesiFilterDropdown('ALL');
+
+        const selectDate = document.getElementById('selectFilterPelaksanaan');
+        if (selectDate) selectDate.value = 'ALL';
+        const selectSesi = document.getElementById('selectFilterSesiDropdown');
+        if (selectSesi) selectSesi.value = 'ALL';
+        const inputTyping = document.getElementById('inputFilterSesiTyping');
+        if (inputTyping) inputTyping.value = '';
+
+        document.querySelectorAll('.filter-sesi-btn').forEach(btn => {
+            btn.className = 'filter-sesi-btn px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+        });
+        const btnAll = document.getElementById('btnFilterSesiAll');
+        if (btnAll) btnAll.className = 'filter-sesi-btn px-2.5 py-1 text-[11px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition';
+
+        populateKelJabatanFilterDropdown();
         applyCandidateFilters();
+
+        if (showResetToast) {
+            if (schedule.isSundayToday) {
+                showToast('Hari Minggu (Libur): Filter di-reset ke Semua Peserta.', 'info');
+            } else {
+                showToast('Di Luar Jadwal Ujian: Filter di-reset ke Semua Peserta.', 'info');
+            }
+        }
         return;
     }
 
@@ -3270,7 +3334,10 @@ function checkAndAutoSwitchSession() {
     const schedule = evaluateCurrentSessionSchedule();
     if (!schedule.hasDates) return;
 
-    const currentKey = `${schedule.relevantDate}_${schedule.isOutsideSessionHours ? 'OUTSIDE' : schedule.activeDailySesi}`;
+    const currentKey = schedule.isExamDay 
+        ? `${schedule.relevantDate}_${schedule.isOutsideSessionHours ? 'OUTSIDE' : schedule.activeDailySesi}`
+        : `NO_EXAM_${schedule.isSundayToday ? 'SUNDAY' : 'OFF'}`;
+
     if (currentKey !== lastCheckedSessionKey) {
         lastCheckedSessionKey = currentKey;
         autoApplyLiveSessionFilter(false);
