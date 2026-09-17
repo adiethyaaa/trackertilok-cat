@@ -60,23 +60,99 @@ function matchAuditHeader(rawHeader) {
 }
 
 /**
+ * Normalisasi dan validasi nilai tanggal & waktu ke format standar: "DD MMMM YYYY HH:mm:ss"
+ * Mengembalikan null jika nilainya kosong, "-", "null", atau "undefined".
+ */
+export function normalizeAuditDateTime(val) {
+    if (val === undefined || val === null) return null;
+    if (val instanceof Date) {
+        if (isNaN(val.getTime())) return null;
+        const pad = (n) => String(n).padStart(2, '0');
+        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        return `${pad(val.getDate())} ${months[val.getMonth()]} ${val.getFullYear()} ${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}`;
+    }
+
+    const str = String(val).trim();
+    if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') {
+        return null;
+    }
+
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+    // 1. Format teks Indonesia: "DD MMMM YYYY HH:mm:ss" atau "DD MMMM YYYY HH:mm"
+    const indPattern = /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+    const indMatch = str.match(indPattern);
+    if (indMatch) {
+        const d = parseInt(indMatch[1], 10);
+        const mStr = indMatch[2].toLowerCase();
+        const y = parseInt(indMatch[3], 10);
+        const hh = parseInt(indMatch[4] || '0', 10);
+        const mm = parseInt(indMatch[5] || '0', 10);
+        const ss = parseInt(indMatch[6] || '0', 10);
+
+        const mIdx = months.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
+        if (mIdx !== -1) {
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${pad(d)} ${months[mIdx]} ${y} ${pad(hh)}:${pad(mm)}:${pad(ss)}`;
+        }
+    }
+
+    // 2. Format ISO / "YYYY-MM-DD HH:mm:ss" atau "YYYY/MM/DD HH:mm:ss"
+    const ymdPattern = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+    const ymdMatch = str.match(ymdPattern);
+    if (ymdMatch) {
+        const y = parseInt(ymdMatch[1], 10);
+        const m = parseInt(ymdMatch[2], 10) - 1;
+        const d = parseInt(ymdMatch[3], 10);
+        const hh = parseInt(ymdMatch[4] || '0', 10);
+        const mm = parseInt(ymdMatch[5] || '0', 10);
+        const ss = parseInt(ymdMatch[6] || '0', 10);
+        if (m >= 0 && m < 12) {
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${pad(d)} ${months[m]} ${y} ${pad(hh)}:${pad(mm)}:${pad(ss)}`;
+        }
+    }
+
+    // 3. Format "DD/MM/YYYY HH:mm:ss" atau "DD-MM-YYYY HH:mm:ss"
+    const dmyPattern = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+    const dmyMatch = str.match(dmyPattern);
+    if (dmyMatch) {
+        const d = parseInt(dmyMatch[1], 10);
+        const m = parseInt(dmyMatch[2], 10) - 1;
+        const y = parseInt(dmyMatch[3], 10);
+        const hh = parseInt(dmyMatch[4] || '0', 10);
+        const mm = parseInt(dmyMatch[5] || '0', 10);
+        const ss = parseInt(dmyMatch[6] || '0', 10);
+        if (m >= 0 && m < 12) {
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${pad(d)} ${months[m]} ${y} ${pad(hh)}:${pad(mm)}:${pad(ss)}`;
+        }
+    }
+
+    // 4. Coba parsing menggunakan native Date
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(parsed.getDate())} ${months[parsed.getMonth()]} ${parsed.getFullYear()} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
+    }
+
+    return str;
+}
+
+/**
  * Format nilai tanggal/waktu dari cell Excel
  */
 function formatCellDateTime(val) {
     if (val === undefined || val === null) return '';
     if (val instanceof Date) {
-        // Format: DD MMMM YYYY HH:mm:ss atau YYYY-MM-DD HH:mm:ss
+        if (isNaN(val.getTime())) return '';
         const pad = (n) => String(n).padStart(2, '0');
         const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        const d = val.getDate();
-        const m = months[val.getMonth()];
-        const y = val.getFullYear();
-        const hh = pad(val.getHours());
-        const mm = pad(val.getMinutes());
-        const ss = pad(val.getSeconds());
-        return `${pad(d)} ${m} ${y} ${hh}:${mm}:${ss}`;
+        return `${pad(val.getDate())} ${months[val.getMonth()]} ${val.getFullYear()} ${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}`;
     }
-    return String(val).trim();
+    const str = String(val).trim();
+    if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
+    return normalizeAuditDateTime(str) || str;
 }
 
 /**
@@ -238,9 +314,14 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
         const changes = [];
 
         // 1. Cek Tanggal Pelaksanaan dari Waktu Login (Login Time)
+        const normLogin = normalizeAuditDateTime(row.login);
+        const normSelesai = normalizeAuditDateTime(row.selesai);
+        const normDbLogin = normalizeAuditDateTime(existingCand.loginTime);
+        const normDbSelesai = normalizeAuditDateTime(existingCand.selesaiTime);
+
         let loginDateFormatted = null;
-        if (row.login && row.login !== '-' && row.login !== 'NULL') {
-            const loginDateObj = parseFlexibleDate(row.login);
+        if (normLogin) {
+            const loginDateObj = parseFlexibleDate(normLogin);
             if (loginDateObj) {
                 loginDateFormatted = formatDateDisplay(loginDateObj, 'short');
             }
@@ -258,7 +339,7 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
                 oldValue: existingCand.pelaksanaan || 'NULL',
                 newValue: loginDateFormatted,
                 rawNewValue: loginDateFormatted,
-                reason: `Tanggal pelaksanaan diambil dari waktu login: ${row.login}`
+                reason: `Tanggal pelaksanaan diambil dari waktu login: ${normLogin}`
             });
         }
 
@@ -340,9 +421,9 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
             }
         }
 
-        // 2. Cek Kehadiran berdasarkan Kolom Login
+        // 3. Cek Kehadiran berdasarkan Kolom Login
         // Jika kolom Login terisi tanggal/waktu yang valid dan status saat ini BELUM atau TIDAK_HADIR
-        const hasValidLogin = Boolean(row.login && row.login !== '-' && row.login !== 'NULL' && row.login !== 'null');
+        const hasValidLogin = Boolean(normLogin);
         const curKehadiran = String(existingCand.kehadiran || 'BELUM').toUpperCase();
 
         if (hasValidLogin && curKehadiran !== 'HADIR') {
@@ -353,32 +434,33 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
                 oldValue: curKehadiran === 'TIDAK_HADIR' ? 'TIDAK HADIR' : 'BELUM PRESENSI',
                 newValue: 'HADIR',
                 rawNewValue: 'HADIR',
-                reason: `Terdeteksi waktu login CAT: ${row.login}`
+                reason: `Terdeteksi waktu login CAT: ${normLogin}`
             });
             autoHadirCount++;
         }
 
-        // Simpan waktu login & selesai jika ada
-        if (row.login && existingCand.loginTime !== row.login) {
+        // Simpan waktu login jika ada timestamp baru yang valid dan berbeda dengan database
+        if (normLogin && (!normDbLogin || normLogin !== normDbLogin)) {
             changes.push({
                 field: 'loginTime',
                 label: 'Waktu Login',
                 category: 'waktu',
-                oldValue: existingCand.loginTime || '-',
-                newValue: row.login,
-                rawNewValue: row.login,
+                oldValue: normDbLogin || existingCand.loginTime || '-',
+                newValue: normLogin,
+                rawNewValue: normLogin,
                 reason: 'Data timestamp login sistem'
             });
         }
 
-        if (row.selesai && existingCand.selesaiTime !== row.selesai) {
+        // Simpan waktu selesai jika ada timestamp baru yang valid dan berbeda dengan database
+        if (normSelesai && (!normDbSelesai || normSelesai !== normDbSelesai)) {
             changes.push({
                 field: 'selesaiTime',
                 label: 'Waktu Selesai',
                 category: 'waktu',
-                oldValue: existingCand.selesaiTime || '-',
-                newValue: row.selesai,
-                rawNewValue: row.selesai,
+                oldValue: normDbSelesai || existingCand.selesaiTime || '-',
+                newValue: normSelesai,
+                rawNewValue: normSelesai,
                 reason: 'Data timestamp selesai ujian'
             });
         }

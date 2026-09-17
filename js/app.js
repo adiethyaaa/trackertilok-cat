@@ -7204,17 +7204,36 @@ function setupAuditUI() {
 
             // Bangun index lookup Map O(1) agar tidak O(N*M) linear scanning
             const candidateMap = new Map();
+            const cleanNipMap = new Map();
             currentCandidates.forEach(c => {
-                candidateMap.set(String(c.nip).trim(), c);
+                const raw = String(c.nip || c.id || '').trim();
+                const clean = raw.replace(/\D/g, '');
+                if (raw) candidateMap.set(raw, c);
+                if (clean) cleanNipMap.set(clean, c);
             });
 
             selectedDiffs.forEach(item => {
                 const nipClean = String(item.nip).trim();
-                const safeKey = nipClean.replace(/[.#$[\]/]/g, '_');
+                const cleanOnly = nipClean.replace(/\D/g, '');
+                const targetCand = item.existingCand || candidateMap.get(nipClean) || (cleanOnly ? cleanNipMap.get(cleanOnly) : null);
+
+                // Kunci asli di Firebase Realtime Database
+                const safeKey = (targetCand && (targetCand._key || targetCand.key))
+                    ? String(targetCand._key || targetCand.key)
+                    : (targetCand && targetCand.nip ? String(targetCand.nip).trim().replace(/[.#$[\]/]/g, '_') : nipClean.replace(/[.#$[\]/]/g, '_'));
+
                 const pathPrefix = `candidates/${currentExam.id}/${safeKey}/`;
 
                 // Update candidate lokal di memori secara instan
-                const candInMem = candidateMap.get(nipClean);
+                const candInMem = targetCand || candidateMap.get(nipClean) || (cleanOnly ? cleanNipMap.get(cleanOnly) : null);
+
+                // Pastikan identitas minimal tidak pernah hilang dari node Firebase
+                if (candInMem && candInMem.nama) {
+                    updates[pathPrefix + 'nama'] = candInMem.nama;
+                }
+                if (candInMem && candInMem.nip) {
+                    updates[pathPrefix + 'nip'] = candInMem.nip;
+                }
 
                 item.changes.forEach(ch => {
                     const rawVal = ch.rawNewValue !== undefined ? ch.rawNewValue : ch.newValue;

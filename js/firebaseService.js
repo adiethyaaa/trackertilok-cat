@@ -295,6 +295,7 @@ export function listenCandidatesCloud(examId, callback) {
                 }
 
                 candidatesList.push({
+                    _key: key,
                     id: String(item.nip || key).trim(),
                     ...item,
                     nip: String(item.nip || key).trim(),
@@ -353,6 +354,7 @@ export async function getCandidatesByExamCloud(examId) {
         }
 
         candidatesList.push({
+            _key: key,
             id: String(item.nip || key).trim(),
             ...item,
             nip: String(item.nip || key).trim(),
@@ -395,7 +397,7 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
         const key = rawNip.replace(/[.#$[\]/]/g, '_');
         const isSesi00 = c.sesi === '00' || c.sesi === 0 || c.sesi === '0' || String(c.sesi).trim() === '00' || c.status === 'Belum Terjadwal' || !c.pelaksanaan || c.pelaksanaan === 'NULL';
         const hasValidSesi = !isSesi00 && c.sesi !== undefined && c.sesi !== null && c.sesi !== '' && c.sesi !== 'NULL' && !isNaN(Number(c.sesi)) && Number(c.sesi) > 0;
-        updates['candidates/' + examId + '/' + key] = {
+        const candidatePayload = {
             examId: examId,
             no: c.no || (validCount + 1),
             nip: rawNip,
@@ -412,6 +414,12 @@ export async function bulkAddCandidatesToCloud(examId, candidateList) {
             jenisTes: String(c.jenisTes || '').trim(),
             updatedAt: new Date().toISOString()
         };
+
+        if (c.loginTime) candidatePayload.loginTime = c.loginTime;
+        if (c.selesaiTime) candidatePayload.selesaiTime = c.selesaiTime;
+        if (c.attendanceTimestamp) candidatePayload.attendanceTimestamp = c.attendanceTimestamp;
+
+        updates['candidates/' + examId + '/' + key] = candidatePayload;
         validCount++;
     });
 
@@ -458,6 +466,10 @@ export async function addOrUpdateCandidateCloud(examId, candidate) {
         jenisTes: String(candidate.jenisTes || '').trim(),
         updatedAt: new Date().toISOString()
     };
+
+    if (candidate.loginTime) data.loginTime = candidate.loginTime;
+    if (candidate.selesaiTime) data.selesaiTime = candidate.selesaiTime;
+    if (candidate.attendanceTimestamp) data.attendanceTimestamp = candidate.attendanceTimestamp;
 
     await set(targetRef, data);
     return { id: key, ...data };
