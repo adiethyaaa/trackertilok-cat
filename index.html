@@ -768,10 +768,30 @@
 
         <!-- ==================== TAB 3: CREATE UJIAN ==================== -->
         <section id="pane-create-ujian" class="tab-pane hidden space-y-6 fade-in">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Form Buat Ujian (Disederhanakan: tanpa judul manual dan tanpa kolom wilker) -->
-                <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    <div class="flex items-center space-x-3 mb-6 pb-4 border-b border-slate-100">
+            <!-- Header Toolbar Manajemen Jadwal Ujian -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 bg-blue-100 text-bkn-800 rounded-lg shadow-2xs flex-shrink-0">
+                        <i data-lucide="calendar-cog" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base sm:text-lg font-bold text-slate-900">Manajemen Jadwal Ujian Instansi</h2>
+                        <p class="text-xs text-slate-500">Kelola jadwal ujian aktif atau klik tombol di samping untuk membuat jadwal ujian baru.</p>
+                    </div>
+                </div>
+                <button type="button" 
+                        id="btnToggleCreateExamForm" 
+                        onclick="toggleCreateExamForm()" 
+                        class="inline-flex items-center space-x-1.5 px-4 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer flex-shrink-0">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span id="labelToggleCreateExamForm">Buka Form Buat Jadwal</span>
+                </button>
+            </div>
+
+            <!-- Form Buat Jadwal Ujian (Default: Tidak Terlihat / Hidden) -->
+            <div id="containerFormCreateExam" class="hidden bg-white rounded-xl shadow-sm border border-blue-200 p-6 animate-in fade-in duration-200">
+                <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                    <div class="flex items-center space-x-3">
                         <div class="p-2.5 bg-blue-100 text-bkn-800 rounded-lg">
                             <i data-lucide="calendar-plus" class="w-6 h-6"></i>
                         </div>
@@ -780,70 +800,80 @@
                             <p class="text-xs text-slate-500">Pilih instansi untuk membuat jadwal ujian baru</p>
                         </div>
                     </div>
-
-                    <form id="formCreateExam" class="space-y-4">
-                        <!-- Dropdown Instansi -->
-                        <div>
-                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Instansi / Kabupaten / Kota *</label>
-                            <select id="selectExamInstansi" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                                <option value="">-- Memuat daftar instansi... --</option>
-                            </select>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <!-- Tanggal Mulai -->
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Mulai Pelaksanaan *</label>
-                                <input type="date" id="inputExamStartDate" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                            </div>
-
-                            <!-- Tanggal Selesai -->
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Selesai Pelaksanaan</label>
-                                <input type="date" id="inputExamEndDate" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <!-- Titik Lokasi (Tilok) / Ruangan -->
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Titik Lokasi (Tilok) / Ruangan *</label>
-                                <input type="text" id="inputExamLocation" required placeholder="Contoh: Lab CAT BKD / Ruang Ujian" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                            </div>
-
-                            <!-- Kapasitas PC / Kuota Per Sesi -->
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Kapasitas PC / Kuota Per Sesi</label>
-                                <input type="number" id="inputExamQuota" min="1" value="50" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
-                            </div>
-                        </div>
-
-                        <!-- Catatan Tambahan -->
-                        <div>
-                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Catatan Tambahan</label>
-                            <textarea id="inputExamNotes" rows="2" placeholder="Catatan teknis, nomor surat, atau keterangan ruangan..." class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none"></textarea>
-                        </div>
-
-                        <div class="pt-4 flex items-center justify-end space-x-3">
-                            <button type="reset" class="px-4 py-2.5 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition">Reset</button>
-                            <button type="submit" class="px-5 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2">
-                                <i data-lucide="check-circle" class="w-4 h-4"></i>
-                                <span>Simpan Ujian</span>
-                            </button>
-                        </div>
-                    </form>
+                    <button type="button" 
+                            onclick="toggleCreateExamForm(false)" 
+                            class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer" 
+                            title="Tutup Form">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
                 </div>
 
-                <!-- Daftar Ujian Yang Sudah Dibuat -->
-                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
-                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                        <h3 class="text-base font-bold text-slate-900">Daftar Instansi Terjadwal</h3>
-                        <span id="examCountBadge" class="text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">0 Instansi</span>
+                <form id="formCreateExam" class="space-y-4">
+                    <!-- Dropdown Instansi -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Instansi / Kabupaten / Kota *</label>
+                        <select id="selectExamInstansi" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                            <option value="">-- Memuat daftar instansi... --</option>
+                        </select>
                     </div>
 
-                    <div id="listExamContainer" class="flex-1 overflow-y-auto space-y-3 max-h-[520px] pr-1">
-                        <p class="text-sm text-slate-500 py-6 text-center">Belum ada ujian dibuat.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Tanggal Mulai -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Mulai Pelaksanaan *</label>
+                            <input type="date" id="inputExamStartDate" required class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        </div>
+
+                        <!-- Tanggal Selesai -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Selesai Pelaksanaan</label>
+                            <input type="date" id="inputExamEndDate" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        </div>
                     </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Titik Lokasi (Tilok) / Ruangan -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Titik Lokasi (Tilok) / Ruangan *</label>
+                            <input type="text" id="inputExamLocation" required placeholder="Contoh: Lab CAT BKD / Ruang Ujian" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        </div>
+
+                        <!-- Kapasitas PC / Kuota Per Sesi -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Kapasitas PC / Kuota Per Sesi</label>
+                            <input type="number" id="inputExamQuota" min="1" value="50" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Catatan Tambahan -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Catatan Tambahan</label>
+                        <textarea id="inputExamNotes" rows="2" placeholder="Catatan teknis, nomor surat, atau keterangan ruangan..." class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-bkn-600 focus:outline-none"></textarea>
+                    </div>
+
+                    <div class="pt-4 flex items-center justify-end space-x-3">
+                        <button type="button" onclick="toggleCreateExamForm(false)" class="px-4 py-2.5 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition cursor-pointer">Batal</button>
+                        <button type="reset" class="px-4 py-2.5 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition cursor-pointer">Reset Form</button>
+                        <button type="submit" class="px-5 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2 cursor-pointer">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                            <span>Simpan Ujian</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Daftar Ujian Yang Sudah Dibuat -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="building-2" class="w-5 h-5 text-bkn-700"></i>
+                        <h3 class="text-base font-bold text-slate-900">Daftar Instansi Terjadwal</h3>
+                    </div>
+                    <span id="examCountBadge" class="text-xs bg-blue-50 border border-blue-200 text-bkn-800 font-bold px-2.5 py-0.5 rounded-full">0 Instansi</span>
+                </div>
+
+                <div id="listExamContainer" class="flex-1 overflow-y-auto space-y-3 max-h-[560px] pr-1">
+                    <p class="text-sm text-slate-500 py-6 text-center">Belum ada ujian dibuat.</p>
                 </div>
             </div>
         </section>
@@ -1121,7 +1151,7 @@
                         </div>
                     </button>
 
-                    <!-- Tombol Lebar 3: Reset Semua Ketidakhadiran -->
+                    <!-- Tombol Lebar 3: Kelola Status Ketidakhadiran (Reset & Tandai Tidak Hadir) -->
                     <button type="button" 
                             onclick="openModalConfirmResetKetidakhadiran()" 
                             class="p-4 sm:p-5 rounded-2xl border-2 border-rose-300 bg-rose-50/70 hover:bg-rose-100/90 hover:border-rose-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
@@ -1130,14 +1160,14 @@
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2">
-                                <h4 class="text-sm sm:text-base font-bold text-rose-950">Reset Semua Ketidakhadiran</h4>
+                                <h4 class="text-sm sm:text-base font-bold text-rose-950">Kelola Status Ketidakhadiran</h4>
                                 <span class="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Presensi</span>
                             </div>
                             <p class="text-xs text-rose-900/80 mt-1.5 leading-relaxed">
-                                Mengembalikan seluruh peserta berstatus <strong>TIDAK HADIR</strong> menjadi <strong>Belum Presensi</strong>. Peserta <strong>HADIR terlindungi 100% (tidak direset)</strong>.
+                                Kembalikan status peserta <strong>TIDAK HADIR &rarr; Belum</strong>, atau tandai massal semua peserta yang belum presensi menjadi <strong>TIDAK HADIR</strong>. Peserta <strong>HADIR terlindungi 100%</strong>.
                             </p>
                             <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 group-hover:text-rose-950">
-                                <span>Reset Status Tidak Hadir</span>
+                                <span>Buka Kelola Ketidakhadiran</span>
                                 <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
                             </div>
                         </div>
@@ -2258,6 +2288,8 @@
     <!-- ========================================================================= -->
     <!-- MODAL KONFIRMASI RESET KETIDAKHADIRAN                                    -->
     <!-- ========================================================================= -->
+    <!-- MODAL PENGELOLAAN KETIDAKHADIRAN (RESET & TANDAI TIDAK HADIR)             -->
+    <!-- ========================================================================= -->
     <div id="modalConfirmResetKetidakhadiran" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5 sm:p-6 space-y-4 border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
             <!-- Header Modal -->
@@ -2267,7 +2299,7 @@
                         <i data-lucide="user-x" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-base font-bold text-slate-900">Konfirmasi Reset Ketidakhadiran</h3>
+                        <h3 class="text-base font-bold text-slate-900">Kelola Status Ketidakhadiran Peserta</h3>
                         <p class="text-xs text-slate-500">
                             Instansi: <span id="resetAbsenInstansiTitle" class="font-semibold text-rose-700">-</span>
                         </p>
@@ -2282,16 +2314,12 @@
 
             <!-- Body Modal -->
             <div class="space-y-3.5">
-                <p class="text-xs text-slate-600 leading-relaxed">
-                    Fitur ini akan mengembalikan status peserta yang ditandai <strong>TIDAK HADIR</strong> kembali menjadi <strong>Belum Presensi</strong>. Riwayat waktu ketidakhadiran akan dibersihkan.
-                </p>
-
-                <!-- Ringkasan Statistik Status Presensi -->
+                <!-- Ringkasan Statistik Status Presensi Saat Ini -->
                 <div class="grid grid-cols-3 gap-2.5">
                     <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center">
                         <span class="text-[10px] font-bold text-rose-800 uppercase block">Tidak Hadir</span>
                         <span id="resetAbsenStatTidakHadir" class="text-base sm:text-lg font-extrabold text-rose-700 block">0</span>
-                        <span class="text-[9.5px] text-rose-600 font-semibold bg-rose-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">&rarr; Belum</span>
+                        <span class="text-[9.5px] text-rose-600 font-semibold bg-rose-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Tercatat</span>
                     </div>
                     <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center">
                         <span class="text-[10px] font-bold text-emerald-800 uppercase block">Hadir</span>
@@ -2301,40 +2329,60 @@
                     <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center">
                         <span class="text-[10px] font-bold text-slate-700 uppercase block">Belum Presensi</span>
                         <span id="resetAbsenStatBelum" class="text-base sm:text-lg font-extrabold text-slate-700 block">0</span>
-                        <span class="text-[9.5px] text-slate-500 font-semibold bg-slate-200/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Tetap Sama</span>
+                        <span class="text-[9.5px] text-slate-500 font-semibold bg-slate-200/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Sisa Belum</span>
                     </div>
                 </div>
 
-                <!-- Notice Callout -->
-                <div class="bg-rose-50/70 border border-rose-200/80 rounded-xl p-3 text-[11px] space-y-1.5 text-rose-950">
-                    <div class="font-bold flex items-center gap-1.5 text-rose-950">
-                        <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-600 flex-shrink-0"></i>
-                        <span>Ketentuan Keamanan Reset:</span>
+                <!-- Pilihan Tindakan Presensi Massal -->
+                <div class="space-y-2.5">
+                    <!-- Opsi A: Tandai Semua yang Belum Hadir Menjadi Tidak Hadir -->
+                    <div class="p-3 rounded-xl border border-rose-200 bg-rose-50/50 space-y-1">
+                        <div class="flex items-center gap-1.5 font-bold text-xs text-rose-950">
+                            <i data-lucide="user-minus" class="w-4 h-4 text-rose-600"></i>
+                            <span>Aksi 1: Tandai Semua Sisa Belum Presensi &rarr; Tidak Hadir</span>
+                        </div>
+                        <p class="text-[11px] text-rose-900/80 leading-relaxed">
+                            Mengubah seluruh peserta yang masih <strong>Belum Presensi</strong> menjadi <strong>TIDAK HADIR</strong> sekaligus. Cocok digunakan pasca penutupan sesi ujian. Peserta <strong>HADIR terlindungi 100%</strong>.
+                        </p>
                     </div>
-                    <ul class="list-disc list-inside space-y-0.5 text-rose-900/90 pl-1 text-[10.5px]">
-                        <li>Secara default, seluruh peserta berstatus <strong>HADIR dilindungi 100%</strong> dan tidak diubah.</li>
-                        <li>Hanya peserta berstatus <strong>TIDAK HADIR</strong> yang akan dikembalikan menjadi <strong>Belum Presensi</strong>.</li>
-                    </ul>
-                    <label class="flex items-center gap-2 mt-2 pt-2 border-t border-rose-200/70 text-xs text-slate-800 cursor-pointer select-none">
-                        <input type="checkbox" id="checkIncludeHadirInReset" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer">
-                        <span class="text-[11px]">Sertakan juga peserta <strong class="text-rose-700">HADIR</strong> (Reset total seluruh presensi)</span>
-                    </label>
+
+                    <!-- Opsi B: Reset Status Tidak Hadir Kembali ke Belum Presensi -->
+                    <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1">
+                        <div class="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                            <i data-lucide="rotate-ccw" class="w-4 h-4 text-slate-600"></i>
+                            <span>Aksi 2: Reset Status Tidak Hadir &rarr; Belum Presensi</span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            Mengembalikan status seluruh peserta <strong>TIDAK HADIR</strong> kembali menjadi <strong>Belum Presensi</strong>. Peserta <strong>HADIR terlindungi 100%</strong>.
+                        </p>
+                        <label class="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-slate-200 text-[10.5px] text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="checkIncludeHadirInReset" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-3.5 h-3.5 cursor-pointer">
+                            <span>Sertakan juga peserta <strong class="text-rose-700">HADIR</strong> (Khusus saat ingin Reset Total seluruh data presensi)</span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <!-- Footer Modal -->
-            <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+            <!-- Footer Modal (Pilihan 2 Tombol Tindakan) -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button type="button" 
                         onclick="closeModalConfirmResetKetidakhadiran()" 
-                        class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer">
+                        class="px-3.5 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer order-last sm:order-first">
                     Batal
                 </button>
                 <button type="button" 
                         id="btnExecuteResetKetidakhadiran" 
                         onclick="executeResetKetidakhadiran()" 
-                        class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer">
+                        class="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer">
                     <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-                    <span>Ya, Reset Ketidakhadiran</span>
+                    <span>Reset ke Belum Presensi</span>
+                </button>
+                <button type="button" 
+                        id="btnExecuteMarkAllAbsent" 
+                        onclick="executeMarkAllAbsent()" 
+                        class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer">
+                    <i data-lucide="user-x" class="w-3.5 h-3.5"></i>
+                    <span>Tandai Semua Tidak Hadir</span>
                 </button>
             </div>
         </div>

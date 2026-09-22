@@ -1138,6 +1138,39 @@ function renderDashboardStats() {
 }
 
 /**
+ * Toggle Buka/Tutup Form Buat Jadwal Ujian
+ * @param {boolean} [forceState]
+ */
+window.toggleCreateExamForm = (forceState) => {
+    const container = document.getElementById('containerFormCreateExam');
+    const btn = document.getElementById('btnToggleCreateExamForm');
+    if (!container) return;
+
+    const isCurrentlyHidden = container.classList.contains('hidden');
+    const shouldShow = (typeof forceState === 'boolean') ? forceState : isCurrentlyHidden;
+
+    if (shouldShow) {
+        container.classList.remove('hidden');
+        if (btn) {
+            btn.className = 'inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer flex-shrink-0';
+            btn.innerHTML = `<i data-lucide="x-circle" class="w-4 h-4"></i><span id="labelToggleCreateExamForm">Tutup Form Buat Jadwal</span>`;
+        }
+        const selectInstansi = document.getElementById('selectExamInstansi');
+        if (selectInstansi) {
+            selectInstansi.focus();
+        }
+    } else {
+        container.classList.add('hidden');
+        if (btn) {
+            btn.className = 'inline-flex items-center space-x-1.5 px-4 py-2 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer flex-shrink-0';
+            btn.innerHTML = `<i data-lucide="plus-circle" class="w-4 h-4"></i><span id="labelToggleCreateExamForm">Buka Form Buat Jadwal</span>`;
+        }
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
  * Setup Form Create Ujian Baru
  * (Disesuaikan: Tanpa input Nama/Judul Kegiatan, hanya Instansi, Tanggal, Tilok, Kuota, Catatan)
  */
@@ -1185,6 +1218,7 @@ function setupCreateExamForm() {
 
                 showToast(`Ujian untuk "${instansi}" berhasil dibuat!`, "success");
                 form.reset();
+                window.toggleCreateExamForm(false);
 
                 // Beralih ke tab upload excel
                 switchTab('upload-excel');
@@ -2856,7 +2890,75 @@ window.executeResetKetidakhadiran = async () => {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i><span>Ya, Reset Ketidakhadiran</span>`;
+            btn.innerHTML = `<i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i><span>Reset ke Belum Presensi</span>`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
+
+/**
+ * Eksekusi Tandai Semua Belum Presensi Menjadi Tidak Hadir:
+ * Mengubah seluruh peserta yang masih berstatus Belum Presensi menjadi 'TIDAK_HADIR'.
+ * Peserta HADIR dilindungi 100% dan tetap berada pada status HADIR.
+ */
+window.executeMarkAllAbsent = async () => {
+    if (!currentExam || !currentCandidates || currentCandidates.length === 0) {
+        showToast("Data ujian atau peserta tidak valid!", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnExecuteMarkAllAbsent');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Memproses...</span>`;
+        if (window.lucide) window.lucide.createIcons();
+    }
+
+    try {
+        let absentCount = 0;
+        const nowIso = new Date().toISOString();
+
+        currentCandidates.forEach(c => {
+            // Aturan Keras: HANYA ubah peserta yang BELUM presensi!
+            // Peserta HADIR dilarang keras diubah (terlindungi 100%).
+            // Peserta yang sudah TIDAK_HADIR tidak perlu diubah lagi.
+            if (c.kehadiran !== 'HADIR' && c.kehadiran !== 'TIDAK_HADIR') {
+                c.kehadiran = 'TIDAK_HADIR';
+                c.attendanceTimestamp = nowIso;
+                c.updatedAt = nowIso;
+                absentCount++;
+            }
+        });
+
+        if (absentCount === 0) {
+            showToast("Semua peserta sudah memiliki status kehadiran (tidak ada sisa peserta yang belum presensi).", "info");
+            window.closeModalConfirmResetKetidakhadiran();
+            return;
+        }
+
+        // Simpan ke IndexedDB lokal dan Cloud Firebase Realtime Database
+        await db.bulkAddCandidates(currentExam.id, currentCandidates);
+        if (isCloudActive()) {
+            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
+        }
+
+        await setActiveExam(currentExam.id);
+        window.closeModalConfirmResetKetidakhadiran();
+
+        // Pindah otomatis ke tab Daftar Peserta agar user langsung melihat hasilnya
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('daftar-peserta');
+        }
+
+        showToast(`Sukses! ${absentCount} peserta yang belum presensi berhasil ditandai sebagai Tidak Hadir (Peserta Hadir terlindungi 100%).`, "success");
+
+    } catch (err) {
+        console.error("Gagal menandai semua tidak hadir:", err);
+        showToast("Gagal menandai tidak hadir: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="user-x" class="w-3.5 h-3.5"></i><span>Tandai Semua Tidak Hadir</span>`;
             if (window.lucide) window.lucide.createIcons();
         }
     }
@@ -3224,23 +3326,39 @@ function renderCumulativeSessionCards() {
             let subTextClass = '';
 
             if (isSingleActive) {
-                // Tampilan Single Active (Solid Blue Fill, Popped Scale, White Text - Seperti "Thu 24" di gambar)
-                cardClasses = 'session-card-single-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-gradient-to-b from-blue-600 to-blue-700 text-white border-2 border-blue-700 shadow-md ring-2 ring-blue-300 scale-105 z-10';
-                topTextClass = 'text-blue-100 font-bold';
-                numTextClass = 'text-white font-black';
-                subTextClass = 'text-blue-200 font-semibold';
+                if (isFri) {
+                    // Tampilan Single Active Khusus Hari Jumat: Hijau (Emerald)
+                    cardClasses = 'session-card-single-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-emerald-600 text-white border-2 border-emerald-700 shadow-md ring-2 ring-emerald-300 scale-105 z-10';
+                    topTextClass = 'text-emerald-100 font-bold';
+                    numTextClass = 'text-white font-black';
+                    subTextClass = 'text-emerald-200 font-semibold';
+                } else {
+                    // Tampilan Single Active Normal (Solid Blue Fill, Popped Scale, White Text)
+                    cardClasses = 'session-card-single-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-gradient-to-b from-blue-600 to-blue-700 text-white border-2 border-blue-700 shadow-md ring-2 ring-blue-300 scale-105 z-10';
+                    topTextClass = 'text-blue-100 font-bold';
+                    numTextClass = 'text-white font-black';
+                    subTextClass = 'text-blue-200 font-semibold';
+                }
             } else if (isMultiActive) {
-                // Tampilan Multi Active (Luar jam sesi: Sesi hari ini serempak aktif dengan warna seragam)
-                cardClasses = 'session-card-multi-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-sky-100 text-sky-950 border-2 border-sky-500 shadow-2xs font-bold scale-[1.02]';
-                topTextClass = 'text-sky-800 font-extrabold';
-                numTextClass = 'text-sky-950 font-black';
-                subTextClass = 'text-sky-700 font-bold';
+                if (isFri) {
+                    // Tampilan Multi Active Khusus Hari Jumat: Nuansa Hijau Lembut
+                    cardClasses = 'session-card-multi-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-emerald-100 text-emerald-950 border-2 border-emerald-500 shadow-2xs font-bold scale-[1.02]';
+                    topTextClass = 'text-emerald-800 font-extrabold';
+                    numTextClass = 'text-emerald-950 font-black';
+                    subTextClass = 'text-emerald-700 font-bold';
+                } else {
+                    // Tampilan Multi Active Normal (Luar jam sesi: Sesi hari ini serempak aktif dengan warna seragam)
+                    cardClasses = 'session-card-multi-active flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none bg-sky-100 text-sky-950 border-2 border-sky-500 shadow-2xs font-bold scale-[1.02]';
+                    topTextClass = 'text-sky-800 font-extrabold';
+                    numTextClass = 'text-sky-950 font-black';
+                    subTextClass = 'text-sky-700 font-bold';
+                }
             } else if (isFri) {
-                // Tampilan Hari Jumat (Border & Teks Merah - Seperti "Fri 25" di gambar)
-                cardClasses = 'flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none border-2 border-rose-400 bg-rose-50/70 hover:bg-rose-100 text-rose-800 hover:border-rose-500 shadow-2xs';
-                topTextClass = 'text-rose-700 font-bold';
-                numTextClass = 'text-rose-800 font-black';
-                subTextClass = 'text-rose-600 font-semibold';
+                // Tampilan Hari Jumat (Bentuk & Line Card Sama Persis dengan Card Normal, Font Dibedakan Warna Rose)
+                cardClasses = 'flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none border border-blue-200/90 bg-white/90 hover:bg-blue-50 hover:border-blue-400 shadow-2xs';
+                topTextClass = 'text-rose-600 font-bold';
+                numTextClass = 'text-rose-600 font-black';
+                subTextClass = 'text-rose-500 font-semibold';
             } else {
                 // Tampilan Normal (Border Halus, Background Putih/Transparan - Seperti "Mon 21" di gambar)
                 cardClasses = 'flex-shrink-0 w-[54px] sm:w-[60px] h-[54px] sm:h-[58px] rounded-xl flex flex-col items-center justify-between py-1 px-1 transition-all duration-200 cursor-pointer select-none border border-blue-200/90 bg-white/90 hover:bg-blue-50 hover:border-blue-400 text-slate-800 shadow-2xs';
