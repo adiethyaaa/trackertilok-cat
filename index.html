@@ -91,10 +91,10 @@
 
     <!-- Floating Bubble Ringkasan Presensi Filter (Menempel Kiri Layar, Fixed Viewport, Glassmorphism, Collapsible Smooth) -->
     <div id="floatingAttendanceBubble" class="fixed left-0 top-28 sm:top-32 z-50 select-none no-print">
-        <!-- Tampilan Mini / Collapsed Handle (Menempel persis di sisi kiri layar) -->
+        <!-- Tampilan Mini / Collapsed Handle (Menempel persis di sisi kiri layar - Default Tampil Ramping) -->
         <div id="bubbleCollapsedView" 
              onclick="toggleFloatingBubbleCollapse(false)" 
-             class="cursor-pointer group transition-all duration-300 ease-in-out origin-left hidden opacity-0 -translate-x-full" 
+             class="cursor-pointer group transition-all duration-300 ease-in-out origin-left opacity-100 translate-x-0" 
              title="Klik untuk membuka status presensi">
             <div class="backdrop-blur-md bg-bkn-900/85 hover:bg-bkn-900 text-white py-2.5 px-1.5 rounded-r-xl shadow-xl border border-l-0 border-white/25 flex flex-col items-center gap-1.5 transition-all duration-200 group-hover:pl-2">
                 <i data-lucide="pie-chart" class="w-3.5 h-3.5 text-amber-300 group-hover:scale-110 transition-transform"></i>
@@ -103,9 +103,9 @@
             </div>
         </div>
 
-        <!-- Tampilan Card Lengkap / Expanded View (Ultra-Slim Vertikal & Glassmorphism) -->
+        <!-- Tampilan Card Lengkap / Expanded View (Ultra-Slim Vertikal & Glassmorphism - Default Hide) -->
         <div id="bubbleExpandedView" 
-             class="w-[82px] backdrop-blur-md bg-white/85 border border-white/80 border-l-0 rounded-r-2xl shadow-2xl shadow-slate-900/15 p-1.5 space-y-1.5 transition-all duration-300 ease-in-out origin-left opacity-100 translate-x-0 select-none">
+             class="w-[82px] backdrop-blur-md bg-white/85 border border-white/80 border-l-0 rounded-r-2xl shadow-2xl shadow-slate-900/15 p-1.5 space-y-1.5 transition-all duration-300 ease-in-out origin-left opacity-0 -translate-x-full pointer-events-none hidden select-none">
             <!-- Header Bubble -->
             <div class="flex items-center justify-between pb-1 border-b border-slate-200/70 px-0.5">
                 <span class="text-[8px] font-extrabold text-slate-700 uppercase tracking-tight">Status</span>
@@ -232,7 +232,7 @@
                 <!-- 2. Dashboard (Akses Langsung) -->
                 <button onclick="requestSwitchTab('dashboard')" id="nav-dashboard" class="nav-tab flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-blue-200 hover:text-white transition-all whitespace-nowrap">
                     <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
-                    <span>Dashboard</span>
+                    <span>Dashboard Rekap</span>
                 </button>
 
                 <!-- 3. Create Ujian (Perlu PIN) -->
@@ -272,32 +272,56 @@
         <!-- ==================== TAB 1 (DEFAULT ACTIVE): DAFTAR PESERTA & JADWAL ==================== -->
         <section id="pane-daftar-peserta" class="tab-pane space-y-3 fade-in relative">
 
-            <!-- Filter Bar & Actions (Sticky di Atas Layar Saat Scroll ke Bawah - Ukuran Dioptimalkan Ringkas & Hemat Tempat) -->
-            <div class="sticky top-[108px] z-30 bg-white/95 backdrop-blur-md shadow-xs border border-slate-200/90 rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 space-y-1.5 transition-all" style="top: 108px;">
-                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-1.5 sm:gap-2">
-                    <!-- Session Filters (Ukuran font dan tombol lebih kecil & hemat tempat) -->
-                    <div class="flex flex-wrap items-center gap-1 text-[10.5px]">
-                        <span class="text-[10px] font-bold text-slate-500 uppercase mr-0.5 tracking-wide flex-shrink-0">Filter Sesi:</span>
-                        <button onclick="setCandidateFilterSession('ALL')" id="btnFilterSesiAll" class="filter-sesi-btn px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-bkn-800 text-white shadow-2xs transition">
-                            Sesi (<span id="countFilterAll">0</span>)
-                        </button>
-                        <button onclick="setCandidateFilterSession(1)" id="btnFilterSesi1" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 1 (08-11) [<span id="countFilter1">0</span>]
-                        </button>
-                        <button onclick="setCandidateFilterSession(2)" id="btnFilterSesi2" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 2 (11/13) [<span id="countFilter2">0</span>]
-                        </button>
-                        <button onclick="setCandidateFilterSession(3)" id="btnFilterSesi3" class="filter-sesi-btn px-1.5 sm:px-2 py-0.5 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
-                            Sesi 3 (14-17) [<span id="countFilter3">0</span>]
-                        </button>
+            <!-- Filter Bar & Actions (Sticky di Atas Layar Saat Scroll ke Bawah - Default Hide) -->
+            <div id="mainCandidateFilterBar" class="sticky top-[108px] z-30 bg-white/95 backdrop-blur-md shadow-xs border border-slate-200/90 rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 transition-all hidden" style="top: 108px;">
+                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2">
+                    <!-- Search & Filters (Pencarian Ramping, Filter Kelompok Jabatan, Tanggal, & Sesi) -->
+                    <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+                        <!-- Search Box (Ukuran ramping / diperkecil) -->
+                        <div class="w-32 sm:w-40 relative flex-shrink-0">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+                            <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-8 pr-2.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white text-slate-800 focus:outline-none focus:border-bkn-600 shadow-2xs transition-colors">
+                        </div>
+
+                        <!-- Filter Kelompok Jabatan -->
+                        <div class="w-36 sm:w-44 flex-shrink-0">
+                            <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs font-semibold text-slate-800 truncate transition-colors">
+                                <option value="ALL">-- Kel. Jabatan (0) --</option>
+                            </select>
+                        </div>
+
+                        <!-- Filter Tanggal Pelaksanaan -->
+                        <div class="w-36 sm:w-44 flex-shrink-0">
+                            <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs truncate transition-colors">
+                                <option value="ALL">-- Tanggal --</option>
+                            </select>
+                        </div>
+
+                        <!-- Filter Sesi (Typing + Dropdown) - Dibuat Ramping & Hemat Ruang -->
+                        <div class="flex items-center gap-1.5 min-w-[170px] sm:min-w-[210px] flex-1 max-w-[280px]">
+                            <!-- Input ketik untuk panggil angka sesi -->
+                            <div class="w-14 sm:w-16 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
+                                <input type="text" 
+                                        id="inputFilterSesiTyping" 
+                                        oninput="onFilterSesiTypeInput(this.value)" 
+                                        placeholder="Sesi #" 
+                                        maxlength="4" 
+                                        class="w-full px-1.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white font-bold text-center text-bkn-900 focus:outline-none focus:border-bkn-600 placeholder:font-normal placeholder:text-slate-400 shadow-2xs transition-colors">
+                            </div>
+
+                            <!-- Dropdown pemilihan sesi kumulatif (menyesuaikan tanggal aktif) -->
+                            <div class="flex-1 min-w-0">
+                                <select id="selectFilterSesiDropdown" 
+                                        onchange="onFilterSesiDropdownChange(this.value)" 
+                                        class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 truncate shadow-2xs transition-colors">
+                                    <option value="ALL">-- Sesi --</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Action Buttons (Ramping, Pendek & Hemat Tempat) -->
                     <div class="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-                        <button onclick="openModalAddCandidate()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 text-bkn-700 hover:bg-blue-100 font-semibold text-[11px] rounded-md transition border border-blue-200 flex-shrink-0 whitespace-nowrap shadow-2xs h-7">
-                            <i data-lucide="user-plus" class="w-3 h-3"></i>
-                            <span>Tambah Manual</span>
-                        </button>
                         <button onclick="printOfficialSchedule()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-[11px] rounded-md shadow-2xs transition flex-shrink-0 whitespace-nowrap h-7">
                             <i data-lucide="printer" class="w-3 h-3"></i>
                             <span>Cetak Presensi</span>
@@ -305,66 +329,6 @@
                         <button onclick="exportCurrentCandidates()" class="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] rounded-md shadow-2xs transition flex-shrink-0 whitespace-nowrap h-7">
                             <i data-lucide="file-spreadsheet" class="w-3 h-3"></i>
                             <span>Export Excel</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Search & Filters (Pencarian Ramping, Filter Kelompok Jabatan, Tanggal, Sesi, & Tombol Reset Sebaris & Compact) -->
-                <div class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-100">
-                    <!-- Search Box (Ukuran ramping / diperkecil) -->
-                    <div class="w-32 sm:w-40 relative flex-shrink-0">
-                        <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
-                        <input type="text" id="inputSearchCandidate" oninput="debounceSearchCandidate()" placeholder="Cari NIP / Nama..." class="w-full pl-8 pr-2.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white text-slate-800 focus:outline-none focus:border-bkn-600 shadow-2xs transition-colors">
-                    </div>
-
-                    <!-- Filter Kelompok Jabatan -->
-                    <div class="w-36 sm:w-48 flex-shrink-0">
-                        <select id="selectFilterKelJabatan" onchange="onFilterKelJabatanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs font-semibold text-slate-800 truncate transition-colors">
-                            <option value="ALL">-- Kel. Jabatan (0) --</option>
-                        </select>
-                    </div>
-
-                    <!-- Filter Tanggal Pelaksanaan -->
-                    <div class="w-36 sm:w-44 flex-shrink-0">
-                        <select id="selectFilterPelaksanaan" onchange="onFilterPelaksanaanChange(this.value)" class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 shadow-2xs truncate transition-colors">
-                            <option value="ALL">-- Tanggal --</option>
-                        </select>
-                    </div>
-
-                    <!-- Filter Sesi (Typing + Dropdown) - Dibuat Ramping & Hemat Ruang -->
-                    <div class="flex-1 min-w-[200px] sm:min-w-[260px] flex items-center gap-1.5">
-                        <!-- Input ketik untuk panggil angka sesi -->
-                        <div class="w-14 sm:w-16 flex-shrink-0" title="Ketik angka sesi (misal: 7, 07, atau 00 untuk sesi NULL)">
-                            <input type="text" 
-                                   id="inputFilterSesiTyping" 
-                                   oninput="onFilterSesiTypeInput(this.value)" 
-                                   placeholder="Sesi #" 
-                                   maxlength="4" 
-                                   class="w-full px-1.5 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white font-bold text-center text-bkn-900 focus:outline-none focus:border-bkn-600 placeholder:font-normal placeholder:text-slate-400 shadow-2xs transition-colors">
-                        </div>
-
-                        <!-- Dropdown pemilihan sesi kumulatif (menyesuaikan tanggal aktif) -->
-                        <div class="flex-1 min-w-0">
-                            <select id="selectFilterSesiDropdown" 
-                                    onchange="onFilterSesiDropdownChange(this.value)" 
-                                    class="w-full px-2 py-1 h-7 sm:h-7.5 text-[11px] sm:text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:border-bkn-600 truncate shadow-2xs transition-colors">
-                                <option value="ALL">-- Sesi --</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Tombol Reset Filter (Ramping & Hemat Tempat) -->
-                    <div class="flex-shrink-0">
-                        <button type="button" 
-                                id="btnResetCandidateFilter"
-                                onclick="resetAllCandidateFilters()" 
-                                class="h-7 sm:h-7.5 px-2.5 py-1 text-[11px] font-bold rounded-md border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition flex items-center justify-center gap-1 shadow-2xs cursor-pointer select-none whitespace-nowrap" 
-                                title="Reset semua filter dan pencarian ke default">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 stroke-[2.5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                                <path d="M3 3v5h5"/>
-                            </svg>
-                            <span>Reset</span>
                         </button>
                     </div>
                 </div>
@@ -384,7 +348,7 @@
                         </span>
                     </div>
 
-                    <!-- Indikator tanggal aktif & Tombol navigasi scroll kiri-kanan -->
+                    <!-- Indikator tanggal aktif & Tombol navigasi scroll kiri-kanan & Reset Filter -->
                     <div class="flex items-center gap-1.5">
                         <span id="sessionCardsActiveDateLabel" class="text-[10px] font-semibold text-slate-600 hidden md:inline"></span>
                         <div class="flex items-center space-x-1">
@@ -402,6 +366,28 @@
                                     title="Geser sesi ke kanan">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                             </button>
+                            <!-- Tombol Reset Filter (Di sebelah tombol panah geser sesi ke kanan) -->
+                            <button type="button" 
+                                    id="btnResetCandidateFilter"
+                                    onclick="resetAllCandidateFilters()" 
+                                    class="inline-flex items-center space-x-1 px-2 py-0.5 bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 font-semibold text-[10px] rounded shadow-2xs transition cursor-pointer flex-shrink-0 whitespace-nowrap h-5.5 ml-0.5" 
+                                    title="Reset semua filter dan pencarian ke default">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5 stroke-[2.5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                    <path d="M3 3v5h5"/>
+                                </svg>
+                                <span>Reset Filter</span>
+                            </button>
+                            <!-- Tombol Buka / Tutup Baris Area Filter -->
+                            <button type="button" 
+                                    id="btnToggleFilterBar" 
+                                    onclick="toggleFilterBarArea()" 
+                                    class="inline-flex items-center space-x-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-bkn-800 border border-blue-200 font-semibold text-[10px] rounded shadow-2xs transition cursor-pointer flex-shrink-0 whitespace-nowrap h-5.5 ml-0.5" 
+                                    title="Buka / Tutup Baris Filter & Pencarian">
+                                <i data-lucide="filter" class="w-2.5 h-2.5 text-bkn-700"></i>
+                                <span id="labelToggleFilterBar">Filter & Cari</span>
+                                <i id="iconToggleFilterBar" data-lucide="chevron-down" class="w-2.5 h-2.5 text-bkn-600 transition-transform duration-200"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -414,22 +400,28 @@
 
             <!-- Table Data Peserta -->
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                    <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-                        <div class="flex items-center space-x-2">
-                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Daftar Peserta Ditampilkan</span>
-                            <span id="countTableVisible" class="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">0 Data</span>
+                <div class="px-3 py-1.5 sm:px-3.5 sm:py-1.5 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
+                    <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="text-[11px] font-bold text-slate-700 uppercase tracking-wide">Daftar Peserta Ditampilkan</span>
+                            <span id="countTableVisible" class="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded-full">0 Data</span>
                         </div>
-                        <div class="h-4 w-px bg-slate-300 hidden sm:block"></div>
+                        <div class="h-3.5 w-px bg-slate-300 hidden sm:block"></div>
                         <div class="flex items-center space-x-1.5" title="Jumlah peserta dengan Kelompok Jabatan belum terdaftar / kosong">
-                            <span class="text-xs text-slate-600 font-medium">Kelompok Jabatan Peserta Kosong:</span>
-                            <span id="countTableKelEmpty" class="text-xs bg-red-900 text-red-100 font-bold px-2.5 py-0.5 rounded-full shadow-xs border border-red-950">00 Data</span>
+                            <span class="text-[10.5px] text-slate-600 font-medium">Kelompok Jabatan Peserta Kosong:</span>
+                            <span id="countTableKelEmpty" class="text-[10px] bg-red-900 text-red-100 font-bold px-1.5 py-0.5 rounded-full shadow-xs border border-red-950">00 Data</span>
                         </div>
                     </div>
-                    <button onclick="confirmClearCandidates()" class="text-xs text-rose-600 hover:text-rose-800 font-semibold inline-flex items-center space-x-1">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                        <span>Kosongkan Peserta Ujian Ini</span>
-                    </button>
+                    <div class="flex items-center space-x-1.5 flex-shrink-0">
+                        <button onclick="openModalAddCandidate()" class="text-[10.5px] text-bkn-700 hover:text-bkn-900 font-semibold inline-flex items-center space-x-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition shadow-2xs cursor-pointer h-6">
+                            <i data-lucide="user-plus" class="w-3 h-3"></i>
+                            <span>Tambah Manual</span>
+                        </button>
+                        <button onclick="confirmClearCandidates()" class="text-[10.5px] text-rose-600 hover:text-rose-800 font-semibold inline-flex items-center space-x-1 px-2 py-0.5 hover:bg-rose-50 rounded transition cursor-pointer h-6">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i>
+                            <span>Kosongkan Peserta Ujian Ini</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="overflow-x-auto w-full">
@@ -535,28 +527,33 @@
 
         <!-- ==================== TAB 2: DASHBOARD ==================== -->
         <section id="pane-dashboard" class="tab-pane hidden space-y-6 fade-in">
-            <!-- Banner Ujian Aktif -->
-            <div id="dashboardExamBanner" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div class="flex items-start space-x-4">
-                    <div class="p-3 bg-blue-50 text-bkn-700 rounded-xl">
-                        <i data-lucide="calendar-check" class="w-8 h-8"></i>
+            <!-- Banner Ujian Aktif (Soft Solid Executive, Bersih & Minimalis) -->
+            <div id="dashboardExamBanner" class="bg-blue-50/80 border border-blue-200/90 rounded-xl px-3.5 py-2.5 sm:px-4.5 sm:py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-2xs">
+                <!-- Sisi Kiri: Icon + Wilayah, Tanggal & Nama Instansi -->
+                <div class="flex items-center space-x-3 min-w-0 flex-1">
+                    <div class="w-9 h-9 rounded-lg bg-bkn-700 text-white flex items-center justify-center flex-shrink-0 shadow-2xs">
+                        <i data-lucide="calendar-check" class="w-4.5 h-4.5"></i>
                     </div>
-                    <div>
+                    <div class="min-w-0">
                         <div class="flex items-center space-x-2">
-                            <span id="dashRegionBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Wilayah</span>
-                            <span id="dashDateRange" class="text-xs text-slate-500 font-medium">-</span>
+                            <span id="dashRegionBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-blue-200 text-bkn-800 shadow-2xs">Wilayah</span>
+                            <span id="dashDateRange" class="text-[11px] text-slate-500 font-medium">-</span>
                         </div>
-                        <h1 id="dashExamInstansiTitle" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">Belum Ada Ujian Aktif</h1>
-                        <p id="dashExamLocation" class="text-sm text-slate-600 flex items-center space-x-1 mt-1">
-                            <i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline"></i>
-                            <span>Titik Lokasi (Tilok): Belum ditentukan</span>
-                        </p>
+                        <h1 id="dashExamInstansiTitle" class="text-sm sm:text-base font-bold text-slate-900 mt-0.5 truncate" title="Nama Instansi Ujian">Belum Ada Ujian Aktif</h1>
                     </div>
                 </div>
 
-                <div class="flex items-center space-x-3 w-full md:w-auto">
-                    <button onclick="requestSwitchTab('daftar-peserta')" class="w-full md:w-auto inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-bkn-700 hover:bg-bkn-800 text-white text-sm font-medium rounded-lg shadow-sm transition">
-                        <i data-lucide="list" class="w-4 h-4"></i>
+                <!-- Sisi Kanan: Keterangan Tilok (di sebelah kiri tombol) + Tombol Buka Data Peserta -->
+                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full md:w-auto flex-shrink-0 justify-start md:justify-end">
+                    <!-- Keterangan Lokasi Ujian -->
+                    <div id="dashExamLocation" class="text-[11px] sm:text-xs text-slate-700 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 shadow-2xs max-w-full truncate">
+                        <i data-lucide="map-pin" class="w-3.5 h-3.5 text-bkn-700 inline flex-shrink-0"></i>
+                        <span class="truncate">Titik Lokasi (Tilok): Belum ditentukan</span>
+                    </div>
+
+                    <!-- Tombol Buka Data Peserta -->
+                    <button onclick="requestSwitchTab('daftar-peserta')" class="inline-flex items-center justify-center space-x-1.5 px-3.5 py-1.5 bg-bkn-700 hover:bg-bkn-800 text-white text-xs font-semibold rounded-lg shadow-2xs transition cursor-pointer h-7.5 flex-shrink-0">
+                        <i data-lucide="list" class="w-3.5 h-3.5"></i>
                         <span>Buka Data Peserta</span>
                     </button>
                 </div>
@@ -610,98 +607,81 @@
                 </div>
             </div>
 
-            <!-- Cards Kehadiran -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <!-- Hadir -->
-                <div class="bg-emerald-50/70 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Hadir</div>
-                        <div id="dashStatHadir" class="text-3xl font-extrabold text-emerald-700 mt-1">0</div>
-                        <p id="dashStatHadirPct" class="text-[11px] text-emerald-600 font-semibold mt-0.5">0% dari total</p>
-                    </div>
-                    <div class="p-3 bg-emerald-500 text-white rounded-xl shadow-sm">
-                        <i data-lucide="check-circle" class="w-6 h-6"></i>
-                    </div>
-                </div>
-
-                    <!-- Tidak Hadir -->
-                    <div class="bg-rose-50/70 border border-rose-200 p-4 rounded-xl flex items-center justify-between">
-                        <div>
-                            <div class="text-xs font-bold text-rose-800 uppercase tracking-wider">Tidak Hadir</div>
-                            <div id="dashStatTidakHadir" class="text-3xl font-extrabold text-rose-700 mt-1">0</div>
-                            <p id="dashStatTidakHadirPct" class="text-[11px] text-rose-600 font-semibold mt-0.5">0% dari total</p>
-                        </div>
-                        <div class="p-3 bg-rose-500 text-white rounded-xl shadow-sm">
-                            <i data-lucide="x-circle" class="w-6 h-6"></i>
-                        </div>
-                    </div>
-
-                    <!-- Belum Presensi -->
-                    <div class="bg-amber-50/70 border border-amber-200 p-4 rounded-xl flex items-center justify-between">
-                        <div>
-                            <div class="text-xs font-bold text-amber-800 uppercase tracking-wider">Belum Presensi</div>
-                            <div id="dashStatBelumPresensi" class="text-3xl font-extrabold text-amber-700 mt-1">0</div>
-                            <p id="dashStatBelumPct" class="text-[11px] text-amber-600 font-semibold mt-0.5">Menunggu konfirmasi</p>
-                        </div>
-                        <div class="p-3 bg-amber-500 text-white rounded-xl shadow-sm">
-                            <i data-lucide="clock" class="w-6 h-6"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Kartu Statistik Sesi -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <!-- Total Peserta -->
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+            <!-- Statistik Ringkas Peserta & Kehadiran (1 Baris Minimalis & Compact) -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
+                <!-- 1. Total Peserta Terdaftar -->
+                <div class="bg-white p-3 sm:p-3.5 rounded-xl shadow-2xs border border-slate-200 flex flex-col justify-between transition hover:shadow-xs">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Peserta</span>
-                        <div class="p-2 bg-slate-100 text-slate-600 rounded-lg">
-                            <i data-lucide="users" class="w-5 h-5"></i>
+                        <span class="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Terdaftar</span>
+                        <div class="p-1.5 bg-slate-100 text-slate-600 rounded-lg">
+                            <i data-lucide="users" class="w-4 h-4"></i>
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <div id="statTotalPeserta" class="text-3xl font-bold text-slate-900">0</div>
-                        <p class="text-xs text-slate-500 mt-1">Terdaftar dalam database</p>
+                    <div class="mt-2">
+                        <div id="statTotalPeserta" class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">0</div>
+                        <p class="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 font-medium truncate">Terdaftar di sistem</p>
                     </div>
                 </div>
 
-                <!-- Sesi 1 -->
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <!-- 2. Hadir -->
+                <div class="bg-emerald-50/60 p-3 sm:p-3.5 rounded-xl shadow-2xs border border-emerald-200 flex flex-col justify-between transition hover:shadow-xs">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-semibold text-blue-700 uppercase tracking-wider">Sesi 1</span>
-                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">08.00 - 11.00</span>
+                        <span class="text-[10px] sm:text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Hadir</span>
+                        <div class="p-1.5 bg-emerald-500 text-white rounded-lg shadow-2xs">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                        </div>
                     </div>
-                    <div class="mt-3">
-                        <div id="statSesi1" class="text-3xl font-bold text-blue-900">0</div>
-                        <p class="text-xs text-slate-500 mt-1">Peserta Sesi Pagi</p>
+                    <div class="mt-2">
+                        <div id="dashStatHadir" class="text-2xl sm:text-3xl font-extrabold text-emerald-700 tracking-tight">0</div>
+                        <p id="dashStatHadirPct" class="text-[10px] sm:text-[11px] text-emerald-600 font-semibold mt-0.5 truncate">0% dari total</p>
                     </div>
                 </div>
 
-                <!-- Sesi 2 (Special Friday Note) -->
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-amber-200 relative overflow-hidden">
+                <!-- 3. Tidak Hadir -->
+                <div class="bg-rose-50/60 p-3 sm:p-3.5 rounded-xl shadow-2xs border border-rose-200 flex flex-col justify-between transition hover:shadow-xs">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-semibold text-amber-700 uppercase tracking-wider">Sesi 2</span>
-                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">11.00 / 13.00</span>
+                        <span class="text-[10px] sm:text-[11px] font-bold text-rose-800 uppercase tracking-wider">Tidak Hadir</span>
+                        <div class="p-1.5 bg-rose-500 text-white rounded-lg shadow-2xs">
+                            <i data-lucide="x-circle" class="w-4 h-4"></i>
+                        </div>
                     </div>
-                    <div class="mt-3">
-                        <div id="statSesi2" class="text-3xl font-bold text-amber-900">0</div>
-                        <p class="text-xs text-amber-700 font-medium mt-1 flex items-center gap-1">
-                            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
-                            <span>Jumat: 13.00 s.d. 16.00</span>
-                        </p>
+                    <div class="mt-2">
+                        <div id="dashStatTidakHadir" class="text-2xl sm:text-3xl font-extrabold text-rose-700 tracking-tight">0</div>
+                        <p id="dashStatTidakHadirPct" class="text-[10px] sm:text-[11px] text-rose-600 font-semibold mt-0.5 truncate">0% dari total</p>
                     </div>
                 </div>
 
-                <!-- Sesi 3 -->
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <!-- 4. Belum Presensi -->
+                <div class="bg-amber-50/60 p-3 sm:p-3.5 rounded-xl shadow-2xs border border-amber-200 flex flex-col justify-between transition hover:shadow-xs">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Sesi 3</span>
-                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">14.00 - 17.00</span>
+                        <span class="text-[10px] sm:text-[11px] font-bold text-amber-800 uppercase tracking-wider">Belum Presensi</span>
+                        <div class="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
+                            <i data-lucide="clock" class="w-4 h-4"></i>
+                        </div>
                     </div>
-                    <div class="mt-3">
-                        <div id="statSesi3" class="text-3xl font-bold text-emerald-900">0</div>
-                        <p class="text-xs text-slate-500 mt-1">Peserta Sesi Sore</p>
+                    <div class="mt-2">
+                        <div id="dashStatBelumPresensi" class="text-2xl sm:text-3xl font-extrabold text-amber-700 tracking-tight">0</div>
+                        <p id="dashStatBelumPct" class="text-[10px] sm:text-[11px] text-amber-600 font-semibold mt-0.5 truncate">0% belum presensi</p>
+                    </div>
+                </div>
+
+                <!-- 5. Belum Terdaftar (Dengan Aksi Pop Up Tabel Data) -->
+                <div class="bg-red-50/70 p-3 sm:p-3.5 rounded-xl shadow-2xs border border-red-300 flex flex-col justify-between transition hover:shadow-xs col-span-2 sm:col-span-1">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] sm:text-[11px] font-bold text-red-900 uppercase tracking-wider">Belum Terdaftar</span>
+                        <div class="p-1.5 bg-red-900 text-red-100 rounded-lg shadow-2xs border border-red-950">
+                            <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <div id="statBelumTerdaftar" class="text-2xl sm:text-3xl font-extrabold text-red-900 tracking-tight">0</div>
+                        <button type="button" 
+                                onclick="openModalPesertaBelumTerdaftar()" 
+                                class="mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold text-red-800 hover:text-red-950 hover:underline cursor-pointer transition select-none group"
+                                title="Klik untuk membuka pop-up tabel data peserta belum terdaftar">
+                            <span>Lihat Data Peserta</span>
+                            <i data-lucide="external-link" class="w-3 h-3 group-hover:translate-x-0.5 transition-transform"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1095,8 +1075,8 @@
                     </div>
                 </div>
 
-                <!-- 2 Tombol Lebar Berisi Keterangan: Acak Jadwal & Reset Acak Jadwal -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                <!-- 3 Tombol Lebar Berisi Keterangan: Acak Jadwal, Reset Acak Jadwal, & Reset Semua Ketidakhadiran -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
                     <!-- Tombol Lebar 1: Acak Jadwal (Smart Shuffle) -->
                     <button type="button" 
                             onclick="openModalShuffleSchedule()" 
@@ -1106,11 +1086,11 @@
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2">
-                                <h4 class="text-sm sm:text-base font-bold text-amber-950">Acak Jadwal Peserta (Smart Shuffle)</h4>
+                                <h4 class="text-sm sm:text-base font-bold text-amber-950">Acak Jadwal Peserta</h4>
                                 <span class="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Kuota PC</span>
                             </div>
                             <p class="text-xs text-amber-900/80 mt-1.5 leading-relaxed">
-                                Mendistribusikan peserta secara cerdas untuk memenuhi kuota kursi per sesi. Peserta <strong>HADIR terkunci aman</strong>, peserta <strong>TIDAK HADIR</strong> hanya disebar ke sesi hari ini/lampau, dan yang tidak kebagian kursi otomatis berstatus <strong>Sesi 00 (Belum Terjadwal)</strong>.
+                                Mendistribusikan peserta secara cerdas untuk memenuhi kuota kursi per sesi. Peserta <strong>HADIR terkunci aman</strong>, peserta <strong>TIDAK HADIR</strong> disebar ke sesi lampau, dan selebihnya ke <strong>Sesi 00</strong>.
                             </p>
                             <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 group-hover:text-amber-950">
                                 <span>Buka Pengaturan Acak Jadwal</span>
@@ -1122,20 +1102,42 @@
                     <!-- Tombol Lebar 2: Reset Acak Jadwal -->
                     <button type="button" 
                             onclick="openModalConfirmResetShuffle()" 
-                            class="p-4 sm:p-5 rounded-2xl border-2 border-rose-300 bg-rose-50/70 hover:bg-rose-100/90 hover:border-rose-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
-                        <div class="w-12 h-12 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                            class="p-4 sm:p-5 rounded-2xl border-2 border-slate-300 bg-slate-50/70 hover:bg-slate-100/90 hover:border-slate-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
+                        <div class="w-12 h-12 rounded-xl bg-slate-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
                             <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2">
-                                <h4 class="text-sm sm:text-base font-bold text-rose-950">Reset Acak Jadwal (Kembali ke Sesi 00)</h4>
-                                <span class="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Aman</span>
+                                <h4 class="text-sm sm:text-base font-bold text-slate-900">Reset Acak Jadwal (Sesi 00)</h4>
+                                <span class="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Jadwal</span>
+                            </div>
+                            <p class="text-xs text-slate-700/80 mt-1.5 leading-relaxed">
+                                Mengembalikan jadwal peserta yang Belum Presensi (<code>BELUM</code>) menjadi <strong>Sesi 00 (Belum Terjadwal)</strong>. Peserta <strong>HADIR</strong> & <strong>TIDAK HADIR</strong> tetap <strong>terlindungi 100%</strong>.
+                            </p>
+                            <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 group-hover:text-slate-950">
+                                <span>Reset Jadwal ke Sesi 00</span>
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
+                            </div>
+                        </div>
+                    </button>
+
+                    <!-- Tombol Lebar 3: Reset Semua Ketidakhadiran -->
+                    <button type="button" 
+                            onclick="openModalConfirmResetKetidakhadiran()" 
+                            class="p-4 sm:p-5 rounded-2xl border-2 border-rose-300 bg-rose-50/70 hover:bg-rose-100/90 hover:border-rose-400 text-left transition-all shadow-2xs group flex items-start gap-4 cursor-pointer">
+                        <div class="w-12 h-12 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                            <i data-lucide="user-x" class="w-6 h-6"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <h4 class="text-sm sm:text-base font-bold text-rose-950">Reset Semua Ketidakhadiran</h4>
+                                <span class="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full flex-shrink-0">Presensi</span>
                             </div>
                             <p class="text-xs text-rose-900/80 mt-1.5 leading-relaxed">
-                                Mengembalikan jadwal seluruh peserta yang Belum Presensi (<code>BELUM</code>) menjadi <strong>Sesi 00 (Belum Terjadwal)</strong>. Seluruh peserta yang sudah ditandai <strong>HADIR</strong> maupun <strong>TIDAK HADIR</strong> tetap <strong>dilindungi 100% (tidak direset)</strong>.
+                                Mengembalikan seluruh peserta berstatus <strong>TIDAK HADIR</strong> menjadi <strong>Belum Presensi</strong>. Peserta <strong>HADIR terlindungi 100% (tidak direset)</strong>.
                             </p>
                             <div class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 group-hover:text-rose-950">
-                                <span>Reset Jadwal ke Sesi 00</span>
+                                <span>Reset Status Tidak Hadir</span>
                                 <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
                             </div>
                         </div>
@@ -2248,6 +2250,91 @@
                         class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer">
                     <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
                     <span>Ya, Reset ke Sesi 00</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL KONFIRMASI RESET KETIDAKHADIRAN                                    -->
+    <!-- ========================================================================= -->
+    <div id="modalConfirmResetKetidakhadiran" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5 sm:p-6 space-y-4 border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
+            <!-- Header Modal -->
+            <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="user-x" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">Konfirmasi Reset Ketidakhadiran</h3>
+                        <p class="text-xs text-slate-500">
+                            Instansi: <span id="resetAbsenInstansiTitle" class="font-semibold text-rose-700">-</span>
+                        </p>
+                    </div>
+                </div>
+                <button type="button" 
+                        onclick="closeModalConfirmResetKetidakhadiran()" 
+                        class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Body Modal -->
+            <div class="space-y-3.5">
+                <p class="text-xs text-slate-600 leading-relaxed">
+                    Fitur ini akan mengembalikan status peserta yang ditandai <strong>TIDAK HADIR</strong> kembali menjadi <strong>Belum Presensi</strong>. Riwayat waktu ketidakhadiran akan dibersihkan.
+                </p>
+
+                <!-- Ringkasan Statistik Status Presensi -->
+                <div class="grid grid-cols-3 gap-2.5">
+                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-rose-800 uppercase block">Tidak Hadir</span>
+                        <span id="resetAbsenStatTidakHadir" class="text-base sm:text-lg font-extrabold text-rose-700 block">0</span>
+                        <span class="text-[9.5px] text-rose-600 font-semibold bg-rose-100/70 px-1.5 py-0.5 rounded inline-block mt-0.5">&rarr; Belum</span>
+                    </div>
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-emerald-800 uppercase block">Hadir</span>
+                        <span id="resetAbsenStatHadir" class="text-base sm:text-lg font-extrabold text-emerald-700 block">0</span>
+                        <span class="text-[9.5px] text-emerald-700 font-semibold bg-emerald-100 px-1.5 py-0.5 rounded inline-block mt-0.5">Aman (Terkunci)</span>
+                    </div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center">
+                        <span class="text-[10px] font-bold text-slate-700 uppercase block">Belum Presensi</span>
+                        <span id="resetAbsenStatBelum" class="text-base sm:text-lg font-extrabold text-slate-700 block">0</span>
+                        <span class="text-[9.5px] text-slate-500 font-semibold bg-slate-200/70 px-1.5 py-0.5 rounded inline-block mt-0.5">Tetap Sama</span>
+                    </div>
+                </div>
+
+                <!-- Notice Callout -->
+                <div class="bg-rose-50/70 border border-rose-200/80 rounded-xl p-3 text-[11px] space-y-1.5 text-rose-950">
+                    <div class="font-bold flex items-center gap-1.5 text-rose-950">
+                        <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-600 flex-shrink-0"></i>
+                        <span>Ketentuan Keamanan Reset:</span>
+                    </div>
+                    <ul class="list-disc list-inside space-y-0.5 text-rose-900/90 pl-1 text-[10.5px]">
+                        <li>Secara default, seluruh peserta berstatus <strong>HADIR dilindungi 100%</strong> dan tidak diubah.</li>
+                        <li>Hanya peserta berstatus <strong>TIDAK HADIR</strong> yang akan dikembalikan menjadi <strong>Belum Presensi</strong>.</li>
+                    </ul>
+                    <label class="flex items-center gap-2 mt-2 pt-2 border-t border-rose-200/70 text-xs text-slate-800 cursor-pointer select-none">
+                        <input type="checkbox" id="checkIncludeHadirInReset" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer">
+                        <span class="text-[11px]">Sertakan juga peserta <strong class="text-rose-700">HADIR</strong> (Reset total seluruh presensi)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Footer Modal -->
+            <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button type="button" 
+                        onclick="closeModalConfirmResetKetidakhadiran()" 
+                        class="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer">
+                    Batal
+                </button>
+                <button type="button" 
+                        id="btnExecuteResetKetidakhadiran" 
+                        onclick="executeResetKetidakhadiran()" 
+                        class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                    <span>Ya, Reset Ketidakhadiran</span>
                 </button>
             </div>
         </div>

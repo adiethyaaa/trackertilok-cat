@@ -467,7 +467,7 @@ function renderDashboardExamInfo() {
         if (instansiTitleEl) instansiTitleEl.textContent = 'Belum Ada Ujian Aktif';
         if (regionBadge) regionBadge.textContent = 'Status';
         if (dateRangeEl) dateRangeEl.textContent = '-';
-        if (locationEl) locationEl.innerHTML = '<i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline"></i> <span>Silakan buat atau pilih ujian terlebih dahulu</span>';
+        if (locationEl) locationEl.innerHTML = '<i data-lucide="map-pin" class="w-3.5 h-3.5 text-slate-400 inline flex-shrink-0 mr-1.5"></i> <span class="truncate">Silakan pilih ujian terlebih dahulu</span>';
         return;
     }
 
@@ -476,11 +476,11 @@ function renderDashboardExamInfo() {
     if (regionBadge) {
         regionBadge.textContent = currentExam.wilker || 'Instansi Terdaftar';
         if (currentExam.wilker === 'Papua Barat Daya') {
-            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
+            regionBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200';
         } else if (currentExam.wilker === 'Instansi Vertikal') {
-            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800';
+            regionBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200';
         } else {
-            regionBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800';
+            regionBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-bkn-800 border border-blue-200 shadow-2xs';
         }
     }
 
@@ -492,8 +492,8 @@ function renderDashboardExamInfo() {
 
     if (locationEl) {
         locationEl.innerHTML = `
-            <i data-lucide="map-pin" class="w-4 h-4 text-slate-400 inline mr-1"></i>
-            <span>Tilok: <strong>${currentExam.location}</strong> (Kapasitas: ${currentExam.quotaPerSession} PC/Sesi)</span>
+            <i data-lucide="map-pin" class="w-3.5 h-3.5 text-bkn-700 inline flex-shrink-0 mr-1.5"></i>
+            <span class="truncate">Tilok: <strong class="text-slate-900 font-semibold">${currentExam.location || 'Belum ditentukan'}</strong> (${currentExam.quotaPerSession || 0} PC/Sesi)</span>
         `;
     }
 
@@ -807,10 +807,6 @@ function renderDashboardStats() {
     // 1. Populate opsi filter tanggal di dashboard
     populateDashboardFilterTanggalDropdown();
 
-    const statTotal = document.getElementById('statTotalPeserta');
-    const statS1 = document.getElementById('statSesi1');
-    const statS2 = document.getElementById('statSesi2');
-    const statS3 = document.getElementById('statSesi3');
     const distContainer = document.getElementById('dashboardDistributionContainer');
 
     // Filter kandidat berdasarkan tanggal dashboard yang dipilih
@@ -825,40 +821,40 @@ function renderDashboardStats() {
                 return effDate && selectedDashboardDates.has(effDate);
             }));
 
-    const total = dashboardCandidates.length;
-    const s1 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 1).length;
-    const s2 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 2).length;
-    const s3 = dashboardCandidates.filter(c => getCandidateDailySession(c, uniqueDates) === 3).length;
+    // Logika Total Peserta: Hanya menghitung peserta yang sudah terdaftar di sistem (memiliki Kelompok Jabatan valid)
+    const registeredCandidates = dashboardCandidates.filter(c => !isCandidateKelJabatanEmpty(c));
+    const unregisteredCandidates = dashboardCandidates.filter(c => isCandidateKelJabatanEmpty(c));
 
-    // Hitung Kehadiran
-    const hadir = dashboardCandidates.filter(c => c.kehadiran === 'HADIR').length;
-    const tidakHadir = dashboardCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const total = registeredCandidates.length;
+    const totalUnregistered = unregisteredCandidates.length;
+
+    // Hitung Kehadiran dari peserta yang terdaftar
+    const hadir = registeredCandidates.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadir = registeredCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
     const belumPresensi = Math.max(0, total - hadir - tidakHadir);
 
     const hadirPct = total > 0 ? Math.round((hadir / total) * 100) : 0;
     const tidakHadirPct = total > 0 ? Math.round((tidakHadir / total) * 100) : 0;
     const belumPct = total > 0 ? Math.round((belumPresensi / total) * 100) : 0;
 
-    // Update Kartu Kehadiran di Dashboard
+    // Update Kartu Statistik Dashboard (1 Baris Ringkas & Minimalis)
+    const elTotal = document.getElementById('statTotalPeserta');
     const elHadir = document.getElementById('dashStatHadir');
     const elHadirPct = document.getElementById('dashStatHadirPct');
     const elTidakHadir = document.getElementById('dashStatTidakHadir');
     const elTidakHadirPct = document.getElementById('dashStatTidakHadirPct');
     const elBelum = document.getElementById('dashStatBelumPresensi');
     const elBelumPct = document.getElementById('dashStatBelumPct');
+    const elUnregistered = document.getElementById('statBelumTerdaftar');
 
+    if (elTotal) elTotal.textContent = total;
     if (elHadir) elHadir.textContent = hadir;
-    if (elHadirPct) elHadirPct.textContent = `${hadirPct}% dari total ${total} peserta`;
+    if (elHadirPct) elHadirPct.textContent = `${hadirPct}% dari total`;
     if (elTidakHadir) elTidakHadir.textContent = tidakHadir;
-    if (elTidakHadirPct) elTidakHadirPct.textContent = `${tidakHadirPct}% dari total ${total} peserta`;
+    if (elTidakHadirPct) elTidakHadirPct.textContent = `${tidakHadirPct}% dari total`;
     if (elBelum) elBelum.textContent = belumPresensi;
     if (elBelumPct) elBelumPct.textContent = `${belumPct}% belum presensi`;
-
-    // Update Kartu Statistik Sesi
-    if (statTotal) statTotal.textContent = total;
-    if (statS1) statS1.textContent = s1;
-    if (statS2) statS2.textContent = s2;
-    if (statS3) statS3.textContent = s3;
+    if (elUnregistered) elUnregistered.textContent = totalUnregistered;
 
     // Filter badge counts di Tab Jadwal (selalu mencerminkan total keseluruhan ujian aktif)
     const grandTotal = currentCandidates.length;
@@ -1450,15 +1446,25 @@ async function handleSelectedExcelFile(file) {
         // Ambil data database yang sudah ada untuk instansi ini
         const existingCandidates = await db.getCandidatesByExam(targetExamId);
 
-        // De-duplikasi internal file Excel (jika ada NIP yang berulang dalam file Excel yang diunggah)
-        const seenNipsInExcel = new Set();
+        // Tangani jika ada NIP yang berulang dalam file Excel agar tidak ada baris peserta yang hilang/terbuang
+        const nipOccurrences = new Map();
         const distinctExcelCandidates = [];
         parseResult.candidates.forEach(c => {
-            const cleanNip = String(c.nip || '').replace(/['"`\s]/g, '').trim();
-            if (cleanNip && !seenNipsInExcel.has(cleanNip)) {
-                seenNipsInExcel.add(cleanNip);
-                distinctExcelCandidates.push(c);
+            let cleanNip = String(c.nip || '').replace(/['"`\s]/g, '').trim();
+            if (!cleanNip) {
+                cleanNip = `NON_NIP_${c.no || distinctExcelCandidates.length + 1}`;
+                c.nip = cleanNip;
             }
+            if (nipOccurrences.has(cleanNip)) {
+                const count = nipOccurrences.get(cleanNip) + 1;
+                nipOccurrences.set(cleanNip, count);
+                const uniqueNip = `${cleanNip}_dup${count}`;
+                c.nip = uniqueNip;
+                c._isDuplicateInExcel = true;
+            } else {
+                nipOccurrences.set(cleanNip, 1);
+            }
+            distinctExcelCandidates.push(c);
         });
 
         // Proses Lengkapi Data Peserta (Unit Kerja & Jabatan) berdasarkan NIP
@@ -1483,7 +1489,11 @@ async function handleSelectedExcelFile(file) {
         };
 
         renderExcelPreview(previewParsedData);
-        showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta dari Excel!`, "success");
+        if (parseResult.summary && parseResult.summary.skippedRows > 0) {
+            showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta (${parseResult.summary.skippedRows} baris judul/header dilewati)`, "info");
+        } else {
+            showToast(`Berhasil membaca ${distinctExcelCandidates.length} data peserta dari Excel!`, "success");
+        }
 
     } catch (err) {
         console.error("Gagal membaca Excel:", err);
@@ -3343,6 +3353,40 @@ function checkAndAutoSwitchSession() {
         autoApplyLiveSessionFilter(false);
     }
 }
+
+/**
+ * Buka / Tutup Baris Area Filter dan Pencarian Kandidat
+ */
+window.toggleFilterBarArea = () => {
+    const bar = document.getElementById('mainCandidateFilterBar');
+    const label = document.getElementById('labelToggleFilterBar');
+    const chevron = document.getElementById('iconToggleFilterBar');
+    const btn = document.getElementById('btnToggleFilterBar');
+    if (!bar) return;
+
+    const isCurrentlyHidden = bar.classList.contains('hidden');
+    if (isCurrentlyHidden) {
+        bar.classList.remove('hidden');
+        if (label) label.textContent = 'Tutup Filter';
+        if (chevron) chevron.classList.add('rotate-180');
+        if (btn) {
+            btn.classList.remove('bg-blue-50', 'hover:bg-blue-100', 'text-bkn-800', 'border-blue-200');
+            btn.classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'border-blue-700');
+        }
+        setTimeout(() => {
+            const searchInput = document.getElementById('inputSearchCandidate');
+            if (searchInput) searchInput.focus();
+        }, 50);
+    } else {
+        bar.classList.add('hidden');
+        if (label) label.textContent = 'Filter & Cari';
+        if (chevron) chevron.classList.remove('rotate-180');
+        if (btn) {
+            btn.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'border-blue-700');
+            btn.classList.add('bg-blue-50', 'hover:bg-blue-100', 'text-bkn-800', 'border-blue-200');
+        }
+    }
+};
 
 /**
  * Reset Seluruh Filter dan Input Pencarian ke Nilai Default
@@ -6359,7 +6403,7 @@ function renderRekapModalTables() {
             const tot = candsSession.length;
 
             const cumSesiNum = calculateCumulativeSessionNumber({ pelaksanaan: dateStr, sesi: s }, uniqueDates);
-            const cumLabel = cumSesiNum ? ` (Akumulasi ${formatCumulativeSessionNumber(cumSesiNum)})` : '';
+            const cumLabel = cumSesiNum ? ` (Sesi ${formatCumulativeSessionNumber(cumSesiNum)})` : '';
             const label = `Sesi ${s}${cumLabel}`;
 
             tab2Rows.push({
@@ -6688,6 +6732,11 @@ window.openModalDetailKelompokJabatan = (key, encodedLabel) => {
         }
     });
 
+    // Fallback khusus untuk KOSONG / Belum Terdaftar jika list masih kosong atau kategori belum ter-cache
+    if (key === 'KOSONG' && list.length === 0) {
+        list = (currentCandidates || []).filter(c => isCandidateKelJabatanEmpty(c));
+    }
+
     currentDetailKelJabatanList = list;
 
     // Set judul modal
@@ -6734,6 +6783,13 @@ window.closeModalDetailKelompokJabatan = () => {
     currentDetailKelJabatanList = [];
     const tbody = document.getElementById('tbodyDetailKelJabatan');
     if (tbody) tbody.innerHTML = '';
+};
+
+/**
+ * Membuka Modal Pop-up Rincian Peserta Belum Terdaftar di Sistem
+ */
+window.openModalPesertaBelumTerdaftar = () => {
+    window.openModalDetailKelompokJabatan('KOSONG', 'Peserta Belum Terdaftar');
 };
 
 window.setDetailKelJabatanStatusFilter = (status) => {
@@ -6828,7 +6884,7 @@ window.renderDetailKelJabatanTable = () => {
         const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
         const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
 
-        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Akumulasi ${cumSesiFormatted})` : (c.sesi ? `Sesi ${c.sesi}` : '-'));
+        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Sesi ${cumSesiFormatted})` : (c.sesi ? `Sesi ${c.sesi}` : '-'));
         const tglText = (effDate && effDate !== 'NULL' && effDate !== '-') ? effDate : '-';
 
         return `
@@ -6862,7 +6918,7 @@ window.copyDetailKelJabatanToClipboard = () => {
         const cumSesi = getCumulativeSessionNumber(c, sortedDates);
         const cumSesiFormatted = cumSesi ? formatCumulativeSessionNumber(cumSesi) : '00';
         const isSesi00 = !c.sesi || c.sesi === 'NULL' || c.sesi === '00' || c.sesi === 0 || c.sesi === '0';
-        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Akumulasi ${cumSesiFormatted})` : (c.sesi || ''));
+        const sesiText = isSesi00 ? 'Belum Terjadwal (00)' : (dailyS ? `Sesi ${dailyS} (Sesi ${cumSesiFormatted})` : (c.sesi || ''));
         return [
             i + 1,
             c.kehadiran || 'BELUM PRESENSI',

@@ -102,8 +102,8 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
 
-    // Baca ke format array 2D
-    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    // Baca ke format array 2D dengan raw: false agar string angka NIP panjang tidak dibulatkan
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
 
     if (!rawRows || rawRows.length < 2) {
         throw new Error("File Excel kosong atau tidak memiliki data.");
@@ -209,13 +209,18 @@ export async function parseExcelFile(file, options = { autoStandardizeTime: true
         });
 
         // Bersihkan NIP dari karakter petik, spasi, atau simbol
-        const cleanNip = String(rowObj.nip || '').replace(/['"`\s]/g, '').trim();
+        let cleanNip = String(rowObj.nip || '').replace(/['"`\s]/g, '').trim();
         const cleanNama = String(rowObj.nama || '').replace(/['"`]/g, '').trim();
 
-        // Validasi pemenuhan NIP dan NAMA
-        if (!cleanNip || !cleanNama || cleanNip.length < 5 || cleanNama.length < 2) {
+        // Validasi pemenuhan NAMA: Lewati hanya jika nama kosong/terlalu pendek
+        if (!cleanNama || cleanNama.length < 2) {
             skippedCount++;
             continue;
+        }
+
+        // Jika NIP kosong atau kurang dari 5 digit, buatkan ID unik pengganti agar baris data peserta tidak hilang
+        if (!cleanNip || cleanNip.length < 5 || cleanNip === '-' || cleanNip.toLowerCase() === 'null') {
+            cleanNip = `NON_NIP_${i + 1}`;
         }
 
         rowObj.nip = cleanNip;

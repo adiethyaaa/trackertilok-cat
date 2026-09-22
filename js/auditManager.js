@@ -172,7 +172,7 @@ export async function parseAuditExcel(file) {
     if (!firstSheetName) throw new Error("File Excel tidak memiliki sheet yang valid.");
 
     const sheet = workbook.Sheets[firstSheetName];
-    const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
 
     if (!rawData || rawData.length < 2) {
         throw new Error("File Excel kosong atau tidak memiliki baris data.");
@@ -211,12 +211,19 @@ export async function parseAuditExcel(file) {
         const row = rawData[r];
         if (!row || row.length === 0) continue;
 
-        const rawNip = String(row[colMap.nip] || '').trim();
-        if (!rawNip || rawNip === '-' || rawNip.toLowerCase() === 'undefined' || rawNip.toLowerCase() === 'null') {
-            continue; // Lewati baris kosong
+        let rawNip = String(row[colMap.nip] || '').trim();
+        const rawNama = colMap.nama !== undefined ? String(row[colMap.nama] || '').trim() : '';
+
+        // Jika baris benar-benar kosong (tanpa NIP dan tanpa Nama), lewati
+        if ((!rawNip || rawNip === '-' || rawNip.toLowerCase() === 'undefined' || rawNip.toLowerCase() === 'null') && !rawNama) {
+            continue;
         }
 
-        const rawNama = colMap.nama !== undefined ? String(row[colMap.nama] || '').trim() : '';
+        // Jika ada nama namun NIP kosong/strip, buatkan ID sementara agar baris data tidak hilang
+        if (!rawNip || rawNip === '-' || rawNip.toLowerCase() === 'undefined' || rawNip.toLowerCase() === 'null') {
+            rawNip = `NON_NIP_${r + 1}`;
+        }
+
         const rawSesi = colMap.sesi !== undefined ? row[colMap.sesi] : '';
         const rawJabatan = colMap.jabatan !== undefined ? String(row[colMap.jabatan] || '').trim() : '';
         const rawKelJabatan = colMap.kelJabatan !== undefined ? String(row[colMap.kelJabatan] || '').trim() : '';
@@ -396,7 +403,7 @@ export function compareAuditDataWithDatabase(auditRows, currentCandidates, optio
                         label: 'Sesi Akumulasi',
                         category: 'sesi',
                         oldValue: curCumSesi !== null ? `Sesi ${curDailySesi || curCumSesi} (Akumulasi ${formatCumulativeSessionNumber(curCumSesi)})` : 'Belum Terjadwal (Sesi 00)',
-                        newValue: `Sesi ${dailySesi} (Akumulasi ${formatCumulativeSessionNumber(newCumSesi)})`,
+                        newValue: `Sesi ${dailySesi} (Sesi ${formatCumulativeSessionNumber(newCumSesi)})`,
                         rawNewValue: dailySesi,
                         targetPelaksanaan: targetPelaksanaan || existingCand.pelaksanaan,
                         newCumulativeSesi: newCumSesi,
