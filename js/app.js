@@ -2722,6 +2722,147 @@ window.executeResetShuffleSchedule = async () => {
 };
 
 /**
+ * =========================================================================
+ * FITUR RESET SEMUA KETIDAKHADIRAN (KEMBALIKAN TIDAK HADIR KE BELUM PRESENSI)
+ * =========================================================================
+ */
+
+/**
+ * Buka Modal Konfirmasi Reset Ketidakhadiran
+ */
+window.openModalConfirmResetKetidakhadiran = () => {
+    if (!currentExam) {
+        showToast("Pilih instansi ujian terlebih dahulu sebelum mereset ketidakhadiran!", "warning");
+        return;
+    }
+    if (!currentCandidates || currentCandidates.length === 0) {
+        showToast("Belum ada data peserta untuk direset!", "warning");
+        return;
+    }
+
+    const modal = document.getElementById('modalConfirmResetKetidakhadiran');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('resetAbsenInstansiTitle');
+    if (titleEl) titleEl.textContent = currentExam.instansi || '-';
+
+    const hadirCount = currentCandidates.filter(c => c.kehadiran === 'HADIR').length;
+    const tidakHadirCount = currentCandidates.filter(c => c.kehadiran === 'TIDAK_HADIR').length;
+    const belumCount = Math.max(0, currentCandidates.length - hadirCount - tidakHadirCount);
+
+    const statHadir = document.getElementById('resetAbsenStatHadir');
+    const statTidakHadir = document.getElementById('resetAbsenStatTidakHadir');
+    const statBelum = document.getElementById('resetAbsenStatBelum');
+
+    if (statHadir) statHadir.textContent = hadirCount;
+    if (statTidakHadir) statTidakHadir.textContent = tidakHadirCount;
+    if (statBelum) statBelum.textContent = belumCount;
+
+    // Reset checkbox sertakan hadir ke false
+    const chk = document.getElementById('checkIncludeHadirInReset');
+    if (chk) chk.checked = false;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    if (window.lucide) window.lucide.createIcons();
+};
+
+/**
+ * Tutup Modal Konfirmasi Reset Ketidakhadiran
+ */
+window.closeModalConfirmResetKetidakhadiran = () => {
+    const modal = document.getElementById('modalConfirmResetKetidakhadiran');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+/**
+ * Eksekusi Reset Semua Ketidakhadiran:
+ * Mengembalikan peserta berstatus TIDAK_HADIR menjadi null/'BELUM'.
+ * Peserta HADIR dilindungi 100% kecuali jika checkbox opsional diaktifkan.
+ */
+window.executeResetKetidakhadiran = async () => {
+    if (!currentExam || !currentCandidates || currentCandidates.length === 0) {
+        showToast("Data ujian atau peserta tidak valid!", "warning");
+        return;
+    }
+
+    const btn = document.getElementById('btnExecuteResetKetidakhadiran');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Mereset Presensi...</span>`;
+        if (window.lucide) window.lucide.createIcons();
+    }
+
+    try {
+        const includeHadir = Boolean(document.getElementById('checkIncludeHadirInReset')?.checked);
+        let resetCount = 0;
+        const nowIso = new Date().toISOString();
+
+        currentCandidates.forEach(c => {
+            let shouldReset = false;
+            if (includeHadir) {
+                // Reset semua yang sudah presensi (HADIR maupun TIDAK_HADIR)
+                if (c.kehadiran === 'TIDAK_HADIR' || c.kehadiran === 'HADIR') {
+                    shouldReset = true;
+                }
+            } else {
+                // Aturan Default: HANYA ubah yang TIDAK_HADIR. HADIR terlindungi 100%!
+                if (c.kehadiran === 'TIDAK_HADIR') {
+                    shouldReset = true;
+                }
+            }
+
+            if (shouldReset) {
+                c.kehadiran = null;
+                c.attendanceTimestamp = null;
+                c.loginTime = null;
+                c.selesaiTime = null;
+                c.updatedAt = nowIso;
+                resetCount++;
+            }
+        });
+
+        if (resetCount === 0) {
+            showToast("Tidak ada peserta berstatus Tidak Hadir yang perlu direset.", "info");
+            window.closeModalConfirmResetKetidakhadiran();
+            return;
+        }
+
+        // Simpan ke database IndexedDB & Realtime Database Cloud
+        await db.bulkAddCandidates(currentExam.id, currentCandidates);
+        if (isCloudActive()) {
+            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
+        }
+
+        await setActiveExam(currentExam.id);
+        window.closeModalConfirmResetKetidakhadiran();
+
+        // Pindah otomatis ke tab Daftar Peserta agar user langsung melihat hasilnya
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('daftar-peserta');
+        }
+
+        const scopeText = includeHadir 
+            ? `seluruh ${resetCount} peserta (termasuk Hadir & Tidak Hadir)`
+            : `${resetCount} peserta Tidak Hadir`;
+        showToast(`Sukses! Status ${scopeText} berhasil direset kembali ke Belum Presensi.`, "success");
+
+    } catch (err) {
+        console.error("Gagal reset ketidakhadiran:", err);
+        showToast("Gagal mereset ketidakhadiran: " + err.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i><span>Ya, Reset Ketidakhadiran</span>`;
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+};
+
+/**
  * Filter dan Render Tabel Data Peserta
  */
 window.setCandidateFilterSession = (session) => {
