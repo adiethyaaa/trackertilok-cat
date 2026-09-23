@@ -7203,6 +7203,27 @@ let selectedAuditNips = new Set();
 let auditCompareCategoryFilter = 'ALL';
 
 function setupAuditUI() {
+    // Daftarkan event listener langsung untuk tombol kelola ketidakhadiran
+    const btnMarkAll = document.getElementById('btnExecuteMarkAllAbsent');
+    if (btnMarkAll) {
+        btnMarkAll.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof window.executeMarkAllAbsent === 'function') {
+                window.executeMarkAllAbsent();
+            }
+        });
+    }
+
+    const btnResetAbsent = document.getElementById('btnExecuteResetKetidakhadiran');
+    if (btnResetAbsent) {
+        btnResetAbsent.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof window.executeResetKetidakhadiran === 'function') {
+                window.executeResetKetidakhadiran();
+            }
+        });
+    }
+
     window.updateAuditTabExamInfo = () => {
         const examTitle = currentExam 
             ? `Instansi Ujian Aktif: ${currentExam.instansi || currentExam.title}` 

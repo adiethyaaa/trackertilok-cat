@@ -2379,7 +2379,7 @@
                 </button>
                 <button type="button" 
                         id="btnExecuteMarkAllAbsent" 
-                        onclick="executeMarkAllAbsent()" 
+                        onclick="window.executeMarkAllAbsent ? window.executeMarkAllAbsent() : console.error('executeMarkAllAbsent belum siap')" 
                         class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer">
                     <i data-lucide="user-x" class="w-3.5 h-3.5"></i>
                     <span>Tandai Semua Tidak Hadir</span>
@@ -2404,6 +2404,6 @@
     <div id="officialPrintArea" class="hidden"></div>
 
     <!-- Main Application Script (ES Module) -->
-    <script type="module" src="js/app.js?v=2.5"></script>
+    <script type="module" src="js/app.js?v=2.7"></script>
 </body>
 </html>
