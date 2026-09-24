@@ -5554,7 +5554,7 @@ window.printOfficialSchedule = () => {
 
                     <div style="width: 240px; text-align: center; font-size: 8.5pt;">
                         <div>${todayStr}</div>
-                        <div style="margin-top: 4px; font-weight: bold;">Koordinator</div>
+                        <div style="margin-top: 4px; font-weight: bold;">Panitia Instansi</div>
                         <div style="height: 74px;"></div>
                         <div style="border-bottom: 1px solid #000; font-weight: bold;"></div>
                         
