@@ -392,6 +392,22 @@ async function setActiveExam(examId) {
 }
 
 /**
+ * Penyegaran Tampilan Peserta Instan (In-Memory, Ultra Fast)
+ * Menyegarkan filter, statistik, kartu sesi, bubble floating, dan tabel peserta tanpa re-download dari cloud.
+ */
+function refreshCandidateViews(options = { refreshFilters: false }) {
+    if (options.refreshFilters) {
+        populatePelaksanaanFilterDropdown();
+        populateKelJabatanFilterDropdown();
+        populateSesiFilterDropdown(currentDateFilter || 'ALL');
+    }
+    renderDashboardStats();
+    renderCumulativeSessionCards();
+    updateFloatingAttendanceBubble();
+    applyCandidateFilters();
+}
+
+/**
  * Tampilkan indikator loading tabel saat sedang mengambil data peserta instansi terpilih
  */
 function showTableLoading(instansiName) {
@@ -2243,9 +2259,6 @@ window.savePreviewDataToDatabase = async () => {
             ];
             if (toSave.length > 0) {
                 const count = await db.bulkAddCandidates(previewParsedData.examId, toSave);
-                if (isCloudActive()) {
-                    await bulkAddCandidatesToCloud(previewParsedData.examId, toSave);
-                }
                 showToast(`Sukses! ${previewParsedData.summary.updatedCount} peserta dilengkapi & ${previewParsedData.summary.newCount} peserta baru berhasil disimpan.`, "success");
             } else {
                 showToast(`Tidak ada perubahan data. Seluruh peserta sudah lengkap.`, "info");
@@ -2258,9 +2271,6 @@ window.savePreviewDataToDatabase = async () => {
             // Update gabungan jadwal: ganti seluruh dataset instansi dengan dataset yang sudah di-merge
             await db.deleteCandidatesByExam(previewParsedData.examId);
             const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
-            if (isCloudActive()) {
-                await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
-            }
             showToast(`Sukses! Jadwal ${count} peserta berhasil diperbarui (Nama & Jabatan sistem tetap terlindungi).`, "success");
         } else if (previewParsedData.isOnlyNewParticipants) {
             // Simpan HANYA peserta baru yang belum ada di database!
@@ -2275,9 +2285,6 @@ window.savePreviewDataToDatabase = async () => {
             }
 
             const count = await db.bulkAddCandidates(previewParsedData.examId, candidatesToAdd);
-            if (isCloudActive()) {
-                await bulkAddCandidatesToCloud(previewParsedData.examId, candidatesToAdd);
-            }
             showToast(`Sukses! ${count} peserta baru berhasil ditambahkan ke dalam database. Data lama tetap aman.`, "success");
         } else {
             // Hapus data lama yang digantikan jika ada dari resolusi duplikasi
@@ -2286,9 +2293,6 @@ window.savePreviewDataToDatabase = async () => {
             }
 
             const count = await db.bulkAddCandidates(previewParsedData.examId, previewParsedData.candidates);
-            if (isCloudActive()) {
-                await bulkAddCandidatesToCloud(previewParsedData.examId, previewParsedData.candidates);
-            }
             showToast(`Sukses! ${count} peserta berhasil disimpan ke dalam database.`, "success");
         }
 
@@ -2603,19 +2607,24 @@ window.executeShuffleSchedule = async () => {
         if (Number(currentExam.quotaPerSession) !== quotaPerSession) {
             currentExam.quotaPerSession = quotaPerSession;
             await db.updateExam(currentExam);
-            if (isCloudActive()) {
-                await saveExamToCloud(currentExam);
-            }
         }
 
-        // 7. Simpan seluruh kandidat yang telah diacak ke Realtime Database
-        await db.bulkAddCandidates(currentExam.id, currentCandidates);
-        if (isCloudActive()) {
-            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
-        }
+        // 7. Siapkan delta multi-path updates untuk cloud
+        const nowIso = new Date().toISOString();
+        const updates = {};
+        currentCandidates.forEach(c => {
+            const key = String(c.nip || '').trim().replace(/[.#$[\]/]/g, '_');
+            c.updatedAt = nowIso;
+            updates[`candidates/${currentExam.id}/${key}/pelaksanaan`] = c.pelaksanaan || 'NULL';
+            updates[`candidates/${currentExam.id}/${key}/sesi`] = Number(c.sesi) || 0;
+            updates[`candidates/${currentExam.id}/${key}/waktu`] = c.waktu || 'NULL';
+            updates[`candidates/${currentExam.id}/${key}/isFriday`] = Boolean(c.isFriday);
+            updates[`candidates/${currentExam.id}/${key}/status`] = c.status || 'Belum Terjadwal';
+            updates[`candidates/${currentExam.id}/${key}/updatedAt`] = nowIso;
+        });
 
-        // 8. Refresh data ujian aktif & UI
-        await setActiveExam(currentExam.id);
+        // 8. Refresh tampilan instan (In-Memory, Ultra Fast tanpa download ulang)
+        refreshCandidateViews({ refreshFilters: true });
         window.closeModalShuffleSchedule();
 
         // 9. Otomatis pindah ke tab Jadwal & Peserta (Daftar Peserta) setelah pengacakan berhasil
@@ -2628,6 +2637,14 @@ window.executeShuffleSchedule = async () => {
             ? ` (${totalUnplaced} peserta tidak kebagian kursi dan ditetapkan pada Sesi 00 / Belum Terjadwal)` 
             : '';
         showToast(`Sukses! Jadwal ${currentCandidates.length} peserta berhasil diacak merata (Peserta Hadir terlindungi 100%).${unplacedMsg}`, "success");
+
+        // 10. Sinkronisasi multi-path ke Realtime Database secara paralel di latar belakang
+        if (isCloudActive() && Object.keys(updates).length > 0) {
+            bulkUpdatePathsInCloud(updates).catch(err => {
+                console.error("Gagal sinkronisasi hasil acak ke cloud:", err);
+                showToast("Peringatan: Gagal menyinkronkan sebagian jadwal ke server cloud.", "warning");
+            });
+        }
 
     } catch (err) {
         console.error("Gagal mengacak jadwal:", err);
@@ -2714,26 +2731,35 @@ window.executeResetShuffleSchedule = async () => {
 
     try {
         let resetCount = 0;
+        const nowIso = new Date().toISOString();
+        const updates = {};
         currentCandidates.forEach(c => {
             // Aturan Keras: HANYA ubah jika belum presensi!
             // Peserta HADIR dan TIDAK_HADIR dilarang keras diubah.
             if (c.kehadiran !== 'HADIR' && c.kehadiran !== 'TIDAK_HADIR') {
+                const hadSchedule = c.sesi !== '00' && c.sesi !== 0 && c.pelaksanaan !== 'NULL';
                 c.pelaksanaan = 'NULL';
                 c.sesi = '00';
                 c.waktu = 'NULL';
                 c.isFriday = false;
                 c.status = 'Belum Terjadwal';
+                c.updatedAt = nowIso;
                 resetCount++;
+
+                if (hadSchedule) {
+                    const key = String(c.nip || '').trim().replace(/[.#$[\]/]/g, '_');
+                    updates[`candidates/${currentExam.id}/${key}/pelaksanaan`] = 'NULL';
+                    updates[`candidates/${currentExam.id}/${key}/sesi`] = '00';
+                    updates[`candidates/${currentExam.id}/${key}/waktu`] = 'NULL';
+                    updates[`candidates/${currentExam.id}/${key}/isFriday`] = false;
+                    updates[`candidates/${currentExam.id}/${key}/status`] = 'Belum Terjadwal';
+                    updates[`candidates/${currentExam.id}/${key}/updatedAt`] = nowIso;
+                }
             }
         });
 
-        // Simpan ke database
-        await db.bulkAddCandidates(currentExam.id, currentCandidates);
-        if (isCloudActive()) {
-            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
-        }
-
-        await setActiveExam(currentExam.id);
+        // Refresh tampilan instan (In-Memory, Ultra Fast tanpa download ulang)
+        refreshCandidateViews({ refreshFilters: true });
         window.closeModalConfirmResetShuffle();
 
         // Otomatis pindah ke tab Jadwal & Peserta (Daftar Peserta) setelah reset berhasil
@@ -2742,6 +2768,14 @@ window.executeResetShuffleSchedule = async () => {
         }
 
         showToast(`Sukses! ${resetCount} peserta dikembalikan ke Sesi 00 (Belum Terjadwal). Peserta Hadir & Tidak Hadir tetap terlindungi.`, "success");
+
+        // Simpan ke cloud di latar belakang secara paralel & cepat
+        if (isCloudActive() && Object.keys(updates).length > 0) {
+            bulkUpdatePathsInCloud(updates).catch(err => {
+                console.error("Gagal sinkronisasi reset jadwal ke cloud:", err);
+                showToast("Peringatan: Gagal menyinkronkan sebagian jadwal ke server cloud.", "warning");
+            });
+        }
 
     } catch (err) {
         console.error("Gagal reset acak jadwal:", err);
@@ -2834,6 +2868,7 @@ window.executeResetKetidakhadiran = async () => {
         const includeHadir = Boolean(document.getElementById('checkIncludeHadirInReset')?.checked);
         let resetCount = 0;
         const nowIso = new Date().toISOString();
+        const updates = {};
 
         currentCandidates.forEach(c => {
             let shouldReset = false;
@@ -2856,22 +2891,24 @@ window.executeResetKetidakhadiran = async () => {
                 c.selesaiTime = null;
                 c.updatedAt = nowIso;
                 resetCount++;
+
+                const key = String(c.nip || '').trim().replace(/[.#$[\]/]/g, '_');
+                updates[`candidates/${currentExam.id}/${key}/kehadiran`] = null;
+                updates[`candidates/${currentExam.id}/${key}/attendanceTimestamp`] = null;
+                updates[`candidates/${currentExam.id}/${key}/loginTime`] = null;
+                updates[`candidates/${currentExam.id}/${key}/selesaiTime`] = null;
+                updates[`candidates/${currentExam.id}/${key}/updatedAt`] = nowIso;
             }
         });
 
         if (resetCount === 0) {
-            showToast("Tidak ada peserta berstatus Tidak Hadir yang perlu direset.", "info");
+            showToast("Tidak ada peserta yang perlu direset.", "info");
             window.closeModalConfirmResetKetidakhadiran();
             return;
         }
 
-        // Simpan ke database IndexedDB & Realtime Database Cloud
-        await db.bulkAddCandidates(currentExam.id, currentCandidates);
-        if (isCloudActive()) {
-            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
-        }
-
-        await setActiveExam(currentExam.id);
+        // Refresh tampilan instan (In-Memory, Ultra Fast tanpa download ulang)
+        refreshCandidateViews({ refreshFilters: false });
         window.closeModalConfirmResetKetidakhadiran();
 
         // Pindah otomatis ke tab Daftar Peserta agar user langsung melihat hasilnya
@@ -2883,6 +2920,14 @@ window.executeResetKetidakhadiran = async () => {
             ? `seluruh ${resetCount} peserta (termasuk Hadir & Tidak Hadir)`
             : `${resetCount} peserta Tidak Hadir`;
         showToast(`Sukses! Status ${scopeText} berhasil direset kembali ke Belum Presensi.`, "success");
+
+        // Simpan ke cloud di latar belakang secara paralel & cepat
+        if (isCloudActive() && Object.keys(updates).length > 0) {
+            bulkUpdatePathsInCloud(updates).catch(err => {
+                console.error("Gagal sinkronisasi reset ketidakhadiran ke cloud:", err);
+                showToast("Peringatan: Gagal menyinkronkan status presensi ke server cloud.", "warning");
+            });
+        }
 
     } catch (err) {
         console.error("Gagal reset ketidakhadiran:", err);
@@ -2917,6 +2962,7 @@ window.executeMarkAllAbsent = async () => {
     try {
         let absentCount = 0;
         const nowIso = new Date().toISOString();
+        const updates = {};
 
         currentCandidates.forEach(c => {
             // Aturan Keras: HANYA ubah peserta yang BELUM presensi!
@@ -2927,6 +2973,11 @@ window.executeMarkAllAbsent = async () => {
                 c.attendanceTimestamp = nowIso;
                 c.updatedAt = nowIso;
                 absentCount++;
+
+                const key = String(c.nip || '').trim().replace(/[.#$[\]/]/g, '_');
+                updates[`candidates/${currentExam.id}/${key}/kehadiran`] = 'TIDAK_HADIR';
+                updates[`candidates/${currentExam.id}/${key}/attendanceTimestamp`] = nowIso;
+                updates[`candidates/${currentExam.id}/${key}/updatedAt`] = nowIso;
             }
         });
 
@@ -2936,13 +2987,8 @@ window.executeMarkAllAbsent = async () => {
             return;
         }
 
-        // Simpan ke IndexedDB lokal dan Cloud Firebase Realtime Database
-        await db.bulkAddCandidates(currentExam.id, currentCandidates);
-        if (isCloudActive()) {
-            await bulkAddCandidatesToCloud(currentExam.id, currentCandidates);
-        }
-
-        await setActiveExam(currentExam.id);
+        // Refresh tampilan instan (In-Memory, Ultra Fast tanpa download ulang)
+        refreshCandidateViews({ refreshFilters: false });
         window.closeModalConfirmResetKetidakhadiran();
 
         // Pindah otomatis ke tab Daftar Peserta agar user langsung melihat hasilnya
@@ -2951,6 +2997,14 @@ window.executeMarkAllAbsent = async () => {
         }
 
         showToast(`Sukses! ${absentCount} peserta yang belum presensi berhasil ditandai sebagai Tidak Hadir (Peserta Hadir terlindungi 100%).`, "success");
+
+        // Simpan ke cloud di latar belakang secara paralel & cepat
+        if (isCloudActive() && Object.keys(updates).length > 0) {
+            bulkUpdatePathsInCloud(updates).catch(err => {
+                console.error("Gagal sinkronisasi bulk tanda tidak hadir ke cloud:", err);
+                showToast("Peringatan: Gagal menyinkronkan status presensi ke server cloud.", "warning");
+            });
+        }
 
     } catch (err) {
         console.error("Gagal menandai semua tidak hadir:", err);
