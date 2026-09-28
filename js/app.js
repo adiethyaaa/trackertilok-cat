@@ -5393,7 +5393,8 @@ window.exportCurrentCandidates = () => {
         showToast("Tidak ada data peserta untuk diekspor!", "warning");
         return;
     }
-    exportCandidatesToExcel(currentExam.instansi, filteredCandidates);
+    const sortedDates = getSortedExamDates();
+    exportCandidatesToExcel(currentExam.instansi, filteredCandidates, sortedDates);
     showToast("File Excel berhasil di-generate!", "success");
 };
 

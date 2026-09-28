@@ -5,7 +5,7 @@
  * dan deteksi duplikasi NIP (internal file Excel maupun terhadap database eksisting).
  */
 
-import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay } from './sessionRules.js';
+import { parseFlexibleDate, isFriday, getSessionTime, formatDateDisplay, calculateCumulativeSessionNumber } from './sessionRules.js';
 
 // Header acuan standar sesuai instruksi user
 export const REQUIRED_COLUMNS = [
@@ -615,26 +615,30 @@ export function downloadExcelTemplate() {
 /**
  * Export data peserta ujian ke file Excel dengan menyertakan Kel Jabatan
  */
-export function exportCandidatesToExcel(examInstansi, candidateList) {
+export function exportCandidatesToExcel(examInstansi, candidateList, sortedDates = []) {
     if (typeof XLSX === 'undefined') {
         alert("Library Excel belum selesai dimuat.");
         return;
     }
 
-    const headers = ["No", "NIP", "NAMA", "KEL JABATAN", "UNIT KERJA", "JABATAN", "WAKTU", "PELAKSANAAN", "SESI", "KETERANGAN"];
+    const headers = ["No", "NIP", "NAMA", "KEL JABATAN", "UNIT KERJA", "JABATAN", "WAKTU", "PELAKSANAAN", "SESI", "Sesi Akumulasi", "KETERANGAN"];
     
-    const rows = candidateList.map((c, index) => [
-        index + 1,
-        `'${c.nip}`,
-        c.nama,
-        c.kelJabatan || '-',
-        c.unitKerja || '-',
-        c.jabatan || '-',
-        c.waktu,
-        c.pelaksanaan,
-        c.sesi,
-        c.isFriday && c.sesi === 2 ? 'Khusus Jumat (13.00-16.00)' : (c.sesi === 'NULL' ? 'Belum Terjadwal' : 'Reguler')
-    ]);
+    const rows = candidateList.map((c, index) => {
+        const cumNum = calculateCumulativeSessionNumber(c, sortedDates);
+        return [
+            index + 1,
+            `'${c.nip}`,
+            c.nama,
+            c.kelJabatan || '-',
+            c.unitKerja || '-',
+            c.jabatan || '-',
+            c.waktu,
+            c.pelaksanaan,
+            c.sesi,
+            cumNum !== null && cumNum !== undefined && !isNaN(cumNum) ? cumNum : '-',
+            c.isFriday && c.sesi === 2 ? 'Khusus Jumat (13.00-16.00)' : (c.sesi === 'NULL' ? 'Belum Terjadwal' : 'Reguler')
+        ];
+    });
 
     const wsData = [headers, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -649,6 +653,7 @@ export function exportCandidatesToExcel(examInstansi, candidateList) {
         { wch: 22 },
         { wch: 16 },
         { wch: 8 },
+        { wch: 16 },
         { wch: 28 }
     ];
 
