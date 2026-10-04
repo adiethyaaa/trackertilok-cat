@@ -1,0 +1,37 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "exams": {
+      ".read": true,
+      ".indexOn": ["createdAt", "instansi"],
+      "$examId": {
+        ".write": true,
+        ".validate": "!newData.exists() || (newData.hasChildren(['id', 'instansi']) && newData.child('id').isString() && newData.child('instansi').isString())"
+      }
+    },
+
+    "candidates": {
+      "$examId": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["nip", "sesi", "pelaksanaan", "kehadiran"],
+        "$candidateKey": {
+          ".validate": "!newData.exists() || (newData.hasChildren(['nip', 'nama']) && newData.child('nip').isString() && newData.child('nama').isString())"
+        }
+      }
+    },
+
+    "master_instansi": {
+      ".read": true,
+      ".write": true
+    },
+
+    "security": {
+      ".read": true,
+      ".write": true,
+      ".validate": "!newData.exists() || (newData.hasChildren(['adminPin', 'superAdminPin']))"
+    }
+  }
+}
